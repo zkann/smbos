@@ -67,6 +67,15 @@
   .dbody code{background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:13px}
   .slot{background:var(--slot-bg);color:var(--draft-ink);border-radius:5px;padding:1px 5px}
   .approval{background:var(--active-bg);color:var(--active-ink);border-radius:5px;padding:1px 6px;font-weight:600;font-size:12px}
+  .suggest{margin:20px 0 4px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+  .suggest .slabel{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px}
+  .suggest textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit;font-size:14px;resize:vertical;background:var(--card)}
+  .suggest .row{display:flex;gap:12px;align-items:center;margin-top:8px;flex-wrap:wrap}
+  .suggest button{border:none;background:var(--ink);color:#fff;border-radius:8px;padding:7px 14px;font-size:13.5px;cursor:pointer}
+  .suggest button:hover{opacity:.85}
+  .suggest .sstatus{font-size:13px;color:var(--trusted-ink)}
+  .suggest .sstatus.err{color:var(--warn)}
+  .suggest .hint{margin-top:8px;font-size:12.5px;color:var(--muted)}
   .howto{margin:34px 32px 0;max-width:1180px;border-top:1px solid var(--line);padding:18px 0 30px;color:var(--muted);font-size:13.5px}
   .howto code{background:var(--card);border:1px solid var(--line);border-radius:5px;padding:1px 6px}
   .empty{color:var(--muted);padding:40px 0;font-size:14px}
@@ -84,14 +93,16 @@
 </div>
 <div id="attention"></div>
 <main id="main"></main>
-<div class="howto">
+<div class="howto" id="howto">
   To change anything here, tell Claude in plain words: "run the invoice SOP", "update the newsletter SOP, send time is now 9am", "save what we just did as an SOP".
-  Every change is proposed as a diff and applied only when you approve it. This page is a snapshot; it does not edit your files.
+  Every change is proposed as a diff and applied only when you approve it. <span id="modeNote"></span>
 </div>
 <dialog id="dlg"><div class="dhead"><h3 id="dtitle"></h3><button onclick="dlg.close()">Close</button></div><div class="dbody" id="dbody"></div></dialog>
 <script id="sop-data" type="application/json">__SOPS_JSON__</script>
+<script id="cfg" type="application/json">__CFG_JSON__</script>
 <script>
 const GENERATED="__GENERATED__";
+const CFG=JSON.parse(document.getElementById('cfg').textContent||'{"live":false}');
 const DATA=JSON.parse(document.getElementById('sop-data').textContent);
 const dlg=document.getElementById('dlg');
 
@@ -185,8 +196,47 @@ function openDetail(s){
     +'<span class="pill">'+esc(m.clean_runs||'0')+' clean in a row</span>'
     +'<span class="pill">last used '+esc(m.last_used||'never')+'</span>'
     +'<span class="pill">'+esc(s.path)+'</span></div>'
+    +suggestBox(s)
     +mdToHtml(s.body);
+  const btn=document.getElementById('sgbtn');
+  if(btn)btn.onclick=()=>submitSuggestion(s);
   dlg.showModal();
+}
+function suggestBox(s){
+  if(s.archived)return '';
+  return '<div class="suggest"><div class="slabel">Suggest a change</div>'
+    +'<textarea id="sgtext" rows="2" placeholder="e.g. Payment terms are net 15 now, not net 30"></textarea>'
+    +'<div class="row"><button id="sgbtn">'+(CFG.live?'Save suggestion':'Copy for Claude')+'</button>'
+    +'<span class="sstatus" id="sgstatus"></span></div>'
+    +'<div class="hint">'+(CFG.live
+      ?'Saves into this SOP’s "Notes for next revision". Next session, Claude offers to turn it into an edit you approve.'
+      :'Copies a ready-made request. Paste it into Claude Code and the change goes through the normal approve flow.')+'</div></div>';
+}
+async function copyText(t){
+  try{await navigator.clipboard.writeText(t);return true;}
+  catch(e){
+    const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);
+    ta.select();let ok=false;try{ok=document.execCommand('copy');}catch(_){/* no-op */}
+    ta.remove();return ok;
+  }
+}
+async function submitSuggestion(s){
+  const ta=document.getElementById('sgtext'),st=document.getElementById('sgstatus');
+  const text=ta.value.trim();
+  if(!text){st.className='sstatus err';st.textContent='Type the change first.';return;}
+  if(CFG.live){
+    try{
+      const r=await fetch('/api/suggest',{method:'POST',
+        headers:{'Content-Type':'application/json','X-Token':CFG.token},
+        body:JSON.stringify({path:s.path,text:text})});
+      if(r.ok){st.className='sstatus';st.textContent='Saved to this SOP’s notes.';ta.value='';}
+      else{st.className='sstatus err';st.textContent='Could not save ('+r.status+').';}
+    }catch(e){st.className='sstatus err';st.textContent='Could not reach the dashboard server. Is it still running?';}
+  }else{
+    const msg='Update the "'+s.title+'" SOP ('+s.path+'): '+text;
+    if(await copyText(msg)){st.className='sstatus';st.textContent='Copied. Paste it into Claude Code.';}
+    else{st.className='sstatus err';st.textContent='Copy failed; select and copy the text yourself: '+msg;}
+  }
 }
 function summary(){
   const live=sops.filter(s=>!s.archived);
@@ -207,6 +257,9 @@ function summary(){
 }
 document.getElementById('q').addEventListener('input',render);
 document.getElementById('showArchived').addEventListener('change',render);
+document.getElementById('modeNote').textContent=CFG.live
+  ?'Live mode: this page re-reads your files on refresh, and saved suggestions land in the SOP itself.'
+  :'This page is a snapshot; the suggestion box copies requests for Claude rather than editing files.';
 summary();render();
 </script>
 </body>

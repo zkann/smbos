@@ -4,6 +4,7 @@
 Usage: generate_dashboard.py [sop_dir]
 SOP directory resolution: argv[1] > $SOP_DIR > ./sops > ~/sops
 Writes <sop_dir>/dashboard.html and prints its path. No network, stdlib only.
+For the interactive live mode, see serve_dashboard.py.
 """
 import json
 import os
@@ -42,6 +43,18 @@ def collect(sop_dir):
     return files
 
 
+def build_html(sop_dir, cfg=None):
+    template = Path(__file__).resolve().parent.parent / "assets" / "dashboard-template.html"
+    html = template.read_text(encoding="utf-8")
+    data = json.dumps(collect(sop_dir)).replace("</", "<\\/")
+    cfg_json = json.dumps(cfg or {"live": False}).replace("</", "<\\/")
+    html = html.replace("__SOPS_JSON__", data)
+    html = html.replace("__CFG_JSON__", cfg_json)
+    html = html.replace("__GENERATED__", datetime.now(timezone.utc).isoformat())
+    html = html.replace("__SOP_DIR__", str(sop_dir))
+    return html
+
+
 def ensure_gitignore(sop_dir):
     gi = sop_dir / ".gitignore"
     line = "dashboard.html"
@@ -55,14 +68,8 @@ def ensure_gitignore(sop_dir):
 
 def main():
     sop_dir = resolve_sop_dir()
-    template = Path(__file__).resolve().parent.parent / "assets" / "dashboard-template.html"
-    html = template.read_text(encoding="utf-8")
-    data = json.dumps(collect(sop_dir)).replace("</", "<\\/")
-    html = html.replace("__SOPS_JSON__", data)
-    html = html.replace("__GENERATED__", datetime.now(timezone.utc).isoformat())
-    html = html.replace("__SOP_DIR__", str(sop_dir))
     out = sop_dir / "dashboard.html"
-    out.write_text(html, encoding="utf-8")
+    out.write_text(build_html(sop_dir), encoding="utf-8")
     if (sop_dir / ".git").exists():
         ensure_gitignore(sop_dir)
     print(out)

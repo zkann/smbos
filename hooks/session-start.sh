@@ -54,6 +54,14 @@ EOF
 else
   echo "CAPTURE (steady state): after completing a multi-step task that is likely to recur and has NO matching SOP, offer once per session to save it via the /sop-new flow."
 fi
+pending=0
+if [ -n "$sop_files" ]; then
+  pending=$(printf '%s\n' "$sop_files" | xargs grep -h 'via dashboard' 2>/dev/null | grep -c .)
+fi
+if [ "$pending" -gt 0 ]; then
+  echo ""
+  echo "PENDING DASHBOARD SUGGESTIONS: $pending note(s) tagged 'via dashboard' are waiting in 'Notes for next revision' sections. Early in this session, offer to review them and fold them into SOP edits through the normal diff/approval flow (remove each note once folded in)."
+fi
 echo ""
 echo "### SOP index"
 if [ -f "$dir/INDEX.md" ]; then

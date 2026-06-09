@@ -1,10 +1,22 @@
 ---
-description: Generate and open a visual dashboard of the SOP library
+description: Open a visual dashboard of the SOP library (add --live for in-browser suggestions)
+argument-hint: "[--live]"
 ---
 
 Generate the visual dashboard and open it in the user's browser.
 
-## 1. Generate
+Two modes. Default is a static snapshot. Use live mode when `$ARGUMENTS` contains `--live` or the user wants to leave suggestions from the browser, keep the page current, or says "live".
+
+## Live mode
+
+1. Run the server in the background: `python3 <plugin-root>/scripts/serve_dashboard.py` (pass the SOP directory as an argument if standard resolution would pick the wrong one). It binds 127.0.0.1 on a random port with a per-run token.
+2. Read the URL it prints (`http://127.0.0.1:<port>/?t=<token>`) and open it in the browser.
+3. Tell the user, briefly: the page re-reads their files on refresh; the "Suggest a change" box on any SOP saves straight into that SOP's "Notes for next revision" (tagged "via dashboard"), and Claude will offer to turn pending suggestions into real edits at the start of the next session; say "stop the dashboard" to shut the server down.
+4. When asked to stop, kill the background process.
+
+## Static mode
+
+### 1. Generate
 
 The generator script ships with the plugin at `scripts/generate_dashboard.py` (the plugin root is the parent of the "Starter library:" path announced at session start; if unknown, locate it with `find ~/.claude/plugins -path '*smbos*' -name 'generate_dashboard.py' 2>/dev/null | head -1`).
 
@@ -18,10 +30,10 @@ It resolves the SOP directory the standard way (`$SOP_DIR` > `./sops` > `~/sops`
 
 If python3 is not available, do the generation yourself: read `assets/dashboard-template.html` from the plugin, build the JSON array of `{path, content}` objects for every SOP file (skip `INDEX.md` and `_template.md`, include `archive/`), and substitute the `__SOPS_JSON__`, `__GENERATED__` (current UTC ISO timestamp), and `__SOP_DIR__` placeholders.
 
-## 2. Open
+### 2. Open
 
 Open the printed path in the default browser: `open <path>` on macOS, `xdg-open <path>` on Linux. If neither works, tell the user the file path to open manually.
 
-## 3. Explain (first time only)
+### 3. Explain (first time only)
 
-If this is the user's first dashboard, one or two sentences: it is a read-only snapshot (regenerate any time with /sop-dashboard or by asking "show me my SOP dashboard"); to change anything on it, just say so in plain words and the change goes through the normal propose/approve flow. Everything stays on their machine; the page makes no network requests.
+If this is the user's first dashboard, one or two sentences: it is a snapshot (regenerate any time with /sop-dashboard or by asking "show me my SOP dashboard"); the "Suggest a change" box copies a ready-made request to paste back into Claude Code, and changes go through the normal propose/approve flow. Everything stays on their machine; the page makes no network requests. Mention `--live` exists if they want suggestions saved directly.
