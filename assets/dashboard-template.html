@@ -66,6 +66,9 @@
   .dbody p{margin:8px 0}
   .dbody code{background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:13px}
   .slot{background:var(--slot-bg);color:var(--draft-ink);border-radius:5px;padding:1px 5px}
+  .sopref{color:var(--active-ink);background:var(--active-bg);border-radius:5px;padding:1px 6px;cursor:pointer;text-decoration:none}
+  .sopref.missing{color:var(--warn);background:var(--slot-bg);border:1px dashed var(--warn);cursor:default}
+  .relpill{cursor:pointer;border-color:#c5d4f5 !important}
   .approval{background:var(--active-bg);color:var(--active-ink);border-radius:5px;padding:1px 6px;font-weight:600;font-size:12px}
   .suggest{margin:20px 0 4px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
   .suggest .slabel{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px}
@@ -116,8 +119,15 @@ function parseSop(raw){
   return {meta, body};
 }
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function sopById(id){return sops.find(x=>(x.meta.id||'')===id);}
+function refLink(id){
+  const t=sopById(id);
+  return t?'<a class="sopref" data-id="'+esc(id)+'">'+esc(t.title)+'</a>'
+          :'<span class="sopref missing">'+esc(id)+' (missing)</span>';
+}
 function inline(s){
   return esc(s)
+    .replace(/\[\[sop:([a-zA-Z0-9_-]+)\]\]/g,(m,id)=>refLink(id))
     .replace(/\[personalize:([^\]]*)\]/g,'<span class="slot">personalize:$1</span>')
     .replace(/\*\*\[APPROVAL\]\*\*/g,'<span class="approval">APPROVAL</span>')
     .replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>')
@@ -195,12 +205,18 @@ function openDetail(s){
     +'<span class="pill">v'+esc(m.version||'1')+'</span><span class="pill">'+esc(m.runs||'0')+' runs</span>'
     +'<span class="pill">'+esc(m.clean_runs||'0')+' clean in a row</span>'
     +'<span class="pill">last used '+esc(m.last_used||'never')+'</span>'
-    +'<span class="pill">'+esc(s.path)+'</span></div>'
+    +'<span class="pill">'+esc(s.path)+'</span>'
+    +rels('needs',m.needs)+rels('next',m.next)+'</div>'
     +suggestBox(s)
     +mdToHtml(s.body);
   const btn=document.getElementById('sgbtn');
   if(btn)btn.onclick=()=>submitSuggestion(s);
   dlg.showModal();
+}
+function rels(label,val){
+  if(!val)return '';
+  return val.split(',').map(x=>x.trim()).filter(Boolean)
+    .map(id=>'<span class="pill relpill">'+label+': '+refLink(id)+'</span>').join('');
 }
 function suggestBox(s){
   if(s.archived)return '';
@@ -257,6 +273,10 @@ function summary(){
 }
 document.getElementById('q').addEventListener('input',render);
 document.getElementById('showArchived').addEventListener('change',render);
+document.getElementById('dbody').addEventListener('click',e=>{
+  const a=e.target.closest('a.sopref');if(!a)return;
+  const t=sopById(a.dataset.id);if(t)openDetail(t);
+});
 document.getElementById('modeNote').textContent=CFG.live
   ?'Live mode: this page re-reads your files on refresh, and saved suggestions land in the SOP itself.'
   :'This page is a snapshot; the suggestion box copies requests for Claude rather than editing files.';
