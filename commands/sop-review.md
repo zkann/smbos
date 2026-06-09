@@ -20,6 +20,7 @@ Read every SOP in full, including archived ones (skim those). This review needs 
 - **Missing**: recurring tasks visible in this conversation or in Notes sections that have no SOP. Candidate for /sop-new.
 - **Broken composition**: `[[sop:id]]` references, `needs:`, or `next:` entries pointing at SOPs that do not exist (or were archived), and reference chains that loop. Fix the link or restore the target.
 - **Duplicated steps**: the same step block appearing in two or more SOPs (the informal version of a sub-SOP). Candidate for extracting one SOP and replacing the duplicates with `[[sop:id]]` references.
+- **Context problems**: overlays whose `extends:` target no longer exists; near-duplicate SOPs across home and project layers that should be base + overlay; variants whose stated conditions can never both be told apart; variant sections that have drifted identical (merge them back into the base).
 
 ## 3. Report
 

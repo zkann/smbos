@@ -35,6 +35,7 @@ category: ops
 triggers: phrase one, phrase two
 # needs: upstream-sop-id (optional; this SOP consumes that one's output)
 # next: follow-on-sop-id (optional; what typically runs after)
+# extends: home-sop-id (optional; only in project ./sops overlays: delta sections over the home SOP)
 version: 1
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
@@ -79,6 +80,8 @@ Status lifecycle (record this in how you explain the system): `draft` = unverifi
 SOPs live in category subdirectories (e.g. `finance/send-invoice.md`). Create category directories on demand, not up front.
 
 SOPs compose: a step can execute another SOP inline with `[[sop:that-id]]`; frontmatter `needs:` names upstream SOPs whose output this one consumes; `next:` names typical successors. Prefer chains of small SOPs over one monolith.
+
+SOPs adapt to context two ways. Small per-stack differences live in an optional `## Variants` section inside one SOP, each variant naming a detectable condition ("TypeScript projects (package.json present)"). Whole-project personalities live as overlays: a project's `./sops/<category>/<same-id>.md` with `extends: <home-id>` containing only the sections that differ; overlay sections replace the base's, except My way, which appends. The home library (`~/sops`) and a project's `./sops` are active together, project shadowing home by id.
 
 ## 3. Version history
 

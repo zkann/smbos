@@ -8,11 +8,11 @@ Resolve the SOP directory: `$SOP_DIR` if set, else `./sops` if it exists, else `
 
 ## 1. Read state from disk, not just the index
 
-List the actual `.md` files in the SOP directory (excluding `INDEX.md`, `_template.md`, and `archive/`), and read each file's frontmatter.
+List the actual `.md` files in every active library (home and project layer, excluding `INDEX.md`, `_template.md`, and `archive/`), and read each file's frontmatter.
 
 ## 2. Present
 
-Group by category. For each SOP show: title, status (draft / active / trusted), version, runs, last_used, and a flag where useful:
+Group by category (project-layer SOPs grouped separately and labeled). For each SOP show: title, status (draft / active / trusted), version, runs, last_used, plus "variants" if it has a Variants section and "overlay of <id>" if it extends a home SOP, and a flag where useful:
 
 - **unverified draft**: status draft and created more than 30 days ago without ever running; suggest running it or archiving it
 - **stale**: last_used more than 90 days ago, or never used and created more than 30 days ago
