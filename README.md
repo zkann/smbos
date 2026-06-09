@@ -1,0 +1,88 @@
+# SmbOS
+
+An operating system for your small business, built on Claude Code.
+
+The first module is an SOP manager. It turns the way YOU do recurring tasks into living documents that your AI follows, instead of doing everything its own default way.
+
+## The problem
+
+If you run a small business, you wear many hats: invoicing, content, client onboarding, weekly reporting, vendor wrangling. AI assistants can do most of these tasks, but they do them their way. You correct the same things every time: the tone, the format, the step you always do first, the thing you never send without reviewing. Those corrections evaporate when the session ends.
+
+SmbOS makes the corrections permanent. Each recurring task gets a Standard Operating Procedure: a plain markdown file that records the steps, your preferences, and the places where you want to approve before anything goes out. Claude reads the SOP before doing the task, follows it, and proposes updates when reality disagrees with the document.
+
+## How it works
+
+**Start warm, not cold.** You don't begin with an empty library. `/sop-init` asks what kind of business you run and installs a starter pack: pre-built draft SOPs for the usual suspects (invoicing, lead follow-up, client onboarding, weekly numbers, support replies). `/sop-import` converts process docs you already have (Notion pages, checklists, an old handbook), interviews you ("explain it like you're training a new hire"), or mines your past Claude Code sessions for tasks you've done repeatedly. Until the library has five active SOPs, Claude is in bootstrap mode: it offers to capture an SOP after every repeatable task and names the gaps it notices ("second invoice this week, no SOP").
+
+**Capture.** Do a task once with Claude, correcting as you go. Then `/sop-new` distills the conversation, corrections included, into an SOP. You approve it; it gets saved and indexed. Claude will also offer to capture an SOP on its own after it completes a repeatable task that has no SOP yet.
+
+**Earn trust.** Every SOP has a maturity status. `draft` means unverified: starter-pack and imported SOPs begin here, with `[personalize]` slots Claude fills in by asking you on the first real run. One completed run makes it `active`. Three clean runs in a row (no corrections, no deviations) make it `trusted`. Any edit sends it back to active to re-earn trust. Drafts are cheap on purpose; the run loop is what hardens them.
+
+**Match.** Every session starts with the SOP index loaded into context (via a SessionStart hook). When you ask for something that matches an SOP's trigger phrases, Claude reads the full SOP and follows it. You can also invoke one explicitly with `/sop-run`.
+
+**Run.** Claude works the steps in order, defers to the "My way" section over its own defaults, and stops at every step marked **[APPROVAL]**. It tells you which SOP and version it is running, so nothing is hidden.
+
+**Learn.** After each run, Claude updates usage metadata and, if anything deviated (a step skipped, a correction you made, a tool that misbehaved), proposes a specific edit as a before/after diff. Nothing changes without your approval. Every change bumps the version and gets a dated changelog line. Implicit signals count too: re-asking in different words, editing the output afterward, skipping a step. Those become trigger improvements and "My way" entries.
+
+**Organize.** `/sop-list` shows the library with health flags. `/sop-review` is the monthly audit: stale SOPs whose triggers never fire, drifted SOPs that need a rewrite, overlapping SOPs to merge, and recurring tasks that still have no SOP.
+
+## Principles
+
+- **Plain markdown.** SOPs are files you can open, edit, and grep. No database, no server, no lock-in. Edit one by hand and the system picks it up.
+- **Diffs, not magic.** The AI never silently rewrites your procedures. Every change is proposed, approved, versioned, and logged.
+- **Your way wins.** An SOP's "My way" section overrides the AI's defaults even when the AI disagrees. If it thinks a rule is wrong, it says so and asks.
+- **Git-friendly.** The SOP directory can be a git repo, so the full history of how your operations evolved is one `git log` away.
+- **Archive, never delete.** Retired SOPs move to `archive/`. Your operational history is part of the product.
+
+## Install
+
+```
+/plugin marketplace add zkann/smbos        # or a local path to this repo
+/plugin install smbos@smbos
+```
+
+Then in any Claude Code session:
+
+```
+/sop-init
+```
+
+This creates your SOP directory (default `~/sops`, since business workflows follow you across projects; override with the `SOP_DIR` environment variable or a `./sops` directory in a workspace).
+
+## Commands
+
+You don't need to memorize these. The session protocol handles matching, capturing, and updating conversationally; "save this as an SOP" and "show me my SOPs" work fine. The commands are shortcuts.
+
+| Command | What it does |
+|---|---|
+| `/sop-init` | Create the SOP directory and seed a starter pack for your business type |
+| `/sop-new` | Capture a task as a new SOP, from the current conversation or a description |
+| `/sop-import` | Convert existing docs, a brain-dump interview, or past session history into draft SOPs |
+| `/sop-run <name>` | Execute a task by its SOP, with approval gates and deviation tracking |
+| `/sop-update <name>` | Apply feedback to an SOP as a reviewed diff |
+| `/sop-list` | Show the library with status, usage, and health flags |
+| `/sop-review` | Monthly audit: stale, drifted, overlapping, missing, and never-run SOPs |
+
+## Anatomy of an SOP
+
+See [examples/weekly-metrics-report.md](examples/weekly-metrics-report.md) for a complete example. The short version:
+
+```markdown
+---
+id: send-invoice            # filename and reference handle
+triggers: invoice X, bill   # phrases you actually say
+version: 3                  # bumped on every approved change
+runs: 12                    # usage tracking feeds the review audit
+status: trusted             # draft -> active (1 real run) -> trusted (3 clean runs)
+---
+## Steps        (concrete, executable by a session with no memory of today)
+## My way       (your preferences that override AI defaults: the point of the SOP)
+## Edge cases   (known exceptions)
+## Changelog    (what changed, when, and why)
+```
+
+The "My way" section is the heart. If it is empty, you did not need an SOP; the AI's default behavior was already fine.
+
+## Status
+
+v0.2.0. Built and dogfooded by [Zak Kann](mailto:zak@zakkann.com). Roadmap candidates: scheduled SOP runs (recurring reports that run themselves), trigger-miss detection, an MCP server over the same files so SOPs work from Claude Desktop and claude.ai, and more SmbOS modules beyond SOPs.

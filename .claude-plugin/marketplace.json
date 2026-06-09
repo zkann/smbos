@@ -1,0 +1,15 @@
+{
+  "name": "smbos",
+  "description": "SmbOS: an operating system for your small business, built on Claude Code.",
+  "owner": {
+    "name": "Zak Kann",
+    "email": "zak@zakkann.com"
+  },
+  "plugins": [
+    {
+      "name": "smbos",
+      "source": "./",
+      "description": "SmbOS: an operating system for your small business. SOP capture, execution, and continuous improvement inside Claude Code."
+    }
+  ]
+}
