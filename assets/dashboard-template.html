@@ -161,6 +161,7 @@ const sops=DATA.map(f=>{
   const purpose=(section(body,'Purpose').split(/\r?\n/)[0]||'').trim();
   const used=daysAgo(meta.last_used);
   const created=daysAgo(meta.created);
+  const hasVariants=/\n## Variants/.test(body);
   const flags=[];
   if(!archived){
     if(status==='draft'&&meta.runs==='0'&&created!==null&&created>30)flags.push('never run');
@@ -169,7 +170,7 @@ const sops=DATA.map(f=>{
     if(section(body,'Notes for next revision').length>3)flags.push('pending notes');
   }
   return {path:f.path,category:f.path.split('/').length>1?f.path.split('/')[0]:'uncategorized',
-    meta,body,status,purpose,flags,archived,
+    meta,body,status,purpose,flags,archived,hasVariants,
     title:meta.title||meta.id||f.path,raw:f.content};
 });
 
@@ -190,6 +191,8 @@ function render(){
         +'<p>'+inline(s.purpose)+'</p>'
         +'<div class="stats"><span>v'+esc(s.meta.version||'1')+'</span><span>'+esc(s.meta.runs||'0')+' runs</span>'
         +'<span>last used: '+esc(s.meta.last_used||'never')+'</span>'
+        +(s.hasVariants?'<span>variants</span>':'')
+        +(s.meta.extends?'<span>overlay</span>':'')
         +s.flags.map(f=>'<span class="flag">'+f+'</span>').join('')+'</div>'
         +(trig.length?'<div class="trig">say: '+trig.map(t=>'<em>'+esc(t)+'</em>').join('')+'</div>':'');
       card.onclick=()=>openDetail(s);
@@ -206,7 +209,7 @@ function openDetail(s){
     +'<span class="pill">'+esc(m.clean_runs||'0')+' clean in a row</span>'
     +'<span class="pill">last used '+esc(m.last_used||'never')+'</span>'
     +'<span class="pill">'+esc(s.path)+'</span>'
-    +rels('needs',m.needs)+rels('next',m.next)+'</div>'
+    +rels('needs',m.needs)+rels('next',m.next)+rels('extends',m.extends)+'</div>'
     +suggestBox(s)
     +mdToHtml(s.body);
   const btn=document.getElementById('sgbtn');

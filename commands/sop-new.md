@@ -22,6 +22,7 @@ Use `_template.md` in the SOP directory as the skeleton (fall back to the struct
 - **My way**: everything that differs from how a generic AI would do it. Tone, format, ordering, thresholds, things to never do. If this section is empty, the SOP is probably not worth having; push the user to articulate at least one preference.
 - **Inputs**: what must be known or available before starting.
 - **Composition**: if a step is itself a workflow that exists (or deserves to exist) as its own SOP, reference it as `[[sop:that-id]]` instead of restating its steps. If this task usually consumes another SOP's output, set frontmatter `needs: that-id`; if another task usually follows, set `next: that-id`. One task per SOP; chains over monoliths.
+- **Scope**: before saving, decide the layer. A task done the same way everywhere goes to the home library. A task specific to this project goes to `./sops`. A project-flavored version of an existing home SOP becomes an overlay (`./sops/<category>/<same-id>.md` with `extends: <id>`, delta sections only), NOT a near-duplicate. Small per-stack differences (TypeScript vs Python toolchains) become a `## Variants` section in one SOP, with each variant naming its detectable condition.
 
 ## 3. Fill gaps by asking, not guessing
 

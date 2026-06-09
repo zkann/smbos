@@ -82,6 +82,17 @@ Real workflows are rarely one SOP. Three relation types keep them small and chai
 
 `/sop-review` audits composition health: references to missing SOPs, loops, and step blocks duplicated across SOPs that should be extracted into a shared sub-SOP.
 
+## One task, many projects
+
+The same task often varies by project: TypeScript repos check tsc and vitest where Python repos check ruff and pytest, and one client's repo has its own review rules. Two mechanisms cover this without duplicating SOPs:
+
+- **Variants**, for toolchain-sized forks. One SOP grows a `## Variants` section where each variant names a detectable condition ("TypeScript projects (package.json present)"). Claude detects which applies before running and says so; if it can't tell, it asks once.
+- **Overlays**, for whole-project personalities. A project's `./sops/` directory is a second layer over your home library (`~/sops`). An overlay file with `extends: <home-id>` carries only the sections that differ; they replace the base's, except "My way", which appends, so project rules add to your universal rules rather than erasing them.
+
+Resolution precedence: what you explicitly asked for, then the project overlay, then the variant condition, then asking. Every run announces how it resolved.
+
+The learning loop respects the layers: when you correct something mid-run, Claude asks whether it's universal or specific to this project, and routes the edit to the base SOP or the overlay. That one question is what keeps project quirks from leaking into every other project's behavior. `/sop-review` audits the rest: orphaned overlays, near-duplicates that should be base plus overlay, and variants that have drifted identical.
+
 ## Anatomy of an SOP
 
 See [examples/weekly-metrics-report.md](examples/weekly-metrics-report.md) for a complete example. The short version:

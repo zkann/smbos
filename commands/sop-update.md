@@ -21,8 +21,9 @@ Match the SOP named in `$ARGUMENTS` against `INDEX.md` (titles, descriptions, tr
 
 Show the exact edit as before/after. Rules:
 
+- Route the change first: is it UNIVERSAL or PROJECT-SPECIFIC? Universal edits go to the home/base SOP. Project-specific edits go to the project overlay in `./sops` (offer to create one with `extends: <id>` if missing) or to the matching `## Variants` entry. If it is ambiguous and both layers exist, ask.
 - Minimal and targeted. Fold changes into existing sections; do not rewrite the whole SOP unless asked.
-- Preferences and constraints go in **My way**. Process changes go in **Steps**. Exceptions go in **Edge cases**.
+- Preferences and constraints go in **My way**. Process changes go in **Steps**. Exceptions go in **Edge cases**. Toolchain or per-stack differences go in **Variants**.
 - If the change makes an existing line obsolete, remove it rather than stacking contradictions.
 - If items in **Notes for next revision** are addressed by this edit, fold them in and remove them from the notes.
 
