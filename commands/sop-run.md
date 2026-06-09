@@ -18,6 +18,8 @@ Read `INDEX.md` and match `$ARGUMENTS` against titles, descriptions, and trigger
 
 Read the full SOP file. Announce what you are running: id, version, status, and a one-line summary. Check the **Inputs** section and collect anything missing from the user before starting. Skim **Notes for next revision** so known rough edges do not surprise you mid-run.
 
+If frontmatter `needs:` lists upstream SOPs and the input they produce is not already in hand (e.g. submit-job-application needs a job from find-jobs), offer to run the upstream SOP first. Offer, never auto-run.
+
 If `status: draft`, personalize before executing: this SOP has never been verified by a real run. Resolve the `[personalize: ...]` slots that this run will actually touch by asking the user, write their answers into the file, and replace any remaining `INSTALL-DATE` placeholders with today's date. Slots the run does not touch can stay for later.
 
 ## 3. Execute
@@ -26,6 +28,7 @@ Work through **Steps** in order.
 
 - The **My way** section overrides your defaults, even where your default seems better. If you believe a rule is wrong or outdated, raise it; never silently override.
 - Stop and get sign-off at every **[APPROVAL]** step.
+- A step containing `[[sop:some-id]]` is a sub-run: read that SOP and execute it inline, honoring its own Inputs, My way, and approval gates. Its metadata updates, deviations, and edit proposals belong to the sub-SOP, not the parent. If the referenced SOP is missing, say so and do the step from the parent's description. If a reference chain revisits an SOP already in this run, stop and flag the loop instead of recursing.
 - Apply **Edge cases** when they hit.
 - If a step cannot apply, say so in the moment, do the sensible thing, and remember it.
 
@@ -43,3 +46,5 @@ After the task completes:
 6. If the SOP directory is a git repo, commit the changes.
 
 If the run was clean, just update the metadata and say the SOP held up.
+
+If frontmatter `next:` lists follow-on SOPs, offer the natural one in a single line ("application submitted; queue the next from find-jobs?"). Once, not insistently.

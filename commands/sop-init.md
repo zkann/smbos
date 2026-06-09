@@ -33,6 +33,8 @@ id: kebab-case-id
 title: Human-readable title
 category: ops
 triggers: phrase one, phrase two
+# needs: upstream-sop-id (optional; this SOP consumes that one's output)
+# next: follow-on-sop-id (optional; what typically runs after)
 version: 1
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
@@ -75,6 +77,8 @@ Observations from runs that have not been folded into the steps yet.
 Status lifecycle (record this in how you explain the system): `draft` = unverified, gets personalized on first run; `active` = survived a real run; `trusted` = 3+ consecutive clean runs (tracked in `clean_runs`); `archived` = retired, lives in `archive/`. Content edits reset `clean_runs` and return trusted SOPs to active.
 
 SOPs live in category subdirectories (e.g. `finance/send-invoice.md`). Create category directories on demand, not up front.
+
+SOPs compose: a step can execute another SOP inline with `[[sop:that-id]]`; frontmatter `needs:` names upstream SOPs whose output this one consumes; `next:` names typical successors. Prefer chains of small SOPs over one monolith.
 
 ## 3. Version history
 

@@ -37,7 +37,7 @@ Contract signed (or deposit paid) for a new client or a returning client startin
 4. Set up the internal side: project space, folder, billing record. [personalize: which tools?]
 5. **[APPROVAL]** Propose 2 or 3 kickoff call slots before sending the scheduling email.
 6. Schedule the kickoff and confirm the agenda.
-7. After kickoff, send a recap with decisions and immediate next steps (see the meeting follow-up SOP if installed).
+7. After kickoff, run [[sop:meeting-follow-up]] to send the recap with decisions and immediate next steps.
 
 ## My way
 

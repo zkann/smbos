@@ -72,6 +72,16 @@ Every SOP has a "Suggest a change" box. In the default snapshot mode it copies a
 
 Either way, restructuring an SOP stays with the propose/approve diff flow; the dashboard captures intent, it does not rewrite procedures. Nothing leaves the machine: the snapshot makes no network requests, and the live server binds 127.0.0.1 only.
 
+## SOPs compose
+
+Real workflows are rarely one SOP. Three relation types keep them small and chained instead of monolithic:
+
+- A step containing `[[sop:meeting-follow-up]]` executes that SOP inline as a sub-run, with its own approval gates, usage tracking, and learning loop. (Obsidian users get clickable wiki-links for free; the dashboard renders them as links too.)
+- `needs: find-jobs` in frontmatter says this SOP consumes another's output. If you ask to submit an application and there's no job in hand, Claude offers to run the finding step first.
+- `next: submit-job-application` names what typically follows; when a run completes, Claude offers the next link in the chain, once.
+
+`/sop-review` audits composition health: references to missing SOPs, loops, and step blocks duplicated across SOPs that should be extracted into a shared sub-SOP.
+
 ## Anatomy of an SOP
 
 See [examples/weekly-metrics-report.md](examples/weekly-metrics-report.md) for a complete example. The short version:
