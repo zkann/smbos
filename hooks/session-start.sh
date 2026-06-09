@@ -41,7 +41,7 @@ SOPs are the user's documented way of doing recurring tasks. They override your 
 6. PROMOTE. After a draft completes its first real run, set status: active. When an active SOP reaches clean_runs of 3 or more, set status: trusted. Any approved content edit resets clean_runs to 0 and returns a trusted SOP to active.
 7. IMPLICIT FEEDBACK. Treat these as SOP feedback even when the user does not phrase them as such: mid-task corrections, re-asking a request in different words, editing your output afterward, telling you to skip a step. Fold them into update proposals (step 5) or trigger-phrase improvements.
 
-Commands: /sop-init, /sop-new, /sop-import, /sop-run, /sop-update, /sop-list, /sop-review. The user never needs to memorize these; plain requests ("save this as an SOP", "show my SOPs") route to the same flows.
+Commands: /sop-init, /sop-new, /sop-import, /sop-run, /sop-update, /sop-list, /sop-review, /sop-dashboard (visual library view in the browser). The user never needs to memorize these; plain requests ("save this as an SOP", "show my SOPs", "show me the dashboard") route to the same flows.
 EOF
 echo ""
 if [ "$mature" -lt 5 ]; then

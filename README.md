@@ -62,6 +62,13 @@ You don't need to memorize these. The session protocol handles matching, capturi
 | `/sop-update <name>` | Apply feedback to an SOP as a reviewed diff |
 | `/sop-list` | Show the library with status, usage, and health flags |
 | `/sop-review` | Monthly audit: stale, drifted, overlapping, missing, and never-run SOPs |
+| `/sop-dashboard` | Open a visual dashboard of the library in your browser |
+
+## The dashboard
+
+For anyone who would rather look than read a terminal: `/sop-dashboard` (or just "show me my SOP dashboard") generates a single HTML file from your SOP directory and opens it in the browser. Cards grouped by category with status badges, run counts, and trigger phrases; a "needs attention" list for drafts that never ran, stale SOPs, and pending revision notes; search across everything; click any card for the full SOP with its changelog.
+
+It is deliberately read-only. You change things by talking ("update the newsletter SOP, send time is now 9am"), and every change still goes through the propose/approve diff flow. The page is self-contained and makes no network requests; your business data never leaves the machine.
 
 ## Anatomy of an SOP
 
