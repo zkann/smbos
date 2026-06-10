@@ -111,6 +111,16 @@ if [ "$parked" -gt 0 ]; then
   echo ""
   echo "TRIGGERED RUNS AWAITING APPROVAL: $parked parked run(s) in the SOP pending/ directory. Early in this session, walk the owner through each one: show the prepared work and the proposed action, get an approve/discard decision, complete approved actions, then set the file's status to approved or discarded (or delete it)."
 fi
+queued=0
+for qdir in "$home_dir/queue" "$proj_dir/queue"; do
+  [ -d "$qdir" ] || continue
+  n=$(grep -l '^status: queued' "$qdir"/*.md 2>/dev/null | grep -c .)
+  queued=$((queued + n))
+done
+if [ "$queued" -gt 0 ]; then
+  echo ""
+  echo "OWNER-QUEUED TASKS: $queued task(s) the owner queued (from the dashboard) to do together in an interactive session. Early in this session, offer to start: for each queue/ file, read its sop id and any owner notes, then run that SOP interactively (this is also how drafts get verified and promoted). When one finishes, set the queue file's status to done (or delete the file)."
+fi
 if [ -n "$proj_dir" ] && [ -f "$proj_dir/INDEX.md" ]; then
   echo ""
   echo "### Project SOP index ($proj_dir; shadows/extends home by id)"

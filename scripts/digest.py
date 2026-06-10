@@ -58,6 +58,18 @@ def build(d):
     else:
         lines += ["Nothing is waiting for your approval.", ""]
 
+    # Owner-queued tasks for the next interactive session
+    qdir = d / "queue"
+    queued = []
+    if qdir.is_dir():
+        for p in sorted(qdir.glob("*.md")):
+            text = p.read_text(encoding="utf-8")
+            if frontmatter_value(text, "status") == "queued":
+                queued.append(f"- **{frontmatter_value(text, 'sop') or p.stem}**")
+    if queued:
+        lines += [f"## On your plate ({len(queued)})", ""] + queued + \
+                 ["", "These start the next time you open Claude; they need you in the loop.", ""]
+
     # Last 7 days of automation
     log = d / "runs.jsonl"
     week, failures = [], []

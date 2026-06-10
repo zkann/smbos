@@ -15,7 +15,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 SKIP_NAMES = {"INDEX.md", "_template.md"}
-NON_SOP_DIRS = {"pending", "payloads", "triggers", "archive"}
+NON_SOP_DIRS = {"pending", "payloads", "triggers", "archive", "queue"}
 NOTES_HEADING = "## Notes for next revision"
 MAX_TEXT = 4000
 

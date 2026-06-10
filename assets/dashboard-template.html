@@ -241,6 +241,8 @@ function openDetail(s){
     +mdToHtml(s.body);
   const btn=document.getElementById('sgbtn');
   if(btn)btn.onclick=()=>submitSuggestion(s);
+  const qb=document.getElementById('queuebtn');
+  if(qb)qb.onclick=()=>queueTask(s);
   const rb=document.getElementById('runbtn');
   const ri0=document.getElementById('runinputs');
   if(rb&&ri0&&(s.meta.run_inputs||'').trim()){
@@ -270,8 +272,12 @@ function runBox(s){
   if(s.status==='draft'){
     const trig=(s.meta.triggers||'').split(',')[0].trim();
     return '<div class="suggest"><div class="slabel">Run this task</div>'
-      +'<div class="hint" style="margin:0">This task hasn’t been done together yet, so it can’t run in the background. '
-      +'Do it once in Claude'+(trig?' (just say “'+esc(trig)+'”)':'')+' and the Run button appears here afterward.</div></div>';
+      +'<div class="hint" style="margin:0 0 8px">This task hasn’t been done together yet, so it can’t run in the background. '
+      +'Do it once with Claude'+(trig?' (just say “'+esc(trig)+'”)':'')+' and the Run button appears here afterward.'+'</div>'
+      +(CFG.live?'<textarea id="queueinputs" rows="2" placeholder="Anything Claude should know when you do it together? Optional."></textarea>'
+        +'<div class="row"><button class="runbtn" id="queuebtn">Queue it for my next Claude session</button>'
+        +'<span class="sstatus" id="queuestatus"></span></div>':'')
+      +'</div>';
   }
   if(!CFG.live)return '';
   const req=(s.meta.run_inputs||'').trim();
@@ -283,8 +289,23 @@ function runBox(s){
     +(items.length?'Type those here':'Anything this run should know? Optional.')
     +'"></textarea>'
     +'<div class="row"><button class="runbtn" id="runbtn"'+(req?' disabled':'')+'>Run this now</button>'
-    +'<span class="sstatus err" id="runstatus">'+(req?'Fill in what it needs first':'')+'</span></div>'
-    +'<div class="hint">Runs in the background using a little of your Claude plan’s automation allowance (the dollar figures track that usage, not separate charges). It stops for your approval before anything is sent.</div></div>';
+    +'<button class="pbtn" id="queuebtn" style="margin-left:8px">Queue for my next Claude session instead</button>'
+    +'<span class="sstatus err" id="runstatus">'+(req?'Fill in what it needs first':'')+'</span>'
+    +'<span class="sstatus" id="queuestatus"></span></div>'
+    +'<div class="hint">Run now happens in the background using a little of your Claude plan’s automation allowance (the dollar figures track that usage, not separate charges), and stops for your approval before anything is sent. Queueing instead does it with you, live, next time you open Claude; pick that for anything that needs you mid-task.</div></div>';
+}
+async function queueTask(s){
+  const qb=document.getElementById('queuebtn');
+  const st=document.getElementById('queuestatus');
+  const box=document.getElementById('queueinputs')||document.getElementById('runinputs');
+  qb.disabled=true;
+  try{
+    const r=await fetch('/api/queue',{method:'POST',
+      headers:{'Content-Type':'application/json','X-Token':CFG.token},
+      body:JSON.stringify({id:s.meta.id,inputs:box?box.value.trim():''})});
+    st.textContent=r.ok?'Queued. It will come up at the start of your next Claude session.':'Could not queue ('+r.status+').';
+    if(!r.ok)qb.disabled=false;
+  }catch(e){st.textContent='Could not reach the dashboard server.';qb.disabled=false;}
 }
 function rels(label,val){
   if(!val)return '';
