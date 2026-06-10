@@ -289,6 +289,7 @@ function runBox(s){
       +'<div class="hint" style="margin:0 0 8px">This task hasn’t been done together yet, so it can’t run in the background. '
       +'Do it once with Claude'+(trig?' (just say “'+esc(trig)+'”)':'')+' and the Run button appears here afterward.'+'</div>'
       +(CFG.live?'<textarea id="queueinputs" rows="2" placeholder="Anything Claude should know when you do it together? Optional."></textarea>'
+        +scopeChoice()
         +'<div class="row"><button class="runbtn" id="queuebtn">Queue it for my next Claude session</button>'
         +'<span class="sstatus" id="queuestatus"></span></div>':'')
       +'</div>';
@@ -302,22 +303,36 @@ function runBox(s){
     +'<textarea id="runinputs" rows="2" placeholder="'
     +(items.length?'Type those here':'Anything this run should know? Optional.')
     +'"></textarea>'
+    +scopeChoice()
     +'<div class="row"><button class="runbtn" id="runbtn"'+(req?' disabled':'')+'>Run this now</button>'
     +'<button class="pbtn" id="queuebtn" style="margin-left:8px">Queue for my next Claude session instead</button>'
     +'<span class="sstatus err" id="runstatus">'+(req?'Fill in what it needs first':'')+'</span>'
     +'<span class="sstatus" id="queuestatus"></span></div>'
     +'<div class="hint">Run now happens in the background using a little of your Claude plan’s automation allowance (the dollar figures track that usage, not separate charges), and stops for your approval before anything is sent. Queueing instead does it with you, live, next time you open Claude; pick that for anything that needs you mid-task.</div></div>';
 }
+function scopeChoice(){
+  // Only meaningful when the dashboard was opened from a project folder.
+  if(!CFG.project)return '';
+  return '<div class="hint" style="margin:0 0 6px">When you queue, do it in: '
+    +'<label style="margin-right:10px"><input type="radio" name="qscope" value="here" checked> '+esc(CFG.project)+' (this folder)</label>'
+    +'<label><input type="radio" name="qscope" value="anywhere"> any folder</label></div>';
+}
+function queueDest(scope){
+  if(scope==='anywhere'||!CFG.project)return 'any folder';
+  return CFG.project;
+}
 async function queueTask(s){
   const qb=document.getElementById('queuebtn');
   const st=document.getElementById('queuestatus');
   const box=document.getElementById('queueinputs')||document.getElementById('runinputs');
+  const picked=document.querySelector('input[name=qscope]:checked');
+  const scope=picked?picked.value:'here';
   qb.disabled=true;
   try{
     const r=await fetch('/api/queue',{method:'POST',
       headers:{'Content-Type':'application/json','X-Token':CFG.token},
-      body:JSON.stringify({id:s.meta.id,inputs:box?box.value.trim():''})});
-    st.textContent=r.ok?'Queued. It comes up next time you open Claude in this project’s folder.':'Could not queue ('+r.status+').';
+      body:JSON.stringify({id:s.meta.id,inputs:box?box.value.trim():'',scope:scope})});
+    st.textContent=r.ok?'Queued. It comes up next time you open Claude in '+queueDest(scope)+'.':'Could not queue ('+r.status+').';
     if(!r.ok)qb.disabled=false;
   }catch(e){st.textContent='Could not reach the dashboard server.';qb.disabled=false;}
 }
@@ -480,7 +495,8 @@ document.getElementById('dbody').addEventListener('click',e=>{
   const t=sopById(a.dataset.id);if(t)openDetail(t);
 });
 document.getElementById('modeNote').textContent=CFG.live
-  ?'Live mode: this page re-reads your files on refresh, and saved suggestions land in the SOP itself.'
+  ?('Live mode: this page re-reads your files on refresh, and saved suggestions land in the SOP itself.'
+     +(CFG.project?' Opened from '+CFG.project+' — tasks you queue default to that folder.':' Opened from your home library — queued tasks run in any folder.'))
   :'This page is a snapshot; the suggestion box copies requests for Claude rather than editing files.';
 summary();render();
 </script>

@@ -84,14 +84,17 @@ def required_inputs(sop_dir, sid):
     return None
 
 
-def queue_run(sop_dir, sop_id, inputs=None):
+def queue_run(sop_dir, sop_id, inputs=None, scope="here"):
     sid = re.sub(r"[^a-z0-9-]", "", str(sop_id).lower())
     if not sid or not any(sop_dir.rglob(f"{sid}.md")):
         raise ValueError("unknown task")
     qdir = sop_dir / "queue"
     qdir.mkdir(exist_ok=True)
     now = datetime.now(timezone.utc)
-    project = "" if LAUNCH_CWD in (str(Path.home()), str(sop_dir)) else LAUNCH_CWD
+    if scope == "anywhere" or LAUNCH_CWD in (str(Path.home()), str(sop_dir)):
+        project = ""
+    else:
+        project = LAUNCH_CWD
     body = (f"---\nsop: {sid}\nrequested: {now.isoformat()}\nsource: dashboard\n"
             f"project: {project}\nstatus: queued\n---\n")
     if inputs:
@@ -137,7 +140,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(404, '{"error":"not found"}')
         if parse_qs(u.query).get("t", [""])[0] != TOKEN:
             return self._send(403, '{"error":"bad or missing token"}')
-        html = build_html(self.sop_dir, {"live": True, "token": TOKEN})
+        proj = "" if LAUNCH_CWD in (str(Path.home()), str(self.sop_dir)) else Path(LAUNCH_CWD).name
+        html = build_html(self.sop_dir, {"live": True, "token": TOKEN, "project": proj})
         return self._send(200, html, "text/html")
 
     def do_POST(self):
@@ -160,7 +164,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, json.dumps({"ok": True, "status": status}))
             if self.path == "/api/queue":
                 sid = queue_run(self.sop_dir, payload.get("id", ""),
-                                inputs=str(payload.get("inputs") or "").strip() or None)
+                                inputs=str(payload.get("inputs") or "").strip() or None,
+                                scope=str(payload.get("scope") or "here"))
                 return self._send(200, json.dumps({"ok": True, "queued": sid}))
             if self.path == "/api/run":
                 sid = start_run(self.sop_dir, payload.get("id", ""),
