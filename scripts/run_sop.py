@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from smbos_lib import (append_run, find_sop as lib_find_sop, frontmatter_field,
-                       month_spend, resolve_sop_dir)
+                       is_drifted, month_spend, resolve_sop_dir, split_frontmatter)
 
 
 def find_sop(sop_dir, sop_id):
@@ -64,6 +64,14 @@ def main():
         log_run(sop_dir, {**base, "result": "refused", "cost_usd": 0,
                           "note": f"status is '{status}'; only active/trusted SOPs run unattended"})
         sys.exit(f"Refused: '{args.sop_id}' is {status}. Drafts need a human first run. Use --force to override.")
+
+    meta, body = split_frontmatter(sop_path.read_text(encoding="utf-8"))
+    if is_drifted(meta, body) and not args.force:
+        log_run(sop_dir, {**base, "result": "refused", "cost_usd": 0,
+                          "note": "unrecorded changes since the last saved version"})
+        sys.exit(f"Refused (free, no model spawned): '{args.sop_id}' was changed outside the "
+                 "normal save flow. Review the changes with Claude (it records them and bumps "
+                 "the version), then re-run. Use --force to override.")
 
     required = frontmatter_field(sop_path, "run_inputs")
     if required and not args.inputs and not args.force:

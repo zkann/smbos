@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.19.0 (2026-06-10)
+
+- Version integrity: SOPs carry a content fingerprint (sha256 of the procedure body; notes and changelog excluded). Edits that skip the save flow show up as "unrecorded changes": flagged on the dashboard with the version pill and a reconcile hint, refused (free) by unattended runs at all three gate layers, surfaced by the session hook with a reconciliation offer, and marked in Claude Desktop. New `sop_version.py`: `check`, `stamp`, and `bump --note`, which replaces five hand edits (version, changelog line, fingerprint, trusted-to-active demotion, clean-run reset) with one command. Missing fingerprints are quiet; existing libraries adopt via `stamp --all` or naturally through edits and promotions.
+
 ## 0.18.0 (2026-06-10)
 
 - Command Center theme: shadcn zinc-dark tokens and component recipes (pill tabs, soft badges, outline/primary buttons, dark dialog, progress bar, focus rings) hand-ported to plain CSS, zero dependencies kept; fused with signal-green accents, monospace micro-labels and figures, and a glowing live dot. WCAG AA verified on every text/surface pair; full state matrix screenshot-verified.

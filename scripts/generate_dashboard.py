@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from humanize import humanize_failure, humanize_source, humanize_spec
 from smbos_lib import RUNTIME_DIRS as NON_SOP_DIRS
-from smbos_lib import SKIP_NAMES, parse_frontmatter
+from smbos_lib import SKIP_NAMES, is_drifted, parse_frontmatter, split_frontmatter
 from smbos_lib import resolve_sop_dir as lib_resolve_sop_dir
 
 
@@ -34,7 +34,9 @@ def collect(sop_dir):
             content = p.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
-        files.append({"path": rel, "content": content})
+        meta, body = split_frontmatter(content)
+        files.append({"path": rel, "content": content,
+                      "drift": is_drifted(meta, body)})
     return files
 
 
