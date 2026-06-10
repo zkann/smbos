@@ -61,7 +61,7 @@ def test_append_suggestion_placement(library):
 def test_launch_routing(library, monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(sv, "open_terminal_with_claude",
-                        lambda folder, prompt: calls.append((str(folder), prompt)))
+                        lambda folder, prompt, terminal="terminal": calls.append((str(folder), prompt)))
     proj = tmp_path / "projA"
     proj.mkdir()
     q = library / "queue"
@@ -98,3 +98,25 @@ def test_launch_open_file_and_reveal(library, monkeypatch):
 
 def test_applescript_escape():
     assert sv.applescript_escape('say "hi" \\ there') == 'say \\"hi\\" \\\\ there'
+
+
+def test_preferred_terminal(library, monkeypatch):
+    import json
+    monkeypatch.setattr(sv, "TERM_PROGRAM", "Apple_Terminal")
+    assert sv.preferred_terminal(library) == "terminal"
+    monkeypatch.setattr(sv, "TERM_PROGRAM", "iTerm.app")
+    assert sv.preferred_terminal(library) == "iterm"
+    (library / "triggers.json").write_text(json.dumps({"terminal": "terminal"}))
+    assert sv.preferred_terminal(library) == "terminal"  # config beats detection
+
+
+def test_iterm_script_used(library, monkeypatch):
+    scripts = []
+    monkeypatch.setattr(sv.subprocess, "run",
+                        lambda cmd, **kw: scripts.append(cmd[2]))
+    monkeypatch.setattr(sv.sys, "platform", "darwin")
+    sv.open_terminal_with_claude(library, "weekly numbers", terminal="iterm")
+    assert 'tell application "iTerm"' in scripts[-1]
+    assert "write text" in scripts[-1] and "weekly numbers" in scripts[-1]
+    sv.open_terminal_with_claude(library, "x", terminal="terminal")
+    assert 'tell application "Terminal"' in scripts[-1]

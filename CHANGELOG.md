@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.17.1 (2026-06-10)
+
+- Launch buttons open YOUR terminal: iTerm2 is natively supported alongside Terminal.app, auto-detected from the session that started the dashboard (`TERM_PROGRAM`), with a `terminal` config override in triggers.json. Field-found: the author uses iTerm2 and the hardcoded Terminal.app would have opened the wrong app on the first click.
+
 ## 0.17.0 (2026-06-10)
 
 - The dashboard can open Claude for you. No more reading a folder name off the screen and typing it into a terminal: "Start in Claude" on a plate item opens a Terminal window already in the right folder with the task as Claude's first prompt; a draft's dialog leads with "Do it with Claude now" (the first trigger phrase becomes the opening words); approving a parked run offers "Do it now in Claude"; SOP files get an "open in editor" link. The browser sends only identifiers; folders and prompts are derived server-side from your own files. macOS only (AppleScript); the first click may show a one-time permission prompt ("Python wants to control Terminal").

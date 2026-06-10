@@ -10,6 +10,7 @@ Usage:
   sop_triggers.py crontab <trigger-id>                print the crontab line for a cron trigger
   sop_triggers.py costs [--days N]                    spend report from runs.jsonl vs budget
   sop_triggers.py budget [AMOUNT]                     show or set monthly_budget_usd
+  sop_triggers.py terminal [terminal|iterm]           which app dashboard launches open (default: auto-detect)
   sop_triggers.py digest show                         build and print today's digest
   sop_triggers.py digest crontab ["M H * * *"]        print the crontab line for the daily digest
 
@@ -199,6 +200,13 @@ def main():
             reg["monthly_budget_usd"] = float(args[1])
             save(d, reg)
         print(f"monthly_budget_usd = {reg.get('monthly_budget_usd')}")
+    elif cmd == "terminal":
+        if len(args) >= 2:
+            if args[1] not in ("terminal", "iterm"):
+                sys.exit("supported: terminal, iterm")
+            reg["terminal"] = args[1]
+            save(d, reg)
+        print(f"terminal = {reg.get('terminal') or '(auto-detect from the session that starts the dashboard)'}")
     elif cmd == "digest" and len(args) >= 2:
         runner = plugin_root / "scripts" / "digest.py"
         if args[1] == "show":

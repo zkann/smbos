@@ -13,6 +13,7 @@ stays with Claude's propose/approve flow. Binds 127.0.0.1 only, random port,
 per-run token. Stdlib only, no network beyond localhost. Ctrl-C to stop.
 """
 import json
+import os
 import re
 import secrets
 import shlex
@@ -126,16 +127,44 @@ def applescript_escape(s):
     return s.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def open_terminal_with_claude(folder, prompt):
-    """Open a Terminal window in `folder` running claude with `prompt` (macOS)."""
+# The terminal app the dashboard was launched from; used as the default for
+# launches so Claude opens in the terminal the owner actually uses.
+TERM_PROGRAM = os.environ.get("TERM_PROGRAM", "")
+
+TERMINAL_SCRIPTS = {
+    "terminal": 'tell application "Terminal"\nactivate\ndo script "{cmd}"\nend tell',
+    "iterm": ('tell application "iTerm"\nactivate\n'
+              'set newWindow to (create window with default profile)\n'
+              'tell current session of newWindow\nwrite text "{cmd}"\nend tell\nend tell'),
+}
+
+
+def preferred_terminal(sop_dir):
+    """Config override in triggers.json ("terminal"), else detect from the
+    environment the dashboard inherited, else Terminal.app."""
+    cfg = sop_dir / "triggers.json"
+    if cfg.exists():
+        try:
+            val = str(json.loads(cfg.read_text(encoding="utf-8")).get("terminal") or "").lower()
+            if val in TERMINAL_SCRIPTS:
+                return val
+        except ValueError:
+            pass
+    if TERM_PROGRAM == "iTerm.app":
+        return "iterm"
+    return "terminal"
+
+
+def open_terminal_with_claude(folder, prompt, terminal="terminal"):
+    """Open a terminal window in `folder` running claude with `prompt` (macOS)."""
     if sys.platform != "darwin":
         raise ValueError("launching Claude from the dashboard only works on macOS")
     folder = Path(folder).expanduser()
     if not folder.is_dir():
         raise ValueError("that folder no longer exists")
     shell_cmd = "cd " + shlex.quote(str(folder)) + " && claude " + shlex.quote(prompt)
-    script = ('tell application "Terminal"\nactivate\ndo script "'
-              + applescript_escape(shell_cmd) + '"\nend tell')
+    script = TERMINAL_SCRIPTS.get(terminal, TERMINAL_SCRIPTS["terminal"]).format(
+        cmd=applescript_escape(shell_cmd))
     subprocess.run(["osascript", "-e", script], check=True, capture_output=True, timeout=20)
 
 
@@ -178,7 +207,7 @@ def launch(sop_dir, payload):
         return "opened folder"
     else:
         raise ValueError("unknown launch kind")
-    open_terminal_with_claude(folder, prompt)
+    open_terminal_with_claude(folder, prompt, terminal=preferred_terminal(sop_dir))
     return "launched"
 
 
