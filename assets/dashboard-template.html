@@ -113,8 +113,8 @@
 <script>
 const GENERATED="__GENERATED__";
 const CFG=JSON.parse(document.getElementById('cfg').textContent||'{"live":false}');
-let EXTRA={pending:[],costs:null};
-try{EXTRA=JSON.parse(document.getElementById('extra').textContent);}catch(e){/* older generator */}
+let EXTRA={pending:[],costs:null,schedules:{},failures:[]};
+try{EXTRA=Object.assign(EXTRA,JSON.parse(document.getElementById('extra').textContent));}catch(e){/* older generator */}
 const DATA=JSON.parse(document.getElementById('sop-data').textContent);
 const dlg=document.getElementById('dlg');
 
@@ -203,7 +203,9 @@ function render(){
         +(s.hasVariants?'<span>variants</span>':'')
         +(s.meta.extends?'<span>overlay</span>':'')
         +s.flags.map(f=>'<span class="flag">'+f+'</span>').join('')+'</div>'
-        +(trig.length?'<div class="trig">say: '+trig.map(t=>'<em>'+esc(t)+'</em>').join('')+'</div>':'');
+        +(trig.length?'<div class="trig">say: '+trig.map(t=>'<em>'+esc(t)+'</em>').join('')+'</div>':'')
+        +((EXTRA.schedules[s.meta.id]||[]).length
+          ?'<div class="trig">runs '+EXTRA.schedules[s.meta.id].map(esc).join('; ')+'</div>':'');
       card.onclick=()=>openDetail(s);
       grid.appendChild(card);
     });
@@ -286,14 +288,14 @@ function summary(){
     pk.className='show';
     pk.innerHTML='<strong>Awaiting your approval ('+parkedItems.length+' triggered run'+(parkedItems.length>1?'s':'')+'):</strong><ul>'
       +parkedItems.map((p,i)=>'<li><span class="pitem" data-i="'+i+'">'+esc(p.meta.sop||p.path)+'</span>'
-        +' via '+esc(p.meta.trigger_source||'?')+', '+esc(p.meta.created||'')+'</li>').join('')
+        +' started by '+esc(p.source_plain||'an automated run')+', '+esc((p.meta.created||'').slice(0,10))+'</li>').join('')
       +'</ul><div style="margin-top:6px;color:var(--muted)">Approve or discard these in Claude: "review my pending runs".</div>';
     pk.querySelectorAll('.pitem').forEach(el=>{el.onclick=()=>{
       const p=parkedItems[+el.dataset.i];
       document.getElementById('dtitle').textContent='Parked: '+(p.meta.sop||p.path);
       document.getElementById('dbody').innerHTML=
         '<div class="dmeta"><span class="badge draft">pending</span>'
-        +'<span class="pill">via '+esc(p.meta.trigger_source||'?')+'</span>'
+        +'<span class="pill">started by '+esc(p.source_plain||'an automated run')+'</span>'
         +'<span class="pill">'+esc(p.meta.created||'')+'</span>'
         +'<span class="pill">pending/'+esc(p.path)+'</span></div>'
         +mdToHtml(p.body);
@@ -302,9 +304,13 @@ function summary(){
   }
   const att=sops.filter(s=>s.flags.length);
   const el=document.getElementById('attention');
-  if(att.length){
+  const failLis=(EXTRA.failures||[]).map(f=>'<li><b>'+esc(f.sop)+'</b> ('+esc(f.when)+'): '
+    +esc(f.plain)+'. To fix: '+esc(f.action)+'.</li>');
+  if(att.length||failLis.length){
     el.className='show';
-    el.innerHTML='<strong>Needs attention:</strong><ul>'+att.map(s=>'<li>'+esc(s.title)+': '+s.flags.join(', ')+'</li>').join('')+'</ul>';
+    el.innerHTML='<strong>Needs attention:</strong><ul>'
+      +failLis.join('')
+      +att.map(s=>'<li>'+esc(s.title)+': '+s.flags.join(', ')+'</li>').join('')+'</ul>';
   }
   document.getElementById('gen').textContent=new Date(GENERATED).toLocaleString();
 }

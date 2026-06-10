@@ -10,6 +10,8 @@ Usage:
   sop_triggers.py crontab <trigger-id>                print the crontab line for a cron trigger
   sop_triggers.py costs [--days N]                    spend report from runs.jsonl vs budget
   sop_triggers.py budget [AMOUNT]                     show or set monthly_budget_usd
+  sop_triggers.py digest show                         build and print today's digest
+  sop_triggers.py digest crontab ["M H * * *"]        print the crontab line for the daily digest
 
 Registry lives at <sop-dir>/triggers.json; run log at <sop-dir>/runs.jsonl.
 Triggers are created DISABLED; enabling is explicit. Stdlib only.
@@ -17,6 +19,7 @@ Triggers are created DISABLED; enabling is explicit. Stdlib only.
 import json
 import os
 import re
+import subprocess
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -201,6 +204,15 @@ def main():
             reg["monthly_budget_usd"] = float(args[1])
             save(d, reg)
         print(f"monthly_budget_usd = {reg.get('monthly_budget_usd')}")
+    elif cmd == "digest" and len(args) >= 2:
+        runner = plugin_root / "scripts" / "digest.py"
+        if args[1] == "show":
+            subprocess.run([sys.executable, str(runner), "--sop-dir", str(d), "--print-only"])
+        elif args[1] == "crontab":
+            expr = args[2] if len(args) > 2 else "53 7 * * *"
+            print(f"{expr} /usr/bin/env python3 {runner} --sop-dir {d} >> {d}/trigger.log 2>&1")
+        else:
+            sys.exit("digest subcommands: show, crontab")
     else:
         sys.exit(__doc__)
 
