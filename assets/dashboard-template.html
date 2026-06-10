@@ -42,7 +42,7 @@
   .panel.warnp{border-color:#f0dcc0;background:#fdf8ef}
   .panel ul{margin:0;padding-left:18px}
   .panel li{margin:4px 0}
-  .pbtn{border:1px solid var(--line);background:var(--card);border-radius:7px;padding:2px 10px;font-size:12.5px;cursor:pointer;margin-left:6px}
+  .pbtn{border:1px solid var(--line);background:var(--card);border-radius:7px;padding:5px 12px;min-height:30px;font-size:13px;cursor:pointer;margin-left:6px}
   .pbtn.okb{border-color:#9fcfae;color:var(--trusted-ink)}
   .pbtn.nob{border-color:#e0c39a;color:var(--warn)}
   .pbtn:disabled{opacity:.5;cursor:default}
@@ -57,6 +57,9 @@
   .wstage.done{background:var(--trusted-bg);color:var(--trusted-ink);border-color:transparent}
   .wstage.cur{background:var(--ink);color:#fff;border-color:transparent}
   .warrow{color:var(--line)}
+  @media (pointer:coarse){
+    .pbtn,.suggest button,.tab{min-height:44px}
+  }
   .spend{margin-top:10px}
   .spendbar{height:8px;border-radius:99px;background:var(--bg);border:1px solid var(--line);overflow:hidden;max-width:340px}
   .spendbar>div{height:100%;background:var(--active-ink)}
