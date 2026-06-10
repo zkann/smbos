@@ -88,8 +88,9 @@ const sops=JSON.parse(document.getElementById('sop-data').textContent).map(f=>{
     else if(used!==null&&used>90)flags.push('stale');
     else if(meta.last_used==='never'&&created!==null&&created>30)flags.push('stale');
     if(section(body,'Notes for next revision').length>3)flags.push('pending notes');
+    if(f.drift)flags.push('unrecorded changes');
   }
-  return {path:f.path,category:f.path.split('/').length>1?f.path.split('/')[0]:'uncategorized',
+  return {path:f.path,drift:!!f.drift,category:f.path.split('/').length>1?f.path.split('/')[0]:'uncategorized',
     meta,body,status,purpose,flags,archived,hasVariants,
     title:meta.title||meta.id||f.path,raw:f.content};
 });
@@ -156,14 +157,17 @@ function renderWaiting(){
   };});
 }
 function renderAttention(){
-  const att=sops.filter(s=>s.flags.length);
+  const driftLis=sops.filter(s=>!s.archived&&s.drift&&(s.status==='active'||s.status==='trusted'))
+    .map(s=>'<li><b>'+esc(s.title)+'</b> was changed outside the normal save flow. '
+      +'Ask Claude to review the changes; until then it won\u2019t run on its own.</li>');
+  const att=sops.map(s=>({s,fl:s.flags.filter(f=>f!=='unrecorded changes')})).filter(x=>x.fl.length);
   const failLis=(EXTRA.failures||[]).map(f=>'<li><b>'+esc(sopTitle(f.sop))+'</b> ('+esc(relTime(f.when)||f.when)+'): '
     +esc(f.plain)+'. To fix: '+esc(f.action)+'.</li>');
   const el=document.getElementById('attention');
-  if(!att.length&&!failLis.length)return;
+  if(!att.length&&!failLis.length&&!driftLis.length)return;
   el.style.display='block';
-  el.innerHTML='<h2>Needs attention</h2><ul>'+failLis.join('')
-    +att.map(s=>'<li>'+esc(s.title)+': '+s.flags.join(', ')+'</li>').join('')+'</ul>';
+  el.innerHTML='<h2>Needs attention</h2><ul>'+driftLis.join('')+failLis.join('')
+    +att.map(x=>'<li>'+esc(x.s.title)+': '+x.fl.join(', ')+'</li>').join('')+'</ul>';
 }
 function renderWork(){
   const items=EXTRA.work||[];
@@ -310,8 +314,11 @@ function openDetail(s){
     +(relTime(m.last_used)?'<span class="pill">last '+esc(relTime(m.last_used))+'</span>':'')
     +(improved>0?'<span class="pill">improved '+improved+' time'+(improved===1?'':'s')+'</span>':'')
     +(clean>0?'<span class="pill">'+clean+' smooth run'+(clean===1?'':'s')+' in a row</span>':'')
+    +'<span class="pill">v'+esc(m.version||'1')+'</span>'
+    +(s.drift?'<span class="pill warn">unrecorded changes</span>':'')
     +rels('needs first',m.needs)+rels('then usually',m.next)+rels('project version of',m.extends)
     +'</div>'
+    +(s.drift?'<div class="hint warnhint">This procedure was changed without the usual save. Tell Claude “review the changes to '+esc(s.title)+'” to record them'+(s.status==='trusted'?'; until then it won\u2019t run unattended':'')+'.</div>':'')
     +runBox(s)
     +suggestBox(s)
     +mdToHtml(s.body)
@@ -370,6 +377,7 @@ function runBox(s){
       +'</div>';
   }
   if(!CFG.live)return '';
+  const blocked=s.drift;
   const req=(s.meta.run_inputs||'').trim();
   const items=req?req.split(',').map(x=>x.trim()).filter(Boolean):[];
   return '<div class="suggest"><div class="slabel">Run this task</div>'
@@ -379,9 +387,9 @@ function runBox(s){
     +(items.length?'Type those here':'Anything this run should know? Optional.')
     +'"></textarea>'
     +scopeChoice()
-    +'<div class="row"><button class="btn-primary runbtn" id="runbtn"'+(req?' disabled':'')+'>Run this now</button>'
+    +'<div class="row"><button class="btn-primary runbtn" id="runbtn"'+((req||blocked)?' disabled':'')+'>Run this now</button>'
     +'<button class="pbtn" id="queuebtn">Put it on my plate instead</button>'
-    +'<span class="sstatus err" id="runstatus">'+(req?'Fill in what it needs first':'')+'</span>'
+    +'<span class="sstatus err" id="runstatus">'+(blocked?'Record its changes first (tell Claude)':(req?'Fill in what it needs first':''))+'</span>'
     +'<span class="sstatus" id="queuestatus"></span></div>'
     +'<div class="hint">Run now happens in the background using a little of your Claude plan’s automation allowance (the dollar figures track that usage, not separate charges), and stops for your approval before anything is sent. "On my plate" does it with you, live, next time you open Claude; pick that for anything that needs you mid-task.</div></div>';
 }
