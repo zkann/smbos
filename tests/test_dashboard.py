@@ -98,3 +98,18 @@ def test_sop_dir_tilde_only_for_true_subpaths(tmp_path, monkeypatch):
 
     html = gd.build_html(fake_home)  # home itself
     assert ">~<" in html
+
+
+def test_collect_marks_unrecorded_changes(library):
+    import generate_dashboard as gd
+    from smbos_lib import content_fingerprint, set_frontmatter_fields, split_frontmatter
+    sop = library / "ops" / "weekly-metrics-report.md"
+    assert gd.collect(library)[0]["drift"] is False  # unstamped stays quiet
+    text = sop.read_text()
+    _, body = split_frontmatter(text)
+    sop.write_text(set_frontmatter_fields(text, {"content_hash": content_fingerprint(body)}))
+    assert gd.collect(library)[0]["drift"] is False  # stamped and clean
+    sop.write_text(sop.read_text().replace("Do the thing.", "Changed."))
+    assert gd.collect(library)[0]["drift"] is True
+    html = gd.build_html(library)
+    assert '"drift": true' in html
