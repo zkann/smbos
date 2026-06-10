@@ -266,7 +266,14 @@ function openDetail(s){
   dlg.showModal();
 }
 function runBox(s){
-  if(!CFG.live||s.archived||s.status==='draft')return '';
+  if(s.archived)return '';
+  if(s.status==='draft'){
+    const trig=(s.meta.triggers||'').split(',')[0].trim();
+    return '<div class="suggest"><div class="slabel">Run this task</div>'
+      +'<div class="hint" style="margin:0">This task hasn’t been done together yet, so it can’t run in the background. '
+      +'Do it once in Claude'+(trig?' (just say “'+esc(trig)+'”)':'')+' and the Run button appears here afterward.</div></div>';
+  }
+  if(!CFG.live)return '';
   const req=(s.meta.run_inputs||'').trim();
   const items=req?req.split(',').map(x=>x.trim()).filter(Boolean):[];
   return '<div class="suggest"><div class="slabel">Run this task</div>'
