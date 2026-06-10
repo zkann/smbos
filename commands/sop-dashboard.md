@@ -11,7 +11,7 @@ Two modes. Default is a static snapshot. Use live mode when `$ARGUMENTS` contain
 
 1. Run the server in the background: `python3 <plugin-root>/scripts/serve_dashboard.py` (pass the SOP directory as an argument if standard resolution would pick the wrong one). It binds 127.0.0.1 on a random port with a per-run token.
 2. Read the URL it prints (`http://127.0.0.1:<port>/?t=<token>`) and open it in the browser.
-3. Tell the user, briefly: the page re-reads their files on refresh; the "Suggest a change" box on any SOP saves straight into that SOP's "Notes for next revision" (tagged "via dashboard"), and Claude will offer to turn pending suggestions into real edits at the start of the next session; say "stop the dashboard" to shut the server down.
+3. Tell the user, briefly: the page re-reads their files on refresh; the "Suggest a change" box on any SOP saves straight into that SOP's notes; parked runs have Approve/Discard buttons (approve records the decision, the action happens in the next Claude session); non-draft SOPs have a "Run this now" button (background run, small automation cost, stops for approval before anything external); say "stop the dashboard" to shut the server down.
 4. When asked to stop, kill the background process.
 
 ## Static mode

@@ -37,6 +37,17 @@
   #parked strong{color:var(--active-ink)}
   #parked .pitem{cursor:pointer;text-decoration:underline}
   #parked ul{margin:6px 0 0;padding-left:18px}
+  #parked li{margin:4px 0}
+  .pbtn{border:1px solid var(--line);background:var(--card);border-radius:7px;padding:2px 10px;font-size:12.5px;cursor:pointer;margin-left:6px}
+  .pbtn.ok{border-color:#9fcfae;color:var(--trusted-ink)}
+  .pbtn.no{border-color:#e0c39a;color:var(--warn)}
+  .pbtn:disabled{opacity:.5;cursor:default}
+  .runbtn{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:6px 13px;font-size:13px;cursor:pointer}
+  #meter{margin:12px 32px 0;padding:12px 16px;border:1px solid var(--line);background:var(--card);border-radius:10px;font-size:13.5px;display:none}
+  #meter.show{display:block}
+  #meter .step{margin-right:14px;color:var(--muted)}
+  #meter .step.done{color:var(--trusted-ink)}
+  #meter .nextwin{margin-top:6px;color:var(--ink)}
   #attention strong{color:var(--warn)}
   #attention ul{margin:6px 0 0;padding-left:18px}
   main{padding:10px 32px 60px;max-width:1180px}
@@ -99,6 +110,7 @@
   <input type="search" id="q" placeholder="Search SOPs, triggers, steps...">
   <label><input type="checkbox" id="showArchived"> show archived</label>
 </div>
+<div id="meter"></div>
 <div id="parked"></div>
 <div id="attention"></div>
 <main id="main"></main>
@@ -221,16 +233,57 @@ function openDetail(s){
     +'<span class="pill">last used '+esc(m.last_used||'never')+'</span>'
     +'<span class="pill">'+esc(s.path)+'</span>'
     +rels('needs',m.needs)+rels('next',m.next)+rels('extends',m.extends)+'</div>'
+    +runBox(s)
     +suggestBox(s)
     +mdToHtml(s.body);
   const btn=document.getElementById('sgbtn');
   if(btn)btn.onclick=()=>submitSuggestion(s);
+  const rb=document.getElementById('runbtn');
+  if(rb)rb.onclick=async()=>{
+    rb.disabled=true;
+    const st=document.getElementById('runstatus');
+    try{
+      const r=await fetch('/api/run',{method:'POST',
+        headers:{'Content-Type':'application/json','X-Token':CFG.token},
+        body:JSON.stringify({id:s.meta.id})});
+      st.textContent=r.ok?'Started. Check back in a minute or two; if it needs your OK it will appear in the approval list.':'Could not start ('+r.status+').';
+    }catch(e){st.textContent='Could not reach the dashboard server.';rb.disabled=false;}
+  };
   dlg.showModal();
+}
+function runBox(s){
+  if(!CFG.live||s.archived||s.status==='draft')return '';
+  return '<div class="suggest"><div class="row"><button class="runbtn" id="runbtn">Run this now</button>'
+    +'<span class="sstatus" id="runstatus"></span></div>'
+    +'<div class="hint">Runs in the background and uses a small amount of your automation credit. It stops for your approval before anything is sent.</div></div>';
 }
 function rels(label,val){
   if(!val)return '';
   return val.split(',').map(x=>x.trim()).filter(Boolean)
     .map(id=>'<span class="pill relpill">'+label+': '+refLink(id)+'</span>').join('');
+}
+function renderMeter(){
+  const live=sops.filter(s=>!s.archived);
+  if(!live.length)return;
+  const steps=[
+    {label:'Library started',done:live.length>0},
+    {label:'First task done together',done:live.some(s=>parseInt(s.meta.runs||'0')>0)},
+    {label:'A task earned "active"',done:live.some(s=>s.status==='active'||s.status==='trusted')},
+    {label:'A task earned "trusted"',done:live.some(s=>s.status==='trusted')},
+    {label:'Something runs on a schedule',done:Object.keys(EXTRA.schedules||{}).length>0}
+  ];
+  const doneCount=steps.filter(s=>s.done).length;
+  if(doneCount===steps.length)return;
+  const next=steps.find(s=>!s.done);
+  const wins={'First task done together':'Next time you do any of these tasks, just ask Claude in plain words; the matching SOP runs and gets verified.',
+    'A task earned "active"':'Finish one task with Claude and its SOP is promoted automatically.',
+    'A task earned "trusted"':'Three smooth runs of the same task and it earns trusted (which unlocks worry-free automation).',
+    'Something runs on a schedule':'Pick a recurring task and tell Claude: "run this every Monday morning".'};
+  const el=document.getElementById('meter');
+  el.className='show';
+  el.innerHTML='<strong>Getting going ('+doneCount+' of '+steps.length+')</strong><div style="margin-top:5px">'
+    +steps.map(s=>'<span class="step'+(s.done?' done':'')+'">'+(s.done?'&#10003; ':'&#9675; ')+esc(s.label)+'</span>').join('')
+    +'</div><div class="nextwin">Easiest next win: '+esc(wins[next.label]||next.label)+'</div>';
 }
 function suggestBox(s){
   if(s.archived)return '';
@@ -288,8 +341,14 @@ function summary(){
     pk.className='show';
     pk.innerHTML='<strong>Awaiting your approval ('+parkedItems.length+' triggered run'+(parkedItems.length>1?'s':'')+'):</strong><ul>'
       +parkedItems.map((p,i)=>'<li><span class="pitem" data-i="'+i+'">'+esc(p.meta.sop||p.path)+'</span>'
-        +' started by '+esc(p.source_plain||'an automated run')+', '+esc((p.meta.created||'').slice(0,10))+'</li>').join('')
-      +'</ul><div style="margin-top:6px;color:var(--muted)">Approve or discard these in Claude: "review my pending runs".</div>';
+        +' started by '+esc(p.source_plain||'an automated run')+', '+esc((p.meta.created||'').slice(0,10))
+        +(CFG.live?'<button class="pbtn ok" data-i="'+i+'" data-d="approve">Approve</button>'
+                  +'<button class="pbtn no" data-i="'+i+'" data-d="discard">Discard</button>'
+                  +'<span class="pstatus" data-i="'+i+'" style="margin-left:8px;font-size:12.5px"></span>':'')
+        +'</li>').join('')
+      +'</ul><div style="margin-top:6px;color:var(--muted)">'
+      +(CFG.live?'Approve records your decision; the action itself happens in your next Claude session. Discard cancels it.'
+                :'Approve or discard these in Claude: "review my pending runs".')+'</div>';
     pk.querySelectorAll('.pitem').forEach(el=>{el.onclick=()=>{
       const p=parkedItems[+el.dataset.i];
       document.getElementById('dtitle').textContent='Parked: '+(p.meta.sop||p.path);
@@ -301,7 +360,23 @@ function summary(){
         +mdToHtml(p.body);
       dlg.showModal();
     };});
+    pk.querySelectorAll('.pbtn').forEach(btn=>{btn.onclick=async()=>{
+      const p=parkedItems[+btn.dataset.i];
+      const st=pk.querySelector('.pstatus[data-i="'+btn.dataset.i+'"]');
+      pk.querySelectorAll('.pbtn[data-i="'+btn.dataset.i+'"]').forEach(b=>b.disabled=true);
+      try{
+        const r=await fetch('/api/resolve',{method:'POST',
+          headers:{'Content-Type':'application/json','X-Token':CFG.token},
+          body:JSON.stringify({file:p.path,decision:btn.dataset.d})});
+        if(r.ok){st.textContent=btn.dataset.d==='approve'
+          ?'Approved. It happens in your next Claude session.':'Discarded.';}
+        else{st.textContent='Could not save ('+r.status+').';
+          pk.querySelectorAll('.pbtn[data-i="'+btn.dataset.i+'"]').forEach(b=>b.disabled=false);}
+      }catch(e){st.textContent='Could not reach the dashboard server.';
+        pk.querySelectorAll('.pbtn[data-i="'+btn.dataset.i+'"]').forEach(b=>b.disabled=false);}
+    };});
   }
+  renderMeter();
   const att=sops.filter(s=>s.flags.length);
   const el=document.getElementById('attention');
   const failLis=(EXTRA.failures||[]).map(f=>'<li><b>'+esc(f.sop)+'</b> ('+esc(f.when)+'): '
