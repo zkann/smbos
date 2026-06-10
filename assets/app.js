@@ -129,7 +129,7 @@ function renderWaiting(){
     const p=items[+n.dataset.i];
     document.getElementById('dtitle').textContent='Waiting for you: '+(sopTitle(p.meta.sop)||p.path);
     document.getElementById('dbody').innerHTML=
-      '<div class="dmeta"><span class="badge draft">pending</span>'
+      '<div class="dmeta"><span class="badge pending">pending</span>'
       +'<span class="pill">started by '+esc(p.source_plain||'an automated run')+'</span>'
       +'<span class="pill">'+esc(relTime(p.meta.created)||p.meta.created||'')+'</span></div>'
       +mdToHtml(p.body);
