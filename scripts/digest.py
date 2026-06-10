@@ -133,7 +133,7 @@ def build(d):
             reg = {}
         active = [t for t in reg.get("triggers", []) if t.get("enabled")]
         if active:
-            lines += ["## On the calendar", ""]
+            lines += ["## Coming up", ""]
             lines += [f"- {t['sop']}: {humanize_spec(t['spec'], t.get('kind'))}" for t in active]
             lines.append("")
     return "\n".join(lines).rstrip() + "\n", len(waiting), len(failures)

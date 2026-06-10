@@ -55,6 +55,19 @@ def collect_pending(sop_dir):
     return items
 
 
+def collect_queued(sop_dir):
+    out = []
+    qdir = sop_dir / "queue"
+    if qdir.is_dir():
+        for p in sorted(qdir.glob("*.md")):
+            m = parse_frontmatter(p.read_text(encoding="utf-8"))
+            if m.get("status") != "queued":
+                continue
+            out.append({"sop": m.get("sop", p.stem),
+                        "project": Path(m["project"]).name if m.get("project") else ""})
+    return out
+
+
 def work_items(sop_dir):
     out = []
     wd = sop_dir / "work"
@@ -136,7 +149,8 @@ def build_html(sop_dir, cfg=None):
     extra = json.dumps({"pending": collect_pending(sop_dir), "costs": cost_summary(sop_dir),
                         "schedules": schedules(sop_dir),
                         "failures": recent_failures(sop_dir),
-                        "work": work_items(sop_dir)}).replace("</", "<\\/")
+                        "work": work_items(sop_dir),
+                        "queued": collect_queued(sop_dir)}).replace("</", "<\\/")
     html = html.replace("__SOPS_JSON__", data)
     html = html.replace("__CFG_JSON__", cfg_json)
     html = html.replace("__EXTRA_JSON__", extra)

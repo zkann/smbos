@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.16.0 (2026-06-10)
+
+- Today-first dashboard: two tabs. Today leads with Waiting for you (inline approve/discard, reassuring empty state), Needs attention (translated failures), In flight, On your plate (queued tasks now visible on the dashboard, with their folder), Coming up (humanized schedules + a spend bar against the monthly allowance), and the getting-going meter. Procedures holds the sorted grid (trusted/active first, then by recency) with a status legend.
+- Connection clarity: a header chip shows Live (with the launch folder) or Snapshot (with when it was taken); a heartbeat detects a dead live server and shows a what-to-do banner instead of failing silently; live pages auto-refresh when idle.
+- One vocabulary everywhere: Waiting for you / On your plate / In flight / Coming up across dashboard, digest, and the session protocol. Cards drop version numbers, file paths, and counters in favor of "used 9 times, last yesterday"; SOP ids render as titles; relative dates throughout; queue buttons say "Put it on my plate".
+
 ## 0.15.0 (2026-06-10)
 
 - Shared `scripts/smbos_lib.py`: one canonical implementation of directory resolution, frontmatter parsing, SOP iteration, and run-log reading; all six scripts refactored onto it (frontmatter parsing previously existed in five places and had already drifted once).

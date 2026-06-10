@@ -27,7 +27,7 @@ def test_parked_and_approved_detection(library, tmp_path):
     (pend / "a.md").write_text("---\nsop: x\nstatus: pending\n---\n")
     (pend / "b.md").write_text("---\nsop: y\nstatus: approved\n---\n")
     out = run_hook(library, tmp_path)
-    assert "TRIGGERED RUNS AWAITING APPROVAL: 1" in out
+    assert "WAITING FOR YOU (parked approvals): 1" in out
     assert "APPROVED ACTIONS TO EXECUTE: 1" in out
 
 
@@ -41,11 +41,11 @@ def test_queue_routing_by_cwd(library, tmp_path):
     (q / "a.md").write_text(f"---\nsop: s\nproject: {proj_a}\nstatus: queued\n---\n")
     (q / "anywhere.md").write_text("---\nsop: s\nproject: \nstatus: queued\n---\n")
     in_a = run_hook(library, proj_a)
-    assert "FOR THIS SESSION: 2" in in_a
-    assert "OTHER PROJECTS" not in in_a
+    assert "ON YOUR PLATE (this session): 2" in in_a
+    assert "ON YOUR PLATE ELSEWHERE" not in in_a
     in_b = run_hook(library, proj_b)
-    assert "FOR THIS SESSION: 1" in in_b
-    assert "OTHER PROJECTS" in in_b and "projectA" in in_b
+    assert "ON YOUR PLATE (this session): 1" in in_b
+    assert "ON YOUR PLATE ELSEWHERE" in in_b and "projectA" in in_b
 
 
 def test_work_items_routed(library, tmp_path):

@@ -136,6 +136,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
+        if u.path == "/api/ping":
+            ok = (self.headers.get("X-Token") == TOKEN
+                  or parse_qs(u.query).get("t", [""])[0] == TOKEN)
+            return self._send(200 if ok else 403, '{"ok": true}' if ok else '{"error":"bad token"}')
         if u.path not in ("/", "/index.html"):
             return self._send(404, '{"error":"not found"}')
         if parse_qs(u.query).get("t", [""])[0] != TOKEN:
