@@ -4,30 +4,40 @@ The dashboard's design system, extracted from the rendered product and locked in
 
 ## Type
 
-- System font stack (`-apple-system, system-ui, Segoe UI, Roboto, ...`). **Deliberate, not a default:** the product ships with zero dependencies and no network calls, so webfonts are out; the native stack reads as quiet macOS-grade chrome, which fits a tool that lives next to Terminal and Obsidian. Do not "upgrade" to a hosted font.
-- Body 16px / 1.55. Microcopy floor 12px. Panel headings are 13px uppercase letterspaced labels (overline style); card titles 15.5px/600; the H1 is 21px/700.
+- System font stack (`-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, ...`). **Deliberate, not a default:** the product ships with zero dependencies and no network calls, so webfonts are out; the native stack reads as quiet macOS-grade chrome, which fits a tool that lives next to Terminal and Obsidian. Do not "upgrade" to a hosted font.
+- Body 16px / 1.55. Microcopy floor 12px, with one sanctioned exception: monospace overline labels and badges may sit at 11-11.5px because uppercase + letterspacing keeps them legible. Panel headings are the 11px mono overlines; card titles 15.5px/600; the H1 is 20px/650.
 - Numbers that line up in columns get `font-variant-numeric: tabular-nums` (add when a true table appears).
 
-## Color
+## Color (Command Center, since 0.18.0)
 
-Warm neutrals plus three semantic hues, defined as CSS variables in the template root:
+shadcn zinc-dark tokens hand-ported to plain CSS (`assets/style.css` :root), fused with signal accents:
 
-- Surfaces: `--bg #f7f7f5`, `--card #ffffff`, `--line #e4e4de`
-- Ink: `--ink #1c1c1a`, `--muted #6f6f68`
-- Status: draft = amber (`--draft-ink #92600a` on `#fdf3e3`), active = blue (`#1d4ed8` on `#e8f0fd`), trusted = green (`#15803d` on `#e6f4ea`), warnings `--warn #b4540a`
-- Rule: status colors always ship with text labels, never color alone. Keep total non-gray palette under 15.
+- Surfaces: `--background #09090b`, `--card #0f0f12`, `--card-raised #17171b`, `--border #27272a`
+- Ink: `--foreground #fafafa`, `--muted-fg #a1a1aa`, `--subtle-fg #85858f` (AA-checked at 5.2:1)
+- Primary signal: green `#22c55e` (live dot, current stage, progress, primary buttons with `#052e16` text)
+- Status: draft = amber `#fbbf24`, active = blue `#60a5fa`, trusted = green `#4ade80`, each as soft translucent badges (10-12% tint + 25% border)
+- Secondary surfaces: `--chip-bg #18181b` (chips, tab rail), `--inset #0c0c0f` (sub-panels inside the dialog), `--border-strong #3f3f46` (hover borders, disabled dashes), `--primary-hover #1eb554`.
+- Rules: dark surfaces gain elevation by lightness steps, not shadows; status colors always ship with text labels; zero counts render neutral, never tinted; every text/surface pair stays WCAG AA (verified in the 0.18.0 PR). No hex literals outside `:root`.
+- Monospace (`ui-monospace`) marks the command-center DNA: panel labels (11px uppercase, .14em tracking), figures (counts, dollars), badges stay sans.
 
 ## Layout & spacing
 
-- One content column, max-width 1180px, 32px page gutters; panels and cards on a 12px radius with 1px `--line` borders. No shadows except the modal.
+- One content column, max-width 1180px, 32px page gutters; panels and cards on `--radius` (12px) with 1px `--border` borders.
+- Radius scale: 14 dialog, 12 surfaces (panels, cards, banner), 10 tab container and inset sub-panels, 7 tab items (nested = outer minus gap), 6 controls and inline chips, 999 pills and badges.
+- Spacing lands on even 4px-base steps; no odd one-off values.
+- Shadows: the modal, the active tab's 1px lift, and the live dot's glow are the only three. Dark surfaces otherwise gain elevation by lightness steps (`--card` to `--card-raised`), never shadow.
 - Panels are functional sections with one job each (inbox, plate, board, calendar); cards exist only when the card is the clickable object (a procedure). No decorative card grids.
 - Today tab leads with what needs the owner; the library lives behind the Procedures tab.
 
 ## Interaction
 
-- Buttons: primary = solid `--ink` on white text; secondary = 1px outline `.pbtn`. Minimum 30px tall on desktop, 44px on touch (`pointer:coarse`).
+- Buttons: primary = solid `--primary` green with dark text (shadcn recipe); secondary = 1px `--input` outline, transparent. Minimum 30px tall on desktop, 44px on touch (`pointer:coarse`). Focus = 2px `--ring` outline, offset 2px.
 - Disabled run buttons stay fully legible (dashed outline, muted text), never opacity-faded into the background.
 - Motion is minimal (120ms border/hover transitions) and fully disabled under `prefers-reduced-motion`.
+
+## Source structure
+
+`assets/index.html` (document + data placeholders), `assets/style.css` (all tokens and component recipes), `assets/app.js` (render functions named 1:1 for future React components). The Python generator inlines all three into one self-contained file; the output stays single-file and zero-dependency even though the source is split.
 
 ## Voice (owner-facing copy)
 

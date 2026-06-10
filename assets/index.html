@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SmbOS: your operations</title>
+<link rel="icon" href="data:,">
+<style>
+/*__STYLE__*/
+</style>
+</head>
+<body>
+<header>
+  <div class="topline">
+    <h1>SmbOS <span>/ your operations</span></h1>
+    <span class="chip" id="modechip"></span>
+  </div>
+  <div class="counts" id="counts"></div>
+  <nav id="tabs">
+    <button class="tab on" data-tab="today">Today</button>
+    <button class="tab" data-tab="procedures">Procedures</button>
+  </nav>
+</header>
+<div id="connbanner">This dashboard lost its connection. Ask Claude to restart it (say: "show me my dashboard"), then close this tab.</div>
+
+<section class="tabbody" id="tab-today">
+  <div class="panel" id="waiting"></div>
+  <div class="panel warnp" id="attention" style="display:none"></div>
+  <div class="panel" id="work" style="display:none"></div>
+  <div class="panel" id="plate" style="display:none"></div>
+  <div class="panel" id="coming" style="display:none"></div>
+  <div class="panel" id="meter" style="display:none"></div>
+</section>
+
+<section class="tabbody" id="tab-procedures" style="display:none">
+  <div class="toolbar">
+    <input type="search" id="q" placeholder="Search procedures...">
+    <label><input type="checkbox" id="showArchived"> show archived</label>
+  </div>
+  <div class="legend">
+    <span class="badge draft">draft</span> not yet done together &nbsp;·&nbsp;
+    <span class="badge active">active</span> done together at least once &nbsp;·&nbsp;
+    <span class="badge trusted">trusted</span> runs smoothly, can run unattended
+  </div>
+  <main id="main"></main>
+</section>
+
+<footer id="howto">
+  To change anything here, tell Claude in plain words: "run the invoice procedure", "update the newsletter one, send time is now 9am", "save what we just did". Every change is proposed as a diff and applied only when you approve it.
+  <span id="modeNote"></span>
+  <br>Your library lives in <code>__SOP_DIR__</code>.
+</footer>
+
+<dialog id="dlg"><div class="dhead"><h3 id="dtitle"></h3><button id="dclose">Close</button></div><div class="dbody" id="dbody"></div></dialog>
+<script id="sop-data" type="application/json">__SOPS_JSON__</script>
+<script id="cfg" type="application/json">__CFG_JSON__</script>
+<script id="extra" type="application/json">__EXTRA_JSON__</script>
+<script>
+/*__APP_JS__*/
+</script>
+</body>
+</html>
