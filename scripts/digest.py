@@ -12,7 +12,6 @@ notify=true posts a macOS notification (default true when unset).
 """
 import argparse
 import json
-import os
 import subprocess
 import sys
 import urllib.request
@@ -21,20 +20,11 @@ from pathlib import Path  # noqa: F401  (used for project-folder display)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from humanize import humanize_failure, humanize_source, humanize_spec
-
-
-def resolve_sop_dir(explicit):
-    for c in [explicit, os.environ.get("SOP_DIR"), str(Path.home() / "sops")]:
-        if c and Path(c).expanduser().is_dir():
-            return Path(c).expanduser()
-    sys.exit("No SOP directory found.")
+from smbos_lib import parse_frontmatter, resolve_sop_dir
 
 
 def frontmatter_value(text, field):
-    for line in text[:800].splitlines():
-        if line.startswith(field + ":"):
-            return line.partition(":")[2].strip()
-    return None
+    return parse_frontmatter(text[:1200]).get(field) or None
 
 
 def build(d):
@@ -187,7 +177,7 @@ def main():
     ap.add_argument("--sop-dir")
     ap.add_argument("--print-only", action="store_true")
     args = ap.parse_args()
-    d = resolve_sop_dir(args.sop_dir)
+    d = resolve_sop_dir(explicit=args.sop_dir)
     text, n_waiting, n_failures = build(d)
     if args.print_only:
         print(text)
