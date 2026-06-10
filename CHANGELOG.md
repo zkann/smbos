@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.17.2 (2026-06-10)
+
+- Design audit pass (B+ to A-): action buttons reach a real click size (30px desktop, 44px touch), body text to 16px with a 12px microcopy floor, the footer shows `~/sops` instead of the absolute home path, and motion respects `prefers-reduced-motion`. DESIGN.md locks in the extracted design system, including why the system font stack is intentional.
+
 ## 0.17.1 (2026-06-10)
 
 - Launch buttons open YOUR terminal: iTerm2 is natively supported alongside Terminal.app, auto-detected from the session that started the dashboard (`TERM_PROGRAM`), with a `terminal` config override in triggers.json. Field-found: the author uses iTerm2 and the hardcoded Terminal.app would have opened the wrong app on the first click.
