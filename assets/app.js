@@ -463,11 +463,13 @@ async function submitSuggestion(s){
 function summary(){
   const live=sops.filter(s=>!s.archived);
   const n=k=>live.filter(s=>s.status===k).length;
+  const countPill=(k,label)=>{const c=n(k);
+    return '<span class="pill'+(c?' '+k:'')+'"><b>'+c+'</b> '+label+'</span>';};
   document.getElementById('counts').innerHTML=
     '<span class="pill"><b>'+live.length+'</b> procedures</span>'
-    +'<span class="pill trusted"><b>'+n('trusted')+'</b> trusted</span>'
-    +'<span class="pill active"><b>'+n('active')+'</b> active</span>'
-    +'<span class="pill draft"><b>'+n('draft')+'</b> drafts</span>'
+    +countPill('trusted','trusted')
+    +countPill('active','active')
+    +countPill('draft','drafts')
     +(sops.length-live.length?'<span class="pill">'+(sops.length-live.length)+' archived</span>':'');
   const chip=document.getElementById('modechip');
   if(CFG.live){
