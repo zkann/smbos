@@ -4,8 +4,8 @@ The dashboard's design system, extracted from the rendered product and locked in
 
 ## Type
 
-- System font stack (`-apple-system, system-ui, Segoe UI, Roboto, ...`). **Deliberate, not a default:** the product ships with zero dependencies and no network calls, so webfonts are out; the native stack reads as quiet macOS-grade chrome, which fits a tool that lives next to Terminal and Obsidian. Do not "upgrade" to a hosted font.
-- Body 16px / 1.55. Microcopy floor 12px. Panel headings are 13px uppercase letterspaced labels (overline style); card titles 15.5px/600; the H1 is 21px/700.
+- System font stack (`-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, ...`). **Deliberate, not a default:** the product ships with zero dependencies and no network calls, so webfonts are out; the native stack reads as quiet macOS-grade chrome, which fits a tool that lives next to Terminal and Obsidian. Do not "upgrade" to a hosted font.
+- Body 16px / 1.55. Microcopy floor 12px, with one sanctioned exception: monospace overline labels and badges may sit at 11-11.5px because uppercase + letterspacing keeps them legible. Panel headings are the 11px mono overlines; card titles 15.5px/600; the H1 is 20px/650.
 - Numbers that line up in columns get `font-variant-numeric: tabular-nums` (add when a true table appears).
 
 ## Color (Command Center, since 0.18.0)
@@ -16,12 +16,16 @@ shadcn zinc-dark tokens hand-ported to plain CSS (`assets/style.css` :root), fus
 - Ink: `--foreground #fafafa`, `--muted-fg #a1a1aa`, `--subtle-fg #85858f` (AA-checked at 5.2:1)
 - Primary signal: green `#22c55e` (live dot, current stage, progress, primary buttons with `#052e16` text)
 - Status: draft = amber `#fbbf24`, active = blue `#60a5fa`, trusted = green `#4ade80`, each as soft translucent badges (10-12% tint + 25% border)
-- Rules: dark surfaces gain elevation by lightness steps, not shadows; status colors always ship with text labels; every text/surface pair stays WCAG AA (verified in the 0.18.0 PR).
+- Secondary surfaces: `--chip-bg #18181b` (chips, tab rail), `--inset #0c0c0f` (sub-panels inside the dialog), `--border-strong #3f3f46` (hover borders, disabled dashes), `--primary-hover #1eb554`.
+- Rules: dark surfaces gain elevation by lightness steps, not shadows; status colors always ship with text labels; zero counts render neutral, never tinted; every text/surface pair stays WCAG AA (verified in the 0.18.0 PR). No hex literals outside `:root`.
 - Monospace (`ui-monospace`) marks the command-center DNA: panel labels (11px uppercase, .14em tracking), figures (counts, dollars), badges stay sans.
 
 ## Layout & spacing
 
-- One content column, max-width 1180px, 32px page gutters; panels and cards on a 12px radius with 1px `--line` borders. No shadows except the modal.
+- One content column, max-width 1180px, 32px page gutters; panels and cards on `--radius` (12px) with 1px `--border` borders.
+- Radius scale: 14 dialog, 12 surfaces (panels, cards, banner), 10 tab container and inset sub-panels, 7 tab items (nested = outer minus gap), 6 controls and inline chips, 999 pills and badges.
+- Spacing lands on even 4px-base steps; no odd one-off values.
+- Shadows: the modal, the active tab's 1px lift, and the live dot's glow are the only three. Dark surfaces otherwise gain elevation by lightness steps (`--card` to `--card-raised`), never shadow.
 - Panels are functional sections with one job each (inbox, plate, board, calendar); cards exist only when the card is the clickable object (a procedure). No decorative card grids.
 - Today tab leads with what needs the owner; the library lives behind the Procedures tab.
 
