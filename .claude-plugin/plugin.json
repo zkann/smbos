@@ -1,10 +1,16 @@
 {
   "name": "smbos",
   "description": "SmbOS: an operating system for your small business. Claude captures how YOU do recurring tasks as SOPs, follows them instead of its defaults, and keeps them updated from your feedback.",
-  "version": "0.11.1",
+  "version": "0.11.2",
   "author": {
     "name": "Zak Kann",
     "email": "zak@zakkann.com"
   },
-  "keywords": ["sop", "smb", "workflows", "operations", "solo-founder"]
+  "keywords": [
+    "sop",
+    "smb",
+    "workflows",
+    "operations",
+    "solo-founder"
+  ]
 }
