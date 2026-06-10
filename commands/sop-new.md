@@ -34,7 +34,8 @@ Show the full draft. Iterate until the user approves. Then:
 
 1. Set status by grounding: if this SOP was distilled from a task actually completed in this conversation, it has survived a real run, so `status: active`. If it was written from a description of a task not performed here, `status: draft`; drafts may keep `[personalize: question]` slots for unknowns and get verified on first run.
 2. Save to `<sop-dir>/<category>/<id>.md` with today's date in `created`/`updated`, `runs` set to 1 for active (0 for draft), `clean_runs: 0`.
-3. Add one line to `INDEX.md` in the standard format: `- **Title** (category/file.md): one-line description | triggers: phrase, phrase`.
-4. If the SOP directory is a git repo, commit the new SOP with a one-line message.
+3. Record the content fingerprint: `python3 <plugin-root>/scripts/sop_version.py stamp <id>` (this is what lets the system notice later edits that skip the save flow).
+4. Add one line to `INDEX.md` in the standard format: `- **Title** (category/file.md): one-line description | triggers: phrase, phrase`.
+5. If the SOP directory is a git repo, commit the new SOP with a one-line message.
 
 Confirm to the user what was saved and where.
