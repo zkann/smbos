@@ -134,7 +134,7 @@
   .dhead{position:sticky;top:0;background:var(--card);border-bottom:1px solid var(--border);padding:18px 26px;
     display:flex;justify-content:space-between;gap:12px;align-items:center;z-index:2}
   .dhead h3{margin:0;font-size:17px;font-weight:650}
-  .dhead button{border:1px solid var(--input);background:transparent;border-radius:6px;padding:5px 14px;
+  .dhead button{border:1px solid var(--input);background:transparent;border-radius:6px;padding:5px 14px;min-height:30px;
     font-size:13px;color:var(--foreground);cursor:pointer}
   .dhead button:hover{background:var(--card-raised)}
   .dbody{padding:6px 26px 26px;overflow-y:auto}
@@ -179,5 +179,5 @@
     .chip.live::before{box-shadow:none}
   }
   @media (pointer:coarse){
-    .pbtn,.suggest button,.tab{min-height:44px}
+    .pbtn,.suggest button,.tab,.dhead button{min-height:44px}
   }
