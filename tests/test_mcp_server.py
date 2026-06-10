@@ -74,3 +74,16 @@ def test_costs_humanized(library):
     out = rpc(library, [INIT, call("automation_costs", {}, 2)])
     assert "every Monday at 8:57 AM" in text_of(out[1])
     assert "cron(" not in text_of(out[1])
+
+
+def test_list_sops_flags_unrecorded_changes(library):
+    from smbos_lib import content_fingerprint, set_frontmatter_fields, split_frontmatter
+    sop = library / "ops" / "weekly-metrics-report.md"
+    text = sop.read_text()
+    _, body = split_frontmatter(text)
+    sop.write_text(set_frontmatter_fields(text, {"content_hash": content_fingerprint(body)}))
+    sop.write_text(sop.read_text().replace("Do the thing.", "Changed."))
+    out = rpc(library, [INIT, call("list_sops", {})])
+    txt = text_of(out[-1])
+    assert "UNRECORDED CHANGES" in txt
+    assert "v1" in txt

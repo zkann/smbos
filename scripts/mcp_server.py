@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from smbos_lib import find_sop as lib_find_sop
 from smbos_lib import iter_sops as lib_iter_sops
-from smbos_lib import parse_frontmatter, resolve_sop_dir
+from smbos_lib import is_drifted, parse_frontmatter, resolve_sop_dir, split_frontmatter
 
 NOTES_HEADING = "## Notes for next revision"
 MAX_TEXT = 4000
@@ -79,10 +79,13 @@ def humanize_cron(spec):
 def t_list_sops(args):
     rows = []
     for p in iter_sops():
-        meta = frontmatter(p.read_text(encoding="utf-8")[:900])
+        text = p.read_text(encoding="utf-8")
+        meta = frontmatter(text[:900])
+        full_meta, body = split_frontmatter(text)
+        drift = " | UNRECORDED CHANGES (edited outside the normal save flow; suggest the user review it in Claude Code)" if is_drifted(full_meta, body) else ""
         rows.append(f"- {meta.get('title', p.stem)} (id: {meta.get('id', p.stem)}) "
-                    f"[{meta.get('status', 'draft')}] runs={meta.get('runs', '0')} "
-                    f"last_used={meta.get('last_used', 'never')} | triggers: {meta.get('triggers', '')}")
+                    f"[{meta.get('status', 'draft')}] v{meta.get('version', '1')} runs={meta.get('runs', '0')} "
+                    f"last_used={meta.get('last_used', 'never')} | triggers: {meta.get('triggers', '')}{drift}")
     return "The user's SOP library:\n" + "\n".join(rows) if rows else "No SOPs yet."
 
 
