@@ -155,7 +155,11 @@ def build_html(sop_dir, cfg=None):
     html = html.replace("__CFG_JSON__", cfg_json)
     html = html.replace("__EXTRA_JSON__", extra)
     html = html.replace("__GENERATED__", datetime.now(timezone.utc).isoformat())
-    html = html.replace("__SOP_DIR__", str(sop_dir))
+    display_dir = str(sop_dir)
+    home = str(Path.home())
+    if display_dir.startswith(home):
+        display_dir = "~" + display_dir[len(home):]
+    html = html.replace("__SOP_DIR__", display_dir)
     return html
 
 
