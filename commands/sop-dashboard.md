@@ -13,6 +13,7 @@ Two modes. Default is a static snapshot. Use live mode when `$ARGUMENTS` contain
 2. Read the URL it prints (`http://127.0.0.1:<port>/?t=<token>`) and open it in the browser.
 3. Tell the user, briefly: the page re-reads their files on refresh; the "Suggest a change" box saves into the SOP's notes; parked runs have Approve/Discard buttons (approve records the decision, the action happens in the next Claude session); non-draft SOPs have a "Run this now" button (background run, small automation cost, stops for approval); and any SOP can be queued for the next interactive session. Queued tasks are tagged with the folder the dashboard was launched from, so open the dashboard from a project's folder if you want its queued tasks to run there; from home they run anywhere. Say "stop the dashboard" to shut the server down.
 4. When asked to stop, kill the background process.
+5. Launch buttons ("Start in Claude", "Do it with Claude now") open the user's own terminal: auto-detected from the session that started the dashboard (Terminal.app or iTerm2), overridable with `sop_triggers.py terminal iterm`. If the user mentions using a different terminal app and launches open the wrong one, set that override. First-ever click may show a macOS permission prompt ("Python wants to control Terminal/iTerm").
 
 ## Static mode
 
