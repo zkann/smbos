@@ -1,180 +1,20 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SmbOS: your operations</title>
-<link rel="icon" href="data:,">
-<style>
-  :root{
-    --bg:#f7f7f5; --card:#ffffff; --ink:#1c1c1a; --muted:#6f6f68; --line:#e4e4de;
-    --draft-bg:#fdf3e3; --draft-ink:#92600a; --active-bg:#e8f0fd; --active-ink:#1d4ed8;
-    --trusted-bg:#e6f4ea; --trusted-ink:#15803d; --archived-bg:#ededea; --archived-ink:#6f6f68;
-    --warn:#b4540a; --slot-bg:#fdf3e3; --myway:#fbf7ec;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);
-    font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
-  header{padding:24px 32px 0;background:var(--card);border-bottom:1px solid var(--line)}
-  .topline{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-  header h1{margin:0;font-size:21px;letter-spacing:-.01em}
-  header h1 span{color:var(--muted);font-weight:400}
-  .chip{font-size:12.5px;padding:3px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--bg)}
-  .chip.live{color:var(--trusted-ink);border-color:#bfe3c9;background:var(--trusted-bg)}
-  .chip.live::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--trusted-ink);margin-right:6px}
-  .counts{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  .pill{font-size:13px;padding:3px 10px;border-radius:999px;border:1px solid var(--line);background:var(--card)}
-  .pill b{font-weight:600}
-  .pill.draft{background:var(--draft-bg);color:var(--draft-ink);border-color:transparent}
-  .pill.active{background:var(--active-bg);color:var(--active-ink);border-color:transparent}
-  .pill.trusted{background:var(--trusted-bg);color:var(--trusted-ink);border-color:transparent}
-  #tabs{margin-top:14px;display:flex;gap:2px}
-  .tab{border:none;background:none;font:inherit;font-size:14.5px;padding:9px 16px;cursor:pointer;color:var(--muted);
-    border-bottom:2.5px solid transparent}
-  .tab.on{color:var(--ink);font-weight:600;border-bottom-color:var(--ink)}
-  #connbanner{display:none;margin:14px 32px 0;padding:11px 16px;border-radius:10px;border:1px solid #e8b9a4;
-    background:#fdf0ea;color:var(--warn);font-size:14px}
-  #connbanner.show{display:block}
-  section.tabbody{padding:8px 32px 50px;max-width:1180px}
-  .panel{margin-top:14px;padding:15px 18px;border:1px solid var(--line);background:var(--card);border-radius:12px}
-  .panel h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 10px}
-  .panel.ok{border-style:dashed;color:var(--muted)}
-  .panel.warnp{border-color:#f0dcc0;background:#fdf8ef}
-  .panel ul{margin:0;padding-left:18px}
-  .panel li{margin:4px 0}
-  .pbtn{border:1px solid var(--line);background:var(--card);border-radius:7px;padding:5px 12px;min-height:30px;font-size:13px;cursor:pointer;margin-left:6px}
-  .pbtn.okb{border-color:#9fcfae;color:var(--trusted-ink)}
-  .pbtn.nob{border-color:#e0c39a;color:var(--warn)}
-  .pbtn:disabled{opacity:.5;cursor:default}
-  .pitem{cursor:pointer;text-decoration:underline}
-  .witem{padding:8px 0;border-top:1px solid var(--line)}
-  .witem:first-of-type{border-top:none;padding-top:2px}
-  .witem .wt{font-size:14.5px;font-weight:600}
-  .witem .wt .wflag{font-size:12px;font-weight:700;color:var(--warn);margin-left:6px}
-  .witem .wt .wproj{font-size:12.5px;font-weight:400;color:var(--muted);margin-left:6px}
-  .wstages{margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;align-items:center}
-  .wstage{font-size:12.5px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
-  .wstage.done{background:var(--trusted-bg);color:var(--trusted-ink);border-color:transparent}
-  .wstage.cur{background:var(--ink);color:#fff;border-color:transparent}
-  .warrow{color:var(--line)}
-  @media (prefers-reduced-motion: reduce){
-    *{transition:none !important;animation:none !important}
-  }
-  @media (pointer:coarse){
-    .pbtn,.suggest button,.tab{min-height:44px}
-  }
-  .spend{margin-top:10px}
-  .spendbar{height:8px;border-radius:99px;background:var(--bg);border:1px solid var(--line);overflow:hidden;max-width:340px}
-  .spendbar>div{height:100%;background:var(--active-ink)}
-  #meter .step{margin-right:14px;color:var(--muted)}
-  #meter .step.done{color:var(--trusted-ink)}
-  #meter .nextwin{margin-top:6px}
-  .toolbar{display:flex;gap:14px;align-items:center;margin-top:16px;flex-wrap:wrap}
-  .toolbar input[type=search]{flex:1;min-width:220px;max-width:420px;padding:8px 12px;border:1px solid var(--line);
-    border-radius:8px;font-size:14px;background:var(--card)}
-  .toolbar label{font-size:13px;color:var(--muted);display:flex;gap:6px;align-items:center;cursor:pointer}
-  .legend{margin-top:10px;font-size:13px;color:var(--muted)}
-  .legend .badge{margin-right:4px}
-  h2.cat{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:26px 0 10px}
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;cursor:pointer;
-    transition:border-color .12s, box-shadow .12s}
-  .card:hover{border-color:#c9c9c0;box-shadow:0 2px 10px rgba(0,0,0,.05)}
-  .card .top{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
-  .card h3{margin:0;font-size:15.5px;font-weight:600}
-  .badge{font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;padding:2px 8px;border-radius:999px;white-space:nowrap;cursor:help}
-  .badge.draft{background:var(--draft-bg);color:var(--draft-ink)}
-  .badge.active{background:var(--active-bg);color:var(--active-ink)}
-  .badge.trusted{background:var(--trusted-bg);color:var(--trusted-ink)}
-  .badge.archived{background:var(--archived-bg);color:var(--archived-ink)}
-  .card p{margin:8px 0 0;color:var(--muted);font-size:13.5px;min-height:20px}
-  .card .stats{margin-top:12px;display:flex;gap:14px;font-size:13px;color:var(--muted);flex-wrap:wrap}
-  .flag{color:var(--warn);font-weight:600}
-  .card .trig{margin-top:10px;font-size:12.5px;color:var(--muted)}
-  .card .trig em{font-style:normal;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:1px 6px;margin-right:4px;display:inline-block;margin-top:3px}
-  dialog{border:none;border-radius:14px;padding:0;max-width:760px;width:92vw;max-height:86vh;box-shadow:0 18px 60px rgba(0,0,0,.25)}
-  dialog::backdrop{background:rgba(20,20,18,.45)}
-  .dhead{position:sticky;top:0;background:var(--card);border-bottom:1px solid var(--line);padding:18px 26px;display:flex;justify-content:space-between;gap:12px;align-items:center;z-index:2}
-  .dhead h3{margin:0;font-size:18px}
-  .dhead button{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:5px 12px;font-size:13px;cursor:pointer}
-  .dbody{padding:6px 26px 26px;overflow-y:auto}
-  .dmeta{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 4px}
-  .dbody h2{font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:24px 0 8px;border-bottom:1px solid var(--line);padding-bottom:5px}
-  .dbody h1{display:none}
-  .dbody ol,.dbody ul{padding-left:22px;margin:8px 0}
-  .dbody li{margin:4px 0}
-  .dbody p{margin:8px 0}
-  .dbody code{background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:13px}
-  .slot{background:var(--slot-bg);color:var(--draft-ink);border-radius:5px;padding:1px 5px}
-  .sopref{color:var(--active-ink);background:var(--active-bg);border-radius:5px;padding:1px 6px;cursor:pointer;text-decoration:none}
-  .sopref.missing{color:var(--warn);background:var(--slot-bg);border:1px dashed var(--warn);cursor:default}
-  .relpill{cursor:pointer;border-color:#c5d4f5 !important}
-  .approval{background:var(--active-bg);color:var(--active-ink);border-radius:5px;padding:1px 6px;font-weight:600;font-size:12px}
-  .suggest{margin:20px 0 4px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
-  .suggest .slabel{font-size:12.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px}
-  .suggest textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit;font-size:14px;resize:vertical;background:var(--card)}
-  .suggest .row{display:flex;gap:12px;align-items:center;margin-top:8px;flex-wrap:wrap}
-  .suggest button{border:none;background:var(--ink);color:#fff;border-radius:8px;padding:7px 14px;font-size:13.5px;cursor:pointer}
-  .suggest button:hover{opacity:.85}
-  .suggest button.pbtn{background:var(--card);color:var(--ink);border:1px solid var(--line);padding:6px 12px}
-  .suggest .sstatus{font-size:13px;color:var(--trusted-ink)}
-  .suggest .sstatus.err{color:var(--warn)}
-  .suggest .hint{margin-top:8px;font-size:13px;color:var(--muted)}
-  .suggest button.runbtn{background:var(--ink);color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:13.5px;cursor:pointer}
-  .suggest button.runbtn:hover{opacity:.85}
-  .suggest button.runbtn:disabled{background:var(--card);color:var(--muted);border:1px dashed #b9b9b0;cursor:not-allowed;opacity:1}
-  .reqchip{font-style:normal;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:2px 8px;margin:0 4px 4px 0;display:inline-block;font-size:13px;color:var(--ink)}
-  footer{margin:30px 32px;max-width:1180px;border-top:1px solid var(--line);padding-top:16px;color:var(--muted);font-size:13.5px}
-  footer code{background:var(--card);border:1px solid var(--line);border-radius:5px;padding:1px 6px}
-</style>
-</head>
-<body>
-<header>
-  <div class="topline">
-    <h1>SmbOS <span>/ your operations</span></h1>
-    <span class="chip" id="modechip"></span>
-  </div>
-  <div class="counts" id="counts"></div>
-  <nav id="tabs">
-    <button class="tab on" data-tab="today">Today</button>
-    <button class="tab" data-tab="procedures">Procedures</button>
-  </nav>
-</header>
-<div id="connbanner">This dashboard lost its connection. Ask Claude to restart it (say: "show me my dashboard"), then close this tab.</div>
-
-<section class="tabbody" id="tab-today">
-  <div class="panel" id="waiting"></div>
-  <div class="panel warnp" id="attention" style="display:none"></div>
-  <div class="panel" id="work" style="display:none"></div>
-  <div class="panel" id="plate" style="display:none"></div>
-  <div class="panel" id="coming" style="display:none"></div>
-  <div class="panel" id="meter" style="display:none"></div>
-</section>
-
-<section class="tabbody" id="tab-procedures" style="display:none">
-  <div class="toolbar">
-    <input type="search" id="q" placeholder="Search procedures...">
-    <label><input type="checkbox" id="showArchived"> show archived</label>
-  </div>
-  <div class="legend">
-    <span class="badge draft">draft</span> not yet done together &nbsp;·&nbsp;
-    <span class="badge active">active</span> done together at least once &nbsp;·&nbsp;
-    <span class="badge trusted">trusted</span> runs smoothly, can run unattended
-  </div>
-  <main id="main"></main>
-</section>
-
-<footer id="howto">
-  To change anything here, tell Claude in plain words: "run the invoice procedure", "update the newsletter one, send time is now 9am", "save what we just did". Every change is proposed as a diff and applied only when you approve it.
-  <span id="modeNote"></span>
-  <br>Your library lives in <code>__SOP_DIR__</code>.
-</footer>
-
-<dialog id="dlg"><div class="dhead"><h3 id="dtitle"></h3><button onclick="dlg.close()">Close</button></div><div class="dbody" id="dbody"></div></dialog>
-<script id="sop-data" type="application/json">__SOPS_JSON__</script>
-<script id="cfg" type="application/json">__CFG_JSON__</script>
-<script id="extra" type="application/json">__EXTRA_JSON__</script>
-<script>
+/* SmbOS dashboard app.
+ *
+ * Structured as render functions that map 1:1 onto future React components,
+ * so an eventual port is mechanical:
+ *   summary()          -> <Header/> (chip, counts, mode note)
+ *   renderWaiting()    -> <WaitingForYou/>   (approvals inbox + actions)
+ *   renderAttention()  -> <NeedsAttention/>  (translated failures + flags)
+ *   renderWork()       -> <InFlight/>        (stage boards)
+ *   renderPlate()      -> <OnYourPlate/>     (queued tasks + launch)
+ *   renderComing()     -> <ComingUp/>        (schedules + spend)
+ *   renderMeter()      -> <GettingGoing/>
+ *   render()           -> <ProceduresGrid/>  (sorted cards + legend)
+ *   openDetail()       -> <ProcedureDialog/> (runBox/suggestBox/queue actions)
+ *   startLiveness()    -> useLiveness() hook (ping + idle refresh)
+ * Data contracts: the embedded JSON blobs (sop-data, cfg, extra) and the
+ * /api/* endpoints are the stable interface; keep them framework-agnostic.
+ */
 const GENERATED="__GENERATED__";
 const CFG=JSON.parse(document.getElementById('cfg').textContent||'{"live":false}');
 let EXTRA={pending:[],costs:null,schedules:{},failures:[],work:[],queued:[]};
@@ -194,7 +34,7 @@ function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g
 function sopById(id){return sops.find(x=>(x.meta.id||'')===id);}
 function refLink(id){
   const t=sopById(id);
-  return t?'<a class="sopref" data-id="'+esc(id)+'">'+esc(t.title)+'</a>'
+  return t?'<a class="sopref" data-id="'+esc(id)+'" tabindex="0" role="link">'+esc(t.title)+'</a>'
           :'<span class="sopref missing">'+esc(id)+' (missing)</span>';
 }
 function inline(s){
@@ -273,21 +113,23 @@ function renderWaiting(){
   }
   el.className='panel';
   el.innerHTML='<h2>Waiting for you ('+items.length+')</h2><ul>'
-    +items.map((p,i)=>'<li><span class="pitem" data-i="'+i+'">'+esc(sopTitle(p.meta.sop)||p.path)+'</span>'
+    +items.map((p,i)=>'<li><span class="pitem" data-i="'+i+'" tabindex="0" role="button">'+esc(sopTitle(p.meta.sop)||p.path)+'</span>'
       +' prepared work, started by '+esc(p.source_plain||'an automated run')
       +(relTime(p.meta.created)?', '+relTime(p.meta.created):'')
       +(CFG.live?'<button class="pbtn okb" data-i="'+i+'" data-d="approve">Approve</button>'
                 +'<button class="pbtn nob" data-i="'+i+'" data-d="discard">Discard</button>'
-                +'<span class="pstatus" data-i="'+i+'" style="margin-left:8px;font-size:13px"></span>':'')
+                +'<span class="pstatus" data-i="'+i+'"></span>':'')
       +'</li>').join('')
-    +'</ul><div style="margin-top:6px;color:var(--muted);font-size:13px">'
+    +'</ul><div class="panel-note">'
     +(CFG.live?'Approve records your decision; the action itself happens in your next Claude session. Discard cancels it.'
               :'Approve or discard these in Claude: "review my pending runs".')+'</div>';
-  el.querySelectorAll('.pitem').forEach(n=>{n.onclick=()=>{
+  el.querySelectorAll('.pitem').forEach(n=>{
+    n.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();n.onclick();}};
+    n.onclick=()=>{
     const p=items[+n.dataset.i];
     document.getElementById('dtitle').textContent='Waiting for you: '+(sopTitle(p.meta.sop)||p.path);
     document.getElementById('dbody').innerHTML=
-      '<div class="dmeta"><span class="badge draft">pending</span>'
+      '<div class="dmeta"><span class="badge pending">pending</span>'
       +'<span class="pill">started by '+esc(p.source_plain||'an automated run')+'</span>'
       +'<span class="pill">'+esc(relTime(p.meta.created)||p.meta.created||'')+'</span></div>'
       +mdToHtml(p.body);
@@ -351,9 +193,9 @@ function renderPlate(){
     +items.map((q,i)=>'<li><b>'+esc(sopTitle(q.sop))+'</b>'
       +(q.project?': for the <b>'+esc(q.project)+'</b> folder':'')
       +(CFG.live?'<button class="pbtn okb qstart" data-i="'+i+'">Start in Claude</button>'
-        +'<span class="sstatus qst" data-i="'+i+'" style="margin-left:8px;font-size:13px"></span>':'')
+        +'<span class="sstatus qst" data-i="'+i+'"></span>':'')
       +'</li>').join('')
-    +'</ul><div style="margin-top:6px;color:var(--muted);font-size:13px">These are tasks you saved to do together; they need you in the loop.'
+    +'</ul><div class="panel-note">These are tasks you saved to do together; they need you in the loop.'
     +(CFG.live?' "Start in Claude" opens a terminal window in the right folder with the task ready to go.':'')+'</div>';
   el.querySelectorAll('.qstart').forEach(b=>{b.onclick=()=>{
     const q=items[+b.dataset.i];b.disabled=true;
@@ -374,14 +216,14 @@ function renderComing(){
       return '<li><b>'+esc(s?s.title:n)+'</b> runs '+sch[n].map(esc).join('; ')+'</li>';
     }).join('')+'</ul>';
   }else{
-    html+='<div style="color:var(--muted)">Nothing is scheduled yet. Pick a recurring task and tell Claude: "run this every Monday morning".</div>';
+    html+='<div class="quiet">Nothing is scheduled yet. Pick a recurring task and tell Claude: "run this every Monday morning".</div>';
   }
   if(c&&(c.runs>0||c.budget>0)){
     const pct=c.budget?Math.min(100,c.month_total/c.budget*100):0;
     html+='<div class="spend">Automation has used <b>$'+c.month_total.toFixed(2)+'</b>'
       +(c.budget?' of its $'+c.budget.toFixed(0)+' monthly allowance':'')
       +' ('+c.runs+' run'+(c.runs===1?'':'s')+' this month). These figures track your Claude plan usage, not separate charges.'
-      +(c.budget?'<div class="spendbar" style="margin-top:6px"><div style="width:'+pct+'%"></div></div>':'')+'</div>';
+      +(c.budget?'<div class="spendbar"><div style="width:'+pct+'%"></div></div>':'')+'</div>';
   }
   el.innerHTML=html;
 }
@@ -417,7 +259,7 @@ function render(){
   const vis=sops.filter(s=>(!s.archived||showArch)&&(!q||s.raw.toLowerCase().includes(q)));
   const cats={};vis.forEach(s=>{(cats[s.category]=cats[s.category]||[]).push(s);});
   const main=document.getElementById('main');main.innerHTML='';
-  if(!vis.length){main.innerHTML='<div style="color:var(--muted);padding:40px 0">'+(sops.length?'No procedures match that search.':'Nothing here yet. Tell Claude about your business and it will set up a starter pack.')+'</div>';return;}
+  if(!vis.length){main.innerHTML='<div class="empty-state">'+(sops.length?'No procedures match that search.':'Nothing here yet. Tell Claude about your business and it will set up a starter pack.')+'</div>';return;}
   const catKey=cat=>{
     const best=Math.min(...cats[cat].map(s=>RANK[s.status]??2));
     const recent=Math.min(...cats[cat].map(s=>{const n=daysAgo(s.meta.last_used);return n===null?9999:n;}));
@@ -433,6 +275,8 @@ function render(){
       return (da===null?9999:da)-(db===null?9999:db)||a.title.localeCompare(b.title);
     }).forEach(s=>{
       const card=document.createElement('div');card.className='card';
+      card.tabIndex=0;card.setAttribute('role','button');
+      card.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openDetail(s);}};
       const trig=(s.meta.triggers||'').split(',').map(t=>t.trim()).filter(Boolean).slice(0,4);
       const runs=parseInt(s.meta.runs||'0');
       const usedLine=runs>0?('used '+runs+' time'+(runs===1?'':'s')
@@ -471,8 +315,8 @@ function openDetail(s){
     +runBox(s)
     +suggestBox(s)
     +mdToHtml(s.body)
-    +'<div style="margin-top:18px;color:var(--muted);font-size:12.5px">File: '+esc(s.path)
-    +(CFG.live?' <a href="#" id="openfile" style="color:var(--active-ink)">open in editor</a>':'')+'</div>';
+    +'<div class="fileline">File: '+esc(s.path)
+    +(CFG.live?' <a href="#" id="openfile">open in editor</a>':'')+'</div>';
   const btn=document.getElementById('sgbtn');
   if(btn)btn.onclick=()=>submitSuggestion(s);
   const qb=document.getElementById('queuebtn');
@@ -515,13 +359,13 @@ function runBox(s){
   if(s.status==='draft'){
     const trig=(s.meta.triggers||'').split(',')[0].trim();
     return '<div class="suggest"><div class="slabel">Run this task</div>'
-      +'<div class="hint" style="margin:0 0 8px">This task hasn’t been done together yet, so it can’t run in the background. '
+      +'<div class="hint lead">This task hasn’t been done together yet, so it can’t run in the background. '
       +'Do it once with Claude'+(trig?' (just say “'+esc(trig)+'”)':'')+' and the Run button appears here afterward.'+'</div>'
-      +(CFG.live?'<div class="row" style="margin:0 0 10px"><button class="runbtn" id="donowbtn">Do it with Claude now</button>'
+      +(CFG.live?'<div class="row lead"><button class="btn-primary runbtn" id="donowbtn">Do it with Claude now</button>'
         +'<span class="sstatus" id="donowstatus"></span></div>'
         +'<textarea id="queueinputs" rows="2" placeholder="Anything Claude should know when you do it together? Optional."></textarea>'
         +scopeChoice()
-        +'<div class="row"><button class="pbtn" id="queuebtn" style="padding:6px 12px">Put it on my plate for later</button>'
+        +'<div class="row"><button class="pbtn" id="queuebtn">Put it on my plate for later</button>'
         +'<span class="sstatus" id="queuestatus"></span></div>':'')
       +'</div>';
   }
@@ -529,22 +373,22 @@ function runBox(s){
   const req=(s.meta.run_inputs||'').trim();
   const items=req?req.split(',').map(x=>x.trim()).filter(Boolean):[];
   return '<div class="suggest"><div class="slabel">Run this task</div>'
-    +(items.length?'<div class="hint" style="margin:0 0 8px">Tell it: '
+    +(items.length?'<div class="hint lead">Tell it: '
       +items.map(t=>'<em class="reqchip">'+esc(t)+'</em>').join('')+'</div>':'')
     +'<textarea id="runinputs" rows="2" placeholder="'
     +(items.length?'Type those here':'Anything this run should know? Optional.')
     +'"></textarea>'
     +scopeChoice()
-    +'<div class="row"><button class="runbtn" id="runbtn"'+(req?' disabled':'')+'>Run this now</button>'
-    +'<button class="pbtn" id="queuebtn" style="margin-left:8px">Put it on my plate instead</button>'
+    +'<div class="row"><button class="btn-primary runbtn" id="runbtn"'+(req?' disabled':'')+'>Run this now</button>'
+    +'<button class="pbtn" id="queuebtn">Put it on my plate instead</button>'
     +'<span class="sstatus err" id="runstatus">'+(req?'Fill in what it needs first':'')+'</span>'
     +'<span class="sstatus" id="queuestatus"></span></div>'
     +'<div class="hint">Run now happens in the background using a little of your Claude plan’s automation allowance (the dollar figures track that usage, not separate charges), and stops for your approval before anything is sent. "On my plate" does it with you, live, next time you open Claude; pick that for anything that needs you mid-task.</div></div>';
 }
 function scopeChoice(){
   if(!CFG.project)return '';
-  return '<div class="hint" style="margin:0 0 6px">When you save it, do it in: '
-    +'<label style="margin-right:10px"><input type="radio" name="qscope" value="here" checked> '+esc(CFG.project)+' (this folder)</label>'
+  return '<div class="hint lead">When you save it, do it in: '
+    +'<label><input type="radio" name="qscope" value="here" checked> '+esc(CFG.project)+' (this folder)</label>'
     +'<label><input type="radio" name="qscope" value="anywhere"> any folder</label></div>';
 }
 function queueDest(scope){
@@ -582,7 +426,7 @@ function suggestBox(s){
   if(s.archived)return '';
   return '<div class="suggest"><div class="slabel">Suggest a change</div>'
     +'<textarea id="sgtext" rows="2" placeholder="e.g. Payment terms are net 15 now, not net 30"></textarea>'
-    +'<div class="row"><button id="sgbtn">'+(CFG.live?'Save suggestion':'Copy for Claude')+'</button>'
+    +'<div class="row"><button class="btn-primary" id="sgbtn">'+(CFG.live?'Save suggestion':'Copy for Claude')+'</button>'
     +'<span class="sstatus" id="sgstatus"></span></div>'
     +'<div class="hint">'+(CFG.live
       ?'Saves into this procedure’s notes. Next session, Claude offers to turn it into an edit you approve.'
@@ -619,11 +463,13 @@ async function submitSuggestion(s){
 function summary(){
   const live=sops.filter(s=>!s.archived);
   const n=k=>live.filter(s=>s.status===k).length;
+  const countPill=(k,label)=>{const c=n(k);
+    return '<span class="pill'+(c?' '+k:'')+'"><b>'+c+'</b> '+label+'</span>';};
   document.getElementById('counts').innerHTML=
     '<span class="pill"><b>'+live.length+'</b> procedures</span>'
-    +'<span class="pill trusted"><b>'+n('trusted')+'</b> trusted</span>'
-    +'<span class="pill active"><b>'+n('active')+'</b> active</span>'
-    +'<span class="pill draft"><b>'+n('draft')+'</b> drafts</span>'
+    +countPill('trusted','trusted')
+    +countPill('active','active')
+    +countPill('draft','drafts')
     +(sops.length-live.length?'<span class="pill">'+(sops.length-live.length)+' archived</span>':'');
   const chip=document.getElementById('modechip');
   if(CFG.live){
@@ -642,11 +488,16 @@ document.querySelectorAll('.tab').forEach(b=>{b.onclick=()=>{
   document.getElementById('tab-today').style.display=b.dataset.tab==='today'?'':'none';
   document.getElementById('tab-procedures').style.display=b.dataset.tab==='procedures'?'':'none';
 };});
+document.getElementById('dclose').addEventListener('click',()=>dlg.close());
 document.getElementById('q').addEventListener('input',render);
 document.getElementById('showArchived').addEventListener('change',render);
-document.getElementById('dbody').addEventListener('click',e=>{
+function followSopref(e){
   const a=e.target.closest('a.sopref');if(!a)return;
   const t=sopById(a.dataset.id);if(t)openDetail(t);
+}
+document.getElementById('dbody').addEventListener('click',followSopref);
+document.getElementById('dbody').addEventListener('keydown',e=>{
+  if(e.key==='Enter'||e.key===' '){followSopref(e);}
 });
 let connDead=false;
 function startLiveness(){
@@ -674,6 +525,3 @@ summary();
 renderWaiting();renderAttention();renderWork();renderPlate();renderComing();renderMeter();
 render();
 startLiveness();
-</script>
-</body>
-</html>
