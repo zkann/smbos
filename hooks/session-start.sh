@@ -111,15 +111,31 @@ if [ "$parked" -gt 0 ]; then
   echo ""
   echo "TRIGGERED RUNS AWAITING APPROVAL: $parked parked run(s) in the SOP pending/ directory. Early in this session, walk the owner through each one: show the prepared work and the proposed action, get an approve/discard decision, complete approved actions, then set the file's status to approved or discarded (or delete it)."
 fi
-queued=0
+cwd="$(pwd)"
+queued_here=0
+elsewhere_list=""
 for qdir in "$home_dir/queue" "$proj_dir/queue"; do
   [ -d "$qdir" ] || continue
-  n=$(grep -l '^status: queued' "$qdir"/*.md 2>/dev/null | grep -c .)
-  queued=$((queued + n))
+  for f in "$qdir"/*.md; do
+    [ -f "$f" ] || continue
+    grep -q '^status: queued' "$f" || continue
+    proj=$(grep -m1 '^project:' "$f" | sed 's/^project:[[:space:]]*//')
+    if [ -z "$proj" ] || [ "$proj" = "$cwd" ]; then
+      queued_here=$((queued_here + 1))
+    else
+      elsewhere_list="$elsewhere_list$proj
+"
+    fi
+  done
 done
-if [ "$queued" -gt 0 ]; then
+if [ "$queued_here" -gt 0 ]; then
   echo ""
-  echo "OWNER-QUEUED TASKS: $queued task(s) the owner queued (from the dashboard) to do together in an interactive session. Early in this session, offer to start: for each queue/ file, read its sop id and any owner notes, then run that SOP interactively (this is also how drafts get verified and promoted). When one finishes, set the queue file's status to done (or delete the file)."
+  echo "OWNER-QUEUED TASKS FOR THIS SESSION: $queued_here task(s) the owner queued (from the dashboard) to do together, that belong in this folder or are project-agnostic. Early in this session, offer to start: for each matching queue/ file, read its sop id and any owner notes, then run that SOP interactively (this is also how drafts get verified and promoted). When one finishes, set the queue file's status to done (or delete the file)."
+fi
+if [ -n "$elsewhere_list" ]; then
+  folders=$(printf '%s' "$elsewhere_list" | grep -v '^$' | sort -u | xargs -n1 basename 2>/dev/null | paste -sd ', ' -)
+  echo ""
+  echo "QUEUED TASKS FOR OTHER PROJECTS: the owner has queued task(s) tied to a different folder than this one ($folders). Do NOT run them here. If the user asks about them, tell them to open Claude Code in that folder; this session is the wrong place for project-specific work."
 fi
 if [ -n "$proj_dir" ] && [ -f "$proj_dir/INDEX.md" ]; then
   echo ""

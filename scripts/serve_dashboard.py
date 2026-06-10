@@ -28,6 +28,9 @@ from generate_dashboard import SKIP_NAMES, build_html, resolve_sop_dir
 TOKEN = secrets.token_urlsafe(16)
 MAX_TEXT = 2000
 NOTES_HEADING = "## Notes for next revision"
+# Where the dashboard was launched from; a queued task inherits this as its target
+# project, so the right Claude Code session picks it up. Home dir means run-anywhere.
+LAUNCH_CWD = str(Path.cwd())
 
 
 def append_suggestion(sop_dir, rel_path, text):
@@ -88,7 +91,9 @@ def queue_run(sop_dir, sop_id, inputs=None):
     qdir = sop_dir / "queue"
     qdir.mkdir(exist_ok=True)
     now = datetime.now(timezone.utc)
-    body = (f"---\nsop: {sid}\nrequested: {now.isoformat()}\nsource: dashboard\nstatus: queued\n---\n")
+    project = "" if LAUNCH_CWD in (str(Path.home()), str(sop_dir)) else LAUNCH_CWD
+    body = (f"---\nsop: {sid}\nrequested: {now.isoformat()}\nsource: dashboard\n"
+            f"project: {project}\nstatus: queued\n---\n")
     if inputs:
         body += f"\nOwner's notes for the run:\n{str(inputs)[:2000]}\n"
     (qdir / f"{now.strftime('%Y%m%dT%H%M%S')}-{sid}.md").write_text(body, encoding="utf-8")
