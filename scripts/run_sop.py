@@ -11,55 +11,21 @@ reviews in their next session or on the dashboard. Stdlib only.
 """
 import argparse
 import json
-import os
-import re
 import subprocess
 import sys
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
-SKIP_NAMES = {"INDEX.md", "_template.md"}
-SKIP_DIRS = {"pending", "payloads", "archive", "triggers", "queue", "work"}
-
-
-def resolve_sop_dir(explicit):
-    for c in [explicit, os.environ.get("SOP_DIR"), str(Path.home() / "sops")]:
-        if c and Path(c).expanduser().is_dir():
-            return Path(c).expanduser()
-    sys.exit("No SOP directory found.")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from smbos_lib import (append_run, find_sop as lib_find_sop, frontmatter_field,
+                       month_spend, resolve_sop_dir)
 
 
 def find_sop(sop_dir, sop_id):
-    for p in sorted(sop_dir.rglob("*.md")):
-        if p.name in SKIP_NAMES or any(part in SKIP_DIRS for part in p.relative_to(sop_dir).parts):
-            continue
-        if p.stem == sop_id:
-            return p
-        m = re.search(r"^id: *(\S+)", p.read_text(encoding="utf-8")[:600], re.M)
-        if m and m.group(1) == sop_id:
-            return p
-    sys.exit(f"No SOP with id '{sop_id}' in {sop_dir}.")
-
-
-def frontmatter_field(path, field):
-    m = re.search(rf"^{field}: *(.+)$", path.read_text(encoding="utf-8")[:800], re.M)
-    return m.group(1).strip() if m else None
-
-
-def month_spend(sop_dir):
-    log = sop_dir / "runs.jsonl"
-    if not log.exists():
-        return 0.0
-    prefix = date.today().strftime("%Y-%m")
-    total = 0.0
-    for line in log.read_text(encoding="utf-8").splitlines():
-        try:
-            rec = json.loads(line)
-            if str(rec.get("ts", "")).startswith(prefix):
-                total += float(rec.get("cost_usd") or 0)
-        except (ValueError, TypeError):
-            continue
-    return total
+    p = lib_find_sop(sop_dir, sop_id)
+    if p is None:
+        sys.exit(f"No SOP with id '{sop_id}' in {sop_dir}.")
+    return p
 
 
 def budget(sop_dir):
@@ -73,8 +39,7 @@ def budget(sop_dir):
 
 
 def log_run(sop_dir, record):
-    with (sop_dir / "runs.jsonl").open("a", encoding="utf-8") as f:
-        f.write(json.dumps(record) + "\n")
+    append_run(sop_dir, record)
 
 
 def main():
@@ -89,7 +54,7 @@ def main():
     ap.add_argument("--force", action="store_true")
     args = ap.parse_args()
 
-    sop_dir = resolve_sop_dir(args.sop_dir)
+    sop_dir = resolve_sop_dir(explicit=args.sop_dir)
     sop_path = find_sop(sop_dir, args.sop_id)
     now = datetime.now(timezone.utc)
     base = {"ts": now.isoformat(), "sop": args.sop_id, "source": args.source, "model": args.model}

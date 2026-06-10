@@ -17,7 +17,6 @@ Registry lives at <sop-dir>/triggers.json; run log at <sop-dir>/runs.jsonl.
 Triggers are created DISABLED; enabling is explicit. Stdlib only.
 """
 import json
-import os
 import re
 import shlex
 import subprocess
@@ -25,16 +24,14 @@ import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-SKIP_NAMES = {"INDEX.md", "_template.md"}
-SKIP_DIRS = {"pending", "payloads", "archive", "triggers", "queue", "work"}
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from smbos_lib import iter_sops, parse_frontmatter, resolve_sop_dir
+
 DEFAULT_BUDGET = 20.0
 
 
 def sop_dir():
-    for c in [os.environ.get("SOP_DIR"), str(Path.home() / "sops")]:
-        if c and Path(c).expanduser().is_dir():
-            return Path(c).expanduser()
-    sys.exit("No SOP directory found.")
+    return resolve_sop_dir()
 
 
 def load(d):
@@ -88,16 +85,12 @@ def cmd_list(d, reg):
 
 def cmd_sync(d, reg):
     found = 0
-    for p in sorted(d.rglob("*.md")):
-        rel = p.relative_to(d)
-        if p.name in SKIP_NAMES or any(part in SKIP_DIRS for part in rel.parts):
+    for p in iter_sops(d):
+        meta = parse_frontmatter(p.read_text(encoding="utf-8")[:1200])
+        sop = meta.get("id") or p.stem
+        if not meta.get("on"):
             continue
-        head = p.read_text(encoding="utf-8")[:1000]
-        sop = (re.search(r"^id: *(\S+)", head, re.M) or [None, p.stem])[1]
-        m = re.search(r"^on: *(.+)$", head, re.M)
-        if not m:
-            continue
-        for spec in [s.strip() for s in m.group(1).split(",") if s.strip()]:
+        for spec in [s.strip() for s in meta["on"].split(",") if s.strip()]:
             t, created = upsert(reg, sop, spec)
             found += 1
             if created:

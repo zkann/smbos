@@ -16,20 +16,19 @@ Usage:
   work.py done <id> ["note"]
   work.py reopen <id>
 """
-import os
 import re
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from smbos_lib import resolve_sop_dir, split_frontmatter
+
 DEFAULT_STAGES = "plan,build,review,ship"
 
 
 def sop_dir():
-    for c in [os.environ.get("SOP_DIR"), str(Path.cwd() / "sops"), str(Path.home() / "sops")]:
-        if c and Path(c).expanduser().is_dir():
-            return Path(c).expanduser()
-    sys.exit("No SOP directory found.")
+    return resolve_sop_dir(use_cwd=True)
 
 
 def wdir(d):
@@ -43,16 +42,7 @@ def slug(s):
 
 
 def parse(path):
-    text = path.read_text(encoding="utf-8")
-    meta, body = {}, text
-    m = re.match(r"^---\r?\n(.*?)\r?\n---\r?\n?(.*)$", text, re.S)
-    if m:
-        for line in m.group(1).splitlines():
-            if ":" in line and not line.startswith("#"):
-                k, _, v = line.partition(":")
-                meta[k.strip()] = v.strip()
-        body = m.group(2)
-    return meta, body
+    return split_frontmatter(path.read_text(encoding="utf-8"))
 
 
 def write(path, meta, body):

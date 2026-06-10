@@ -7,31 +7,19 @@ Writes <sop_dir>/dashboard.html and prints its path. No network, stdlib only.
 For the interactive live mode, see serve_dashboard.py.
 """
 import json
-import os
-import re
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from humanize import humanize_failure, humanize_source, humanize_spec
-
-SKIP_NAMES = {"INDEX.md", "_template.md"}
-NON_SOP_DIRS = {"pending", "payloads", "triggers", "queue", "work"}
+from smbos_lib import RUNTIME_DIRS as NON_SOP_DIRS
+from smbos_lib import SKIP_NAMES, parse_frontmatter
+from smbos_lib import resolve_sop_dir as lib_resolve_sop_dir
 
 
 def resolve_sop_dir():
-    candidates = []
-    if len(sys.argv) > 1:
-        candidates.append(Path(sys.argv[1]).expanduser())
-    if os.environ.get("SOP_DIR"):
-        candidates.append(Path(os.environ["SOP_DIR"]).expanduser())
-    candidates.append(Path.cwd() / "sops")
-    candidates.append(Path.home() / "sops")
-    for c in candidates:
-        if c.is_dir():
-            return c
-    sys.exit("No SOP directory found (checked argv, $SOP_DIR, ./sops, ~/sops). Run /sop-init first.")
+    return lib_resolve_sop_dir(explicit=sys.argv[1] if len(sys.argv) > 1 else None, use_cwd=True)
 
 
 def collect(sop_dir):
@@ -73,14 +61,7 @@ def work_items(sop_dir):
     if not wd.is_dir():
         return out
     for p in sorted(wd.glob("*.md")):
-        text = p.read_text(encoding="utf-8")
-        m = {}
-        fm = re.match(r"^---\r?\n(.*?)\r?\n---", text, re.S)
-        if fm:
-            for line in fm.group(1).splitlines():
-                if ":" in line:
-                    k, _, v = line.partition(":")
-                    m[k.strip()] = v.strip()
+        m = parse_frontmatter(p.read_text(encoding="utf-8"))
         if m.get("status") == "done":
             continue
         out.append({"title": m.get("title", p.stem),

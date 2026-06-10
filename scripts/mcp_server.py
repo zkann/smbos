@@ -8,14 +8,16 @@ JSON-RPC 2.0 on stdin/stdout per the MCP stdio transport.
 Usage: mcp_server.py [sop_dir]   (else $SOP_DIR, else ~/sops)
 """
 import json
-import os
 import re
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-SKIP_NAMES = {"INDEX.md", "_template.md"}
-NON_SOP_DIRS = {"pending", "payloads", "triggers", "archive", "queue", "work"}
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from smbos_lib import find_sop as lib_find_sop
+from smbos_lib import iter_sops as lib_iter_sops
+from smbos_lib import parse_frontmatter, resolve_sop_dir
+
 NOTES_HEADING = "## Notes for next revision"
 MAX_TEXT = 4000
 
@@ -38,41 +40,19 @@ doing recurring business tasks. The rules:
 Speak plainly: say "runs every Monday at 8:57 AM", never "cron(57 8 * * 1)"."""
 
 
-def sop_dir():
-    for c in [sys.argv[1] if len(sys.argv) > 1 else None, os.environ.get("SOP_DIR"),
-              str(Path.home() / "sops")]:
-        if c and Path(c).expanduser().is_dir():
-            return Path(c).expanduser()
-    sys.exit("smbos-mcp: no SOP directory found")
-
-
-D = sop_dir()
+D = resolve_sop_dir(explicit=sys.argv[1] if len(sys.argv) > 1 else None)
 
 
 def iter_sops():
-    for p in sorted(D.rglob("*.md")):
-        rel = p.relative_to(D)
-        if p.name in SKIP_NAMES or p.name.startswith(".") or any(x in NON_SOP_DIRS for x in rel.parts):
-            continue
-        yield p
+    return lib_iter_sops(D)
 
 
 def frontmatter(text):
-    meta = {}
-    m = re.match(r"^---\r?\n(.*?)\r?\n---", text, re.S)
-    if m:
-        for line in m.group(1).splitlines():
-            if ":" in line and not line.startswith("#"):
-                k, _, v = line.partition(":")
-                meta[k.strip()] = v.strip()
-    return meta
+    return parse_frontmatter(text)
 
 
 def find_sop(sop_id):
-    for p in iter_sops():
-        if p.stem == sop_id or frontmatter(p.read_text(encoding="utf-8")[:800]).get("id") == sop_id:
-            return p
-    return None
+    return lib_find_sop(D, sop_id)
 
 
 def humanize_cron(spec):
