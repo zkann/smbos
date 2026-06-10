@@ -63,6 +63,18 @@ You don't need to memorize these. The session protocol handles matching, capturi
 | `/sop-list` | Show the library with status, usage, and health flags |
 | `/sop-review` | Monthly audit: stale, drifted, overlapping, missing, and never-run SOPs |
 | `/sop-dashboard` | Open a visual dashboard of the library in your browser |
+| `/sop-triggers` | Schedules, event triggers, budget, and automation cost reports |
+
+## Triggers and automation
+
+SOPs can run themselves. Declare intent in frontmatter (`on: cron(57 8 * * 1)` for schedules, `on: linear.issue.created[label=bug]` for events), and `/sop-triggers` manages the rest: a registry in `triggers.json` where every trigger is created disabled and enabled explicitly, crontab lines or cloud routines for schedules, and generated n8n recipes for event webhooks.
+
+Unattended runs are guarded four ways:
+
+- **Maturity gate.** The runner refuses `draft` SOPs; only ones that survived a real human run go unattended.
+- **Approval parking.** A triggered run executes up to the first **[APPROVAL]** step or externally visible action, then writes everything it prepared to `pending/` and stops. Your next session opens with "2 triggered runs awaiting approval", and the dashboard shows them; nothing sends, posts, or pays without you.
+- **Budget guard.** Every run logs its cost to `runs.jsonl` (headless runs bill against your plan's separate agent credit). Set `monthly_budget_usd` once and the runner refuses to start runs past it. `/sop-triggers costs` gives spend by SOP versus budget.
+- **Payload hygiene.** Event payloads (a Linear ticket body, a Slack message) are saved to disk and handled as data; the bridge maps event to SOP id itself, and payload content never chooses the SOP or adds instructions.
 
 ## The dashboard
 

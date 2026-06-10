@@ -32,6 +32,11 @@
   .toolbar label{font-size:13px;color:var(--muted);display:flex;gap:6px;align-items:center;cursor:pointer}
   #attention{margin:0 32px;padding:12px 16px;border:1px solid #f0dcc0;background:#fdf8ef;border-radius:10px;font-size:13.5px;display:none}
   #attention.show{display:block}
+  #parked{margin:12px 32px 0;padding:12px 16px;border:1px solid #c5d4f5;background:#f0f5fe;border-radius:10px;font-size:13.5px;display:none}
+  #parked.show{display:block}
+  #parked strong{color:var(--active-ink)}
+  #parked .pitem{cursor:pointer;text-decoration:underline}
+  #parked ul{margin:6px 0 0;padding-left:18px}
   #attention strong{color:var(--warn)}
   #attention ul{margin:6px 0 0;padding-left:18px}
   main{padding:10px 32px 60px;max-width:1180px}
@@ -94,6 +99,7 @@
   <input type="search" id="q" placeholder="Search SOPs, triggers, steps...">
   <label><input type="checkbox" id="showArchived"> show archived</label>
 </div>
+<div id="parked"></div>
 <div id="attention"></div>
 <main id="main"></main>
 <div class="howto" id="howto">
@@ -103,9 +109,12 @@
 <dialog id="dlg"><div class="dhead"><h3 id="dtitle"></h3><button onclick="dlg.close()">Close</button></div><div class="dbody" id="dbody"></div></dialog>
 <script id="sop-data" type="application/json">__SOPS_JSON__</script>
 <script id="cfg" type="application/json">__CFG_JSON__</script>
+<script id="extra" type="application/json">__EXTRA_JSON__</script>
 <script>
 const GENERATED="__GENERATED__";
 const CFG=JSON.parse(document.getElementById('cfg').textContent||'{"live":false}');
+let EXTRA={pending:[],costs:null};
+try{EXTRA=JSON.parse(document.getElementById('extra').textContent);}catch(e){/* older generator */}
 const DATA=JSON.parse(document.getElementById('sop-data').textContent);
 const dlg=document.getElementById('dlg');
 
@@ -265,7 +274,32 @@ function summary(){
     +'<span class="pill trusted"><b>'+n('trusted')+'</b> trusted</span>'
     +'<span class="pill active"><b>'+n('active')+'</b> active</span>'
     +'<span class="pill draft"><b>'+n('draft')+'</b> drafts</span>'
-    +(sops.length-live.length?'<span class="pill">'+(sops.length-live.length)+' archived</span>':'');
+    +(sops.length-live.length?'<span class="pill">'+(sops.length-live.length)+' archived</span>':'')
+    +(EXTRA.costs&&(EXTRA.costs.runs>0||EXTRA.costs.budget>0)
+      ?'<span class="pill">automation: $'+EXTRA.costs.month_total.toFixed(2)
+        +(EXTRA.costs.budget?' of $'+EXTRA.costs.budget.toFixed(0)+' budget':'')
+        +' ('+EXTRA.costs.runs+' runs this month)</span>':'');
+  const parkedItems=(EXTRA.pending||[]).map(p=>({...p,...parseSop(p.content)}))
+    .filter(p=>(p.meta.status||'pending')==='pending');
+  const pk=document.getElementById('parked');
+  if(parkedItems.length){
+    pk.className='show';
+    pk.innerHTML='<strong>Awaiting your approval ('+parkedItems.length+' triggered run'+(parkedItems.length>1?'s':'')+'):</strong><ul>'
+      +parkedItems.map((p,i)=>'<li><span class="pitem" data-i="'+i+'">'+esc(p.meta.sop||p.path)+'</span>'
+        +' via '+esc(p.meta.trigger_source||'?')+', '+esc(p.meta.created||'')+'</li>').join('')
+      +'</ul><div style="margin-top:6px;color:var(--muted)">Approve or discard these in Claude: "review my pending runs".</div>';
+    pk.querySelectorAll('.pitem').forEach(el=>{el.onclick=()=>{
+      const p=parkedItems[+el.dataset.i];
+      document.getElementById('dtitle').textContent='Parked: '+(p.meta.sop||p.path);
+      document.getElementById('dbody').innerHTML=
+        '<div class="dmeta"><span class="badge draft">pending</span>'
+        +'<span class="pill">via '+esc(p.meta.trigger_source||'?')+'</span>'
+        +'<span class="pill">'+esc(p.meta.created||'')+'</span>'
+        +'<span class="pill">pending/'+esc(p.path)+'</span></div>'
+        +mdToHtml(p.body);
+      dlg.showModal();
+    };});
+  }
   const att=sops.filter(s=>s.flags.length);
   const el=document.getElementById('attention');
   if(att.length){
