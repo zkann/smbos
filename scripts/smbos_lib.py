@@ -3,6 +3,7 @@
 The canonical implementations; scripts import from here instead of re-rolling.
 Stdlib only, Python 3.9+ (the macOS system python that Claude Desktop uses).
 """
+import hashlib
 import json
 import os
 import re
@@ -49,6 +50,45 @@ def split_frontmatter(text):
         return {}, text
     meta = parse_frontmatter(text)
     return meta, m.group(2)
+
+
+# Sections that are journals about the procedure, not the procedure itself.
+# Excluded from the fingerprint so dashboard suggestions and changelog lines
+# never read as unrecorded changes.
+_JOURNAL_SECTIONS = ("Notes for next revision", "Changelog")
+
+
+def content_fingerprint(body):
+    """Hash of the procedure-bearing body: journal sections stripped, line endings normalized."""
+    text = body.replace("\r\n", "\n")
+    for name in _JOURNAL_SECTIONS:
+        text = re.sub(rf"^## {re.escape(name)}\n.*?(?=^## |\Z)", "", text, flags=re.M | re.S)
+    return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()[:12]
+
+
+def is_drifted(meta, body):
+    """True when the body no longer matches the recorded fingerprint.
+
+    A missing fingerprint is "unstamped", not drift: existing libraries
+    stay quiet until their SOPs are stamped or bumped.
+    """
+    recorded = meta.get("content_hash")
+    return bool(recorded) and recorded != content_fingerprint(body)
+
+
+def set_frontmatter_fields(text, updates):
+    """Upsert frontmatter fields, preserving order; new fields go before the closing ---."""
+    m = re.match(r"^---\r?\n(.*?)\r?\n---\r?\n?(.*)$", text, re.S)
+    if not m:
+        raise ValueError("document has no frontmatter")
+    lines = m.group(1).splitlines()
+    pending = dict(updates)
+    for i, line in enumerate(lines):
+        k = line.partition(":")[0].strip()
+        if k in pending:
+            lines[i] = f"{k}: {pending.pop(k)}"
+    lines += [f"{k}: {v}" for k, v in pending.items()]
+    return "---\n" + "\n".join(lines) + "\n---\n" + m.group(2)
 
 
 def frontmatter_field(path, field, head_bytes=1000):

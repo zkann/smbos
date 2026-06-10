@@ -65,3 +65,20 @@ def test_work_items_routed(library, tmp_path):
 def test_hook_bash_syntax():
     r = subprocess.run(["bash", "-n", str(HOOK)], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
+
+
+def test_unrecorded_changes_section(library, tmp_path):
+    from smbos_lib import content_fingerprint, set_frontmatter_fields, split_frontmatter
+    out = run_hook(library, tmp_path)
+    assert "UNRECORDED CHANGES" not in out  # unstamped library stays quiet
+    sop = library / "ops" / "weekly-metrics-report.md"
+    text = sop.read_text()
+    _, body = split_frontmatter(text)
+    sop.write_text(set_frontmatter_fields(text, {"content_hash": content_fingerprint(body)}))
+    out = run_hook(library, tmp_path)
+    assert "UNRECORDED CHANGES" not in out  # stamped and clean
+    sop.write_text(sop.read_text().replace("Do the thing.", "Changed."))
+    out = run_hook(library, tmp_path)
+    assert "UNRECORDED CHANGES" in out
+    assert "weekly-metrics-report: changed since v1" in out
+    assert "sop_version.py bump" in out
