@@ -13,9 +13,11 @@ stays with Claude's propose/approve flow. Binds 127.0.0.1 only, random port,
 per-run token. Stdlib only, no network beyond localhost. Ctrl-C to stop.
 """
 import json
+import re
 import secrets
+import subprocess
 import sys
-from datetime import date
+from datetime import date, datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -58,6 +60,32 @@ def append_suggestion(sop_dir, rel_path, text):
     target.write_text(content, encoding="utf-8")
 
 
+def resolve_pending_file(sop_dir, rel_name, decision):
+    p = sop_dir / "pending" / Path(str(rel_name)).name
+    if not p.is_file():
+        raise FileNotFoundError("no such pending item")
+    if decision not in ("approve", "discard"):
+        raise ValueError("decision must be approve or discard")
+    text = p.read_text(encoding="utf-8")
+    new_status = "approved" if decision == "approve" else "discarded"
+    text = re.sub(r"^status: *pending$", f"status: {new_status}", text, count=1, flags=re.M)
+    p.write_text(text + f"\n> {new_status} via dashboard on "
+                 f"{datetime.now(timezone.utc).isoformat()}\n", encoding="utf-8")
+    return new_status
+
+
+def start_run(sop_dir, sop_id):
+    sid = re.sub(r"[^a-z0-9-]", "", str(sop_id).lower())
+    if not sid:
+        raise ValueError("bad sop id")
+    runner = Path(__file__).resolve().parent / "run_sop.py"
+    log = (sop_dir / "trigger.log").open("a")
+    subprocess.Popen([sys.executable, str(runner), sid, "--source", "dashboard",
+                      "--sop-dir", str(sop_dir)],
+                     stdout=log, stderr=log, start_new_session=True)
+    return sid
+
+
 class Handler(BaseHTTPRequestHandler):
     sop_dir = None
 
@@ -82,19 +110,27 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(200, html, "text/html")
 
     def do_POST(self):
-        if self.path != "/api/suggest":
+        if self.path not in ("/api/suggest", "/api/resolve", "/api/run"):
             return self._send(404, '{"error":"not found"}')
         if self.headers.get("X-Token") != TOKEN:
             return self._send(403, '{"error":"bad or missing token"}')
         try:
             length = min(int(self.headers.get("Content-Length") or 0), 65536)
             payload = json.loads(self.rfile.read(length) or b"{}")
-            text = str(payload.get("text", "")).strip()[:MAX_TEXT]
-            if not text:
-                return self._send(400, '{"error":"empty suggestion"}')
-            append_suggestion(self.sop_dir, str(payload.get("path", "")), text)
-            return self._send(200, '{"ok":true}')
-        except (PermissionError, FileNotFoundError) as e:
+            if self.path == "/api/suggest":
+                text = str(payload.get("text", "")).strip()[:MAX_TEXT]
+                if not text:
+                    return self._send(400, '{"error":"empty suggestion"}')
+                append_suggestion(self.sop_dir, str(payload.get("path", "")), text)
+                return self._send(200, '{"ok":true}')
+            if self.path == "/api/resolve":
+                status = resolve_pending_file(self.sop_dir, payload.get("file", ""),
+                                              str(payload.get("decision", "")))
+                return self._send(200, json.dumps({"ok": True, "status": status}))
+            if self.path == "/api/run":
+                sid = start_run(self.sop_dir, payload.get("id", ""))
+                return self._send(200, json.dumps({"ok": True, "started": sid}))
+        except (PermissionError, FileNotFoundError, ValueError) as e:
             return self._send(400, json.dumps({"error": str(e)}))
         except json.JSONDecodeError:
             return self._send(400, '{"error":"invalid JSON"}')

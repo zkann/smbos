@@ -79,6 +79,13 @@ EOF
 else
   echo "CAPTURE (steady state): after completing a multi-step task that is likely to recur and has NO matching SOP, offer once per session to save it via the /sop-new flow."
 fi
+if [ "$total" -gt 0 ]; then
+  has_runs=$(printf '%s\n' "$sop_files" | xargs grep -l -E '^runs: [1-9]' 2>/dev/null | grep -c .)
+  if [ "$has_runs" -eq 0 ]; then
+    echo ""
+    echo "GETTING GOING: the library has $total SOP(s) but none has been used yet. If a natural moment arises this session (the user starts a task an SOP covers), point out that doing it together verifies the SOP and unlocks automation for it. One gentle mention at most."
+  fi
+fi
 pending=0
 if [ -n "$sop_files" ]; then
   pending=$(printf '%s\n' "$sop_files" | xargs grep -h 'via dashboard' 2>/dev/null | grep -c .)
