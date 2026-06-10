@@ -75,4 +75,4 @@ def test_queued_surfaces(library):
         "---\nsop: send-invoice\nproject: /x/acme\nstatus: queued\n---\n")
     (q / "b.md").write_text("---\nsop: other\nproject: \nstatus: done\n---\n")
     data = extra_of(gd.build_html(library))
-    assert data["queued"] == [{"sop": "send-invoice", "project": "acme"}]
+    assert data["queued"] == [{"sop": "send-invoice", "file": "a.md", "project": "acme"}]

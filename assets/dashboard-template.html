@@ -295,8 +295,12 @@ function renderWaiting(){
       const r=await fetch('/api/resolve',{method:'POST',
         headers:{'Content-Type':'application/json','X-Token':CFG.token},
         body:JSON.stringify({file:p.path,decision:btn.dataset.d})});
-      if(r.ok){st.textContent=btn.dataset.d==='approve'
-        ?'Approved. It happens in your next Claude session.':'Discarded.';}
+      if(r.ok){
+        if(btn.dataset.d==='approve'){
+          st.innerHTML='Approved. <button class="pbtn okb" id="donow'+btn.dataset.i+'">Do it now in Claude</button>';
+          document.getElementById('donow'+btn.dataset.i).onclick=function(){this.disabled=true;launchClaude({kind:'approved'},st);};
+        }else{st.textContent='Discarded.';}
+      }
       else{st.textContent='Could not save ('+r.status+').';
         el.querySelectorAll('.pbtn[data-i="'+btn.dataset.i+'"]').forEach(b=>b.disabled=false);}
     }catch(e){st.textContent='Could not reach the dashboard.';
@@ -338,10 +342,17 @@ function renderPlate(){
   if(!items.length)return;
   el.style.display='block';
   el.innerHTML='<h2>On your plate ('+items.length+')</h2><ul>'
-    +items.map(q=>'<li><b>'+esc(sopTitle(q.sop))+'</b>'
-      +(q.project?': next time you open Claude in <b>'+esc(q.project)+'</b>':': next time you open Claude')
+    +items.map((q,i)=>'<li><b>'+esc(sopTitle(q.sop))+'</b>'
+      +(q.project?': for the <b>'+esc(q.project)+'</b> folder':'')
+      +(CFG.live?'<button class="pbtn okb qstart" data-i="'+i+'">Start in Claude</button>'
+        +'<span class="sstatus qst" data-i="'+i+'" style="margin-left:8px;font-size:13px"></span>':'')
       +'</li>').join('')
-    +'</ul><div style="margin-top:6px;color:var(--muted);font-size:13px">These are tasks you saved to do together; they need you in the loop.</div>';
+    +'</ul><div style="margin-top:6px;color:var(--muted);font-size:13px">These are tasks you saved to do together; they need you in the loop.'
+    +(CFG.live?' "Start in Claude" opens a terminal window in the right folder with the task ready to go.':'')+'</div>';
+  el.querySelectorAll('.qstart').forEach(b=>{b.onclick=()=>{
+    const q=items[+b.dataset.i];b.disabled=true;
+    launchClaude({kind:'queue',file:q.file},el.querySelector('.qst[data-i="'+b.dataset.i+'"]'));
+  };});
 }
 function renderComing(){
   const sch=EXTRA.schedules||{};
@@ -454,11 +465,16 @@ function openDetail(s){
     +runBox(s)
     +suggestBox(s)
     +mdToHtml(s.body)
-    +'<div style="margin-top:18px;color:var(--muted);font-size:12.5px">File: '+esc(s.path)+'</div>';
+    +'<div style="margin-top:18px;color:var(--muted);font-size:12.5px">File: '+esc(s.path)
+    +(CFG.live?' <a href="#" id="openfile" style="color:var(--active-ink)">open in editor</a>':'')+'</div>';
   const btn=document.getElementById('sgbtn');
   if(btn)btn.onclick=()=>submitSuggestion(s);
   const qb=document.getElementById('queuebtn');
   if(qb)qb.onclick=()=>queueTask(s);
+  const of=document.getElementById('openfile');
+  if(of)of.onclick=(e)=>{e.preventDefault();launchClaude({kind:'open_file',id:s.meta.id},null);};
+  const dn=document.getElementById('donowbtn');
+  if(dn)dn.onclick=()=>{dn.disabled=true;launchClaude({kind:'sop',id:s.meta.id},document.getElementById('donowstatus'));};
   const rb=document.getElementById('runbtn');
   const ri0=document.getElementById('runinputs');
   if(rb&&ri0&&(s.meta.run_inputs||'').trim()){
@@ -495,9 +511,11 @@ function runBox(s){
     return '<div class="suggest"><div class="slabel">Run this task</div>'
       +'<div class="hint" style="margin:0 0 8px">This task hasn’t been done together yet, so it can’t run in the background. '
       +'Do it once with Claude'+(trig?' (just say “'+esc(trig)+'”)':'')+' and the Run button appears here afterward.'+'</div>'
-      +(CFG.live?'<textarea id="queueinputs" rows="2" placeholder="Anything Claude should know when you do it together? Optional."></textarea>'
+      +(CFG.live?'<div class="row" style="margin:0 0 10px"><button class="runbtn" id="donowbtn">Do it with Claude now</button>'
+        +'<span class="sstatus" id="donowstatus"></span></div>'
+        +'<textarea id="queueinputs" rows="2" placeholder="Anything Claude should know when you do it together? Optional."></textarea>'
         +scopeChoice()
-        +'<div class="row"><button class="runbtn" id="queuebtn">Put it on my plate</button>'
+        +'<div class="row"><button class="pbtn" id="queuebtn" style="padding:6px 12px">Put it on my plate for later</button>'
         +'<span class="sstatus" id="queuestatus"></span></div>':'')
       +'</div>';
   }
@@ -526,6 +544,18 @@ function scopeChoice(){
 function queueDest(scope){
   if(scope==='anywhere'||!CFG.project)return 'any folder';
   return CFG.project;
+}
+async function launchClaude(body,st,doing){
+  if(st){st.className='sstatus';st.textContent=doing||'Opening Claude...';}
+  try{
+    const r=await fetch('/api/launch',{method:'POST',
+      headers:{'Content-Type':'application/json','X-Token':CFG.token},
+      body:JSON.stringify(body)});
+    if(st){
+      if(r.ok){st.textContent='Opened a Claude window for you.';}
+      else{const e=await r.json().catch(()=>({}));st.className='sstatus err';st.textContent=e.error||('Could not open ('+r.status+').');}
+    }
+  }catch(e){if(st){st.className='sstatus err';st.textContent='Could not reach the dashboard.';}}
 }
 async function queueTask(s){
   const qb=document.getElementById('queuebtn');
