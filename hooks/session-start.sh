@@ -85,6 +85,16 @@ if [ "$pending" -gt 0 ]; then
   echo ""
   echo "PENDING DASHBOARD SUGGESTIONS: $pending note(s) tagged 'via dashboard' are waiting in 'Notes for next revision' sections. Early in this session, offer to review them and fold them into SOP edits through the normal diff/approval flow (remove each note once folded in)."
 fi
+parked=0
+for pdir in "$home_dir/pending" "$proj_dir/pending"; do
+  [ -d "$pdir" ] || continue
+  n=$(grep -l '^status: pending' "$pdir"/*.md 2>/dev/null | grep -c .)
+  parked=$((parked + n))
+done
+if [ "$parked" -gt 0 ]; then
+  echo ""
+  echo "TRIGGERED RUNS AWAITING APPROVAL: $parked parked run(s) in the SOP pending/ directory. Early in this session, walk the owner through each one: show the prepared work and the proposed action, get an approve/discard decision, complete approved actions, then set the file's status to approved or discarded (or delete it)."
+fi
 if [ -n "$proj_dir" ] && [ -f "$proj_dir/INDEX.md" ]; then
   echo ""
   echo "### Project SOP index ($proj_dir; shadows/extends home by id)"

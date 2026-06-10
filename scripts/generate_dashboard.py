@@ -9,10 +9,11 @@ For the interactive live mode, see serve_dashboard.py.
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 SKIP_NAMES = {"INDEX.md", "_template.md"}
+NON_SOP_DIRS = {"pending", "payloads", "triggers"}
 
 
 def resolve_sop_dir():
@@ -32,7 +33,8 @@ def resolve_sop_dir():
 def collect(sop_dir):
     files = []
     for p in sorted(sop_dir.rglob("*.md")):
-        if p.name in SKIP_NAMES or p.name.startswith("."):
+        rel_parts = p.relative_to(sop_dir).parts
+        if p.name in SKIP_NAMES or p.name.startswith(".") or any(d in NON_SOP_DIRS for d in rel_parts):
             continue
         rel = p.relative_to(sop_dir).as_posix()
         try:
@@ -43,13 +45,50 @@ def collect(sop_dir):
     return files
 
 
+def collect_pending(sop_dir):
+    items = []
+    pdir = sop_dir / "pending"
+    if pdir.is_dir():
+        for p in sorted(pdir.glob("*.md")):
+            try:
+                items.append({"path": p.name, "content": p.read_text(encoding="utf-8")})
+            except (UnicodeDecodeError, OSError):
+                continue
+    return items
+
+
+def cost_summary(sop_dir):
+    out = {"month_total": 0.0, "budget": 0.0, "runs": 0, "parked": 0}
+    cfg = sop_dir / "triggers.json"
+    if cfg.exists():
+        try:
+            out["budget"] = float(json.loads(cfg.read_text(encoding="utf-8")).get("monthly_budget_usd") or 0)
+        except (ValueError, TypeError):
+            pass
+    log = sop_dir / "runs.jsonl"
+    if log.exists():
+        prefix = date.today().strftime("%Y-%m")
+        for line in log.read_text(encoding="utf-8").splitlines():
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if str(r.get("ts", "")).startswith(prefix):
+                out["runs"] += 1
+                out["month_total"] += float(r.get("cost_usd") or 0)
+                out["parked"] += r.get("result") == "parked"
+    return out
+
+
 def build_html(sop_dir, cfg=None):
     template = Path(__file__).resolve().parent.parent / "assets" / "dashboard-template.html"
     html = template.read_text(encoding="utf-8")
     data = json.dumps(collect(sop_dir)).replace("</", "<\\/")
     cfg_json = json.dumps(cfg or {"live": False}).replace("</", "<\\/")
+    extra = json.dumps({"pending": collect_pending(sop_dir), "costs": cost_summary(sop_dir)}).replace("</", "<\\/")
     html = html.replace("__SOPS_JSON__", data)
     html = html.replace("__CFG_JSON__", cfg_json)
+    html = html.replace("__EXTRA_JSON__", extra)
     html = html.replace("__GENERATED__", datetime.now(timezone.utc).isoformat())
     html = html.replace("__SOP_DIR__", str(sop_dir))
     return html
