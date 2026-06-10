@@ -8,14 +8,16 @@ The dashboard's design system, extracted from the rendered product and locked in
 - Body 16px / 1.55. Microcopy floor 12px. Panel headings are 13px uppercase letterspaced labels (overline style); card titles 15.5px/600; the H1 is 21px/700.
 - Numbers that line up in columns get `font-variant-numeric: tabular-nums` (add when a true table appears).
 
-## Color
+## Color (Command Center, since 0.18.0)
 
-Warm neutrals plus three semantic hues, defined as CSS variables in the template root:
+shadcn zinc-dark tokens hand-ported to plain CSS (`assets/style.css` :root), fused with signal accents:
 
-- Surfaces: `--bg #f7f7f5`, `--card #ffffff`, `--line #e4e4de`
-- Ink: `--ink #1c1c1a`, `--muted #6f6f68`
-- Status: draft = amber (`--draft-ink #92600a` on `#fdf3e3`), active = blue (`#1d4ed8` on `#e8f0fd`), trusted = green (`#15803d` on `#e6f4ea`), warnings `--warn #b4540a`
-- Rule: status colors always ship with text labels, never color alone. Keep total non-gray palette under 15.
+- Surfaces: `--background #09090b`, `--card #0f0f12`, `--card-raised #17171b`, `--border #27272a`
+- Ink: `--foreground #fafafa`, `--muted-fg #a1a1aa`, `--subtle-fg #85858f` (AA-checked at 5.2:1)
+- Primary signal: green `#22c55e` (live dot, current stage, progress, primary buttons with `#052e16` text)
+- Status: draft = amber `#fbbf24`, active = blue `#60a5fa`, trusted = green `#4ade80`, each as soft translucent badges (10-12% tint + 25% border)
+- Rules: dark surfaces gain elevation by lightness steps, not shadows; status colors always ship with text labels; every text/surface pair stays WCAG AA (verified in the 0.18.0 PR).
+- Monospace (`ui-monospace`) marks the command-center DNA: panel labels (11px uppercase, .14em tracking), figures (counts, dollars), badges stay sans.
 
 ## Layout & spacing
 
@@ -25,9 +27,13 @@ Warm neutrals plus three semantic hues, defined as CSS variables in the template
 
 ## Interaction
 
-- Buttons: primary = solid `--ink` on white text; secondary = 1px outline `.pbtn`. Minimum 30px tall on desktop, 44px on touch (`pointer:coarse`).
+- Buttons: primary = solid `--primary` green with dark text (shadcn recipe); secondary = 1px `--input` outline, transparent. Minimum 30px tall on desktop, 44px on touch (`pointer:coarse`). Focus = 2px `--ring` outline, offset 2px.
 - Disabled run buttons stay fully legible (dashed outline, muted text), never opacity-faded into the background.
 - Motion is minimal (120ms border/hover transitions) and fully disabled under `prefers-reduced-motion`.
+
+## Source structure
+
+`assets/index.html` (document + data placeholders), `assets/style.css` (all tokens and component recipes), `assets/app.js` (render functions named 1:1 for future React components). The Python generator inlines all three into one self-contained file; the output stays single-file and zero-dependency even though the source is split.
 
 ## Voice (owner-facing copy)
 

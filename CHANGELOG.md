@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.18.0 (2026-06-10)
+
+- Command Center theme: shadcn zinc-dark tokens and component recipes (pill tabs, soft badges, outline/primary buttons, dark dialog, progress bar, focus rings) hand-ported to plain CSS, zero dependencies kept; fused with signal-green accents, monospace micro-labels and figures, and a glowing live dot. WCAG AA verified on every text/surface pair; full state matrix screenshot-verified.
+- Dashboard source split into `index.html` + `style.css` + `app.js`; the Python generator inlines them, so the output stays one self-contained file. app.js render functions are named 1:1 for future React components; React itself is pinned to the remote-bridge milestone (see ROADMAP).
+
 ## 0.17.2 (2026-06-10)
 
 - Design audit pass (B+ to A-): action buttons reach a real click size (30px desktop, 44px touch), body text to 16px with a 12px microcopy floor, the footer shows `~/sops` instead of the absolute home path, and motion respects `prefers-reduced-motion`. DESIGN.md locks in the extracted design system, including why the system font stack is intentional.
