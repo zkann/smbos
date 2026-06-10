@@ -161,12 +161,11 @@
   .suggest textarea::placeholder{color:var(--subtle-fg)}
   .suggest .row{display:flex;gap:12px;align-items:center;margin-top:10px;flex-wrap:wrap}
   /* shadcn primary button */
-  .suggest button,.suggest button.runbtn{border:none;background:var(--primary);color:var(--primary-fg);
+  /* shadcn primary button: a class, not a location */
+  .btn-primary{border:none;background:var(--primary);color:var(--primary-fg);
     border-radius:6px;padding:8px 16px;min-height:34px;font-size:13.5px;font-weight:600;cursor:pointer}
-  .suggest button:hover,.suggest button.runbtn:hover{background:var(--primary-hover)}
-  .suggest button.pbtn{background:transparent;color:var(--foreground);border:1px solid var(--input);font-weight:500}
-  .suggest button.pbtn:hover{background:var(--card-raised)}
-  .suggest button.runbtn:disabled{background:transparent;color:var(--subtle-fg);border:1px dashed var(--border-strong);cursor:not-allowed}
+  .btn-primary:hover{background:var(--primary-hover)}
+  .btn-primary:disabled{background:transparent;color:var(--subtle-fg);border:1px dashed var(--border-strong);cursor:not-allowed}
   .suggest .sstatus{font-size:13px;color:var(--green)}
   .suggest .sstatus.err{color:var(--amber)}
   .suggest .hint{margin-top:8px;font-size:13px;color:var(--subtle-fg)}
@@ -181,5 +180,5 @@
     .chip.live::before{box-shadow:none}
   }
   @media (pointer:coarse){
-    .pbtn,.suggest button,.tab,.dhead button{min-height:44px}
+    .pbtn,.btn-primary,.tab,.dhead button{min-height:44px}
   }

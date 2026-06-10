@@ -361,7 +361,7 @@ function runBox(s){
     return '<div class="suggest"><div class="slabel">Run this task</div>'
       +'<div class="hint" style="margin:0 0 8px">This task hasn’t been done together yet, so it can’t run in the background. '
       +'Do it once with Claude'+(trig?' (just say “'+esc(trig)+'”)':'')+' and the Run button appears here afterward.'+'</div>'
-      +(CFG.live?'<div class="row" style="margin:0 0 10px"><button class="runbtn" id="donowbtn">Do it with Claude now</button>'
+      +(CFG.live?'<div class="row" style="margin:0 0 10px"><button class="btn-primary runbtn" id="donowbtn">Do it with Claude now</button>'
         +'<span class="sstatus" id="donowstatus"></span></div>'
         +'<textarea id="queueinputs" rows="2" placeholder="Anything Claude should know when you do it together? Optional."></textarea>'
         +scopeChoice()
@@ -379,7 +379,7 @@ function runBox(s){
     +(items.length?'Type those here':'Anything this run should know? Optional.')
     +'"></textarea>'
     +scopeChoice()
-    +'<div class="row"><button class="runbtn" id="runbtn"'+(req?' disabled':'')+'>Run this now</button>'
+    +'<div class="row"><button class="btn-primary runbtn" id="runbtn"'+(req?' disabled':'')+'>Run this now</button>'
     +'<button class="pbtn" id="queuebtn" style="margin-left:8px">Put it on my plate instead</button>'
     +'<span class="sstatus err" id="runstatus">'+(req?'Fill in what it needs first':'')+'</span>'
     +'<span class="sstatus" id="queuestatus"></span></div>'
@@ -426,7 +426,7 @@ function suggestBox(s){
   if(s.archived)return '';
   return '<div class="suggest"><div class="slabel">Suggest a change</div>'
     +'<textarea id="sgtext" rows="2" placeholder="e.g. Payment terms are net 15 now, not net 30"></textarea>'
-    +'<div class="row"><button id="sgbtn">'+(CFG.live?'Save suggestion':'Copy for Claude')+'</button>'
+    +'<div class="row"><button class="btn-primary" id="sgbtn">'+(CFG.live?'Save suggestion':'Copy for Claude')+'</button>'
     +'<span class="sstatus" id="sgstatus"></span></div>'
     +'<div class="hint">'+(CFG.live
       ?'Saves into this procedure’s notes. Next session, Claude offers to turn it into an edit you approve.'
