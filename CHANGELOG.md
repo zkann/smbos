@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.17.0 (2026-06-10)
+
+- The dashboard can open Claude for you. No more reading a folder name off the screen and typing it into a terminal: "Start in Claude" on a plate item opens a Terminal window already in the right folder with the task as Claude's first prompt; a draft's dialog leads with "Do it with Claude now" (the first trigger phrase becomes the opening words); approving a parked run offers "Do it now in Claude"; SOP files get an "open in editor" link. The browser sends only identifiers; folders and prompts are derived server-side from your own files. macOS only (AppleScript); the first click may show a one-time permission prompt ("Python wants to control Terminal").
+
 ## 0.16.0 (2026-06-10)
 
 - Today-first dashboard: two tabs. Today leads with Waiting for you (inline approve/discard, reassuring empty state), Needs attention (translated failures), In flight, On your plate (queued tasks now visible on the dashboard, with their folder), Coming up (humanized schedules + a spend bar against the monthly allowance), and the getting-going meter. Procedures holds the sorted grid (trusted/active first, then by recency) with a status legend.

@@ -56,3 +56,45 @@ def test_append_suggestion_placement(library):
     assert notes < bullet < changelog
     with pytest.raises(PermissionError):
         sv.append_suggestion(library, "../outside.md", "evil")
+
+
+def test_launch_routing(library, monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(sv, "open_terminal_with_claude",
+                        lambda folder, prompt: calls.append((str(folder), prompt)))
+    proj = tmp_path / "projA"
+    proj.mkdir()
+    q = library / "queue"
+    q.mkdir()
+    (q / "a.md").write_text(
+        f"---\nsop: weekly-metrics-report\nproject: {proj}\nstatus: queued\n---\n")
+    assert sv.launch(library, {"kind": "queue", "file": "a.md"}) == "launched"
+    assert calls[-1][0] == str(proj)
+    assert "weekly-metrics-report" in calls[-1][1]
+
+    monkeypatch.setattr(sv, "LAUNCH_CWD", str(proj))
+    assert sv.launch(library, {"kind": "sop", "id": "weekly-metrics-report"}) == "launched"
+    assert calls[-1] == (str(proj), "weekly numbers")  # first trigger phrase
+
+    assert sv.launch(library, {"kind": "approved"}) == "launched"
+    assert "approved pending actions" in calls[-1][1]
+
+    import pytest as _pt
+    with _pt.raises(ValueError):
+        sv.launch(library, {"kind": "queue", "file": "../../etc/hosts"})
+    with _pt.raises(ValueError):
+        sv.launch(library, {"kind": "explode"})
+
+
+def test_launch_open_file_and_reveal(library, monkeypatch):
+    runs = []
+    monkeypatch.setattr(sv.subprocess, "run",
+                        lambda cmd, **kw: runs.append(cmd))
+    assert sv.launch(library, {"kind": "open_file", "id": "weekly-metrics-report"}) == "opened file"
+    assert runs[-1][0] == "open" and runs[-1][1].endswith("weekly-metrics-report.md")
+    assert sv.launch(library, {"kind": "reveal"}) == "opened folder"
+    assert runs[-1] == ["open", str(library)]
+
+
+def test_applescript_escape():
+    assert sv.applescript_escape('say "hi" \\ there') == 'say \\"hi\\" \\\\ there'

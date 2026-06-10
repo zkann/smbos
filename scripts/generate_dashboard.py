@@ -63,7 +63,7 @@ def collect_queued(sop_dir):
             m = parse_frontmatter(p.read_text(encoding="utf-8"))
             if m.get("status") != "queued":
                 continue
-            out.append({"sop": m.get("sop", p.stem),
+            out.append({"sop": m.get("sop", p.stem), "file": p.name,
                         "project": Path(m["project"]).name if m.get("project") else ""})
     return out
 

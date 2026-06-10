@@ -15,6 +15,7 @@ per-run token. Stdlib only, no network beyond localhost. Ctrl-C to stop.
 import json
 import re
 import secrets
+import shlex
 import subprocess
 import sys
 from datetime import date, datetime, timezone
@@ -24,6 +25,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from generate_dashboard import SKIP_NAMES, build_html, resolve_sop_dir
+from smbos_lib import parse_frontmatter
 
 TOKEN = secrets.token_urlsafe(16)
 MAX_TEXT = 2000
@@ -120,6 +122,66 @@ def start_run(sop_dir, sop_id, inputs=None):
     return sid
 
 
+def applescript_escape(s):
+    return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def open_terminal_with_claude(folder, prompt):
+    """Open a Terminal window in `folder` running claude with `prompt` (macOS)."""
+    if sys.platform != "darwin":
+        raise ValueError("launching Claude from the dashboard only works on macOS")
+    folder = Path(folder).expanduser()
+    if not folder.is_dir():
+        raise ValueError("that folder no longer exists")
+    shell_cmd = "cd " + shlex.quote(str(folder)) + " && claude " + shlex.quote(prompt)
+    script = ('tell application "Terminal"\nactivate\ndo script "'
+              + applescript_escape(shell_cmd) + '"\nend tell')
+    subprocess.run(["osascript", "-e", script], check=True, capture_output=True, timeout=20)
+
+
+def launch(sop_dir, payload):
+    """Map a validated launch request to a Terminal+Claude window.
+
+    The browser only sends identifiers; folders and prompts are derived
+    server-side from the owner's own files, never from request strings.
+    """
+    kind = str(payload.get("kind") or "")
+    home = str(Path.home())
+    if kind == "queue":
+        p = sop_dir / "queue" / Path(str(payload.get("file") or "")).name
+        if not p.is_file():
+            raise ValueError("no such queued task")
+        meta = parse_frontmatter(p.read_text(encoding="utf-8"))
+        folder = meta.get("project") or home
+        prompt = "I'm ready to do the task on my plate: " + (meta.get("sop") or "")
+    elif kind == "sop":
+        sid = re.sub(r"[^a-z0-9-]", "", str(payload.get("id") or "").lower())
+        match = next(iter(sop_dir.rglob(f"{sid}.md")), None) if sid else None
+        if match is None:
+            raise ValueError("unknown task")
+        meta = parse_frontmatter(match.read_text(encoding="utf-8"))
+        trigger = (meta.get("triggers") or "").split(",")[0].strip()
+        folder = LAUNCH_CWD if LAUNCH_CWD not in (home, str(sop_dir)) else home
+        prompt = trigger or ("Let's do: " + (meta.get("title") or sid))
+    elif kind == "approved":
+        folder = LAUNCH_CWD if LAUNCH_CWD not in (home, str(sop_dir)) else home
+        prompt = "Execute my approved pending actions."
+    elif kind == "open_file":
+        sid = re.sub(r"[^a-z0-9-]", "", str(payload.get("id") or "").lower())
+        match = next(iter(sop_dir.rglob(f"{sid}.md")), None) if sid else None
+        if match is None:
+            raise ValueError("unknown task")
+        subprocess.run(["open", str(match)], check=True, timeout=15)
+        return "opened file"
+    elif kind == "reveal":
+        subprocess.run(["open", str(sop_dir)], check=True, timeout=15)
+        return "opened folder"
+    else:
+        raise ValueError("unknown launch kind")
+    open_terminal_with_claude(folder, prompt)
+    return "launched"
+
+
 class Handler(BaseHTTPRequestHandler):
     sop_dir = None
 
@@ -149,7 +211,7 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(200, html, "text/html")
 
     def do_POST(self):
-        if self.path not in ("/api/suggest", "/api/resolve", "/api/run", "/api/queue"):
+        if self.path not in ("/api/suggest", "/api/resolve", "/api/run", "/api/queue", "/api/launch"):
             return self._send(404, '{"error":"not found"}')
         if self.headers.get("X-Token") != TOKEN:
             return self._send(403, '{"error":"bad or missing token"}')
@@ -166,6 +228,9 @@ class Handler(BaseHTTPRequestHandler):
                 status = resolve_pending_file(self.sop_dir, payload.get("file", ""),
                                               str(payload.get("decision", "")))
                 return self._send(200, json.dumps({"ok": True, "status": status}))
+            if self.path == "/api/launch":
+                msg = launch(self.sop_dir, payload)
+                return self._send(200, json.dumps({"ok": True, "did": msg}))
             if self.path == "/api/queue":
                 sid = queue_run(self.sop_dir, payload.get("id", ""),
                                 inputs=str(payload.get("inputs") or "").strip() or None,
