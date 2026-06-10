@@ -29,7 +29,7 @@ python3 <plugin-root>/scripts/generate_dashboard.py
 
 It resolves the SOP directory the standard way (`$SOP_DIR` > `./sops` > `~/sops`), writes `dashboard.html` into it, and prints the path. Pass the SOP directory as an argument if the standard resolution would pick the wrong one.
 
-If python3 is not available, do the generation yourself: read `assets/dashboard-template.html` from the plugin, build the JSON array of `{path, content}` objects for every SOP file (skip `INDEX.md` and `_template.md`, include `archive/`), and substitute the `__SOPS_JSON__`, `__GENERATED__` (current UTC ISO timestamp), and `__SOP_DIR__` placeholders.
+If python3 is not available, do the generation yourself: read `assets/index.html`, inline `assets/style.css` and `assets/app.js` into their placeholder comments, build the JSON array of `{path, content}` objects for every SOP file (skip `INDEX.md` and `_template.md`, include `archive/`), and substitute the `__SOPS_JSON__`, `__GENERATED__` (current UTC ISO timestamp), and `__SOP_DIR__` placeholders.
 
 ### 2. Open
 
