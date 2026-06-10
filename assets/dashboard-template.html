@@ -303,7 +303,7 @@ async function queueTask(s){
     const r=await fetch('/api/queue',{method:'POST',
       headers:{'Content-Type':'application/json','X-Token':CFG.token},
       body:JSON.stringify({id:s.meta.id,inputs:box?box.value.trim():''})});
-    st.textContent=r.ok?'Queued. It will come up at the start of your next Claude session.':'Could not queue ('+r.status+').';
+    st.textContent=r.ok?'Queued. It comes up next time you open Claude in this project’s folder.':'Could not queue ('+r.status+').';
     if(!r.ok)qb.disabled=false;
   }catch(e){st.textContent='Could not reach the dashboard server.';qb.disabled=false;}
 }

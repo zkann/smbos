@@ -17,7 +17,7 @@ import subprocess
 import sys
 import urllib.request
 from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
+from pathlib import Path  # noqa: F401  (used for project-folder display)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from humanize import humanize_failure, humanize_source, humanize_spec
@@ -65,10 +65,13 @@ def build(d):
         for p in sorted(qdir.glob("*.md")):
             text = p.read_text(encoding="utf-8")
             if frontmatter_value(text, "status") == "queued":
-                queued.append(f"- **{frontmatter_value(text, 'sop') or p.stem}**")
+                sop = frontmatter_value(text, "sop") or p.stem
+                proj = frontmatter_value(text, "project") or ""
+                where = f" (in {Path(proj).name})" if proj else ""
+                queued.append(f"- **{sop}**{where}")
     if queued:
         lines += [f"## On your plate ({len(queued)})", ""] + queued + \
-                 ["", "These start the next time you open Claude; they need you in the loop.", ""]
+                 ["", "These start the next time you open Claude in the matching folder; they need you in the loop.", ""]
 
     # Last 7 days of automation
     log = d / "runs.jsonl"
