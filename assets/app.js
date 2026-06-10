@@ -133,7 +133,7 @@ function renderWaiting(){
       +'<span class="pill">started by '+esc(p.source_plain||'an automated run')+'</span>'
       +'<span class="pill">'+esc(relTime(p.meta.created)||p.meta.created||'')+'</span></div>'
       +mdToHtml(p.body);
-    dlg.showModal();
+    if(!dlg.open)dlg.showModal();
   };});
   el.querySelectorAll('.pbtn').forEach(btn=>{btn.onclick=async()=>{
     const p=items[+btn.dataset.i];
@@ -276,7 +276,7 @@ function render(){
     }).forEach(s=>{
       const card=document.createElement('div');card.className='card';
       card.tabIndex=0;card.setAttribute('role','button');
-      card.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openDetail(s);}};
+      card.onkeydown=e=>{if(e.target.closest('a.sopref'))return;if(e.key==='Enter'||e.key===' '){e.preventDefault();openDetail(s);}};
       const trig=(s.meta.triggers||'').split(',').map(t=>t.trim()).filter(Boolean).slice(0,4);
       const runs=parseInt(s.meta.runs||'0');
       const usedLine=runs>0?('used '+runs+' time'+(runs===1?'':'s')
@@ -291,7 +291,7 @@ function render(){
         +(trig.length?'<div class="trig">say: '+trig.map(t=>'<em>'+esc(t)+'</em>').join('')+'</div>':'')
         +((EXTRA.schedules[s.meta.id]||[]).length
           ?'<div class="trig">runs '+EXTRA.schedules[s.meta.id].map(esc).join('; ')+'</div>':'');
-      card.onclick=()=>openDetail(s);
+      card.onclick=e=>{if(e.target.closest('a.sopref'))return;openDetail(s);};
       grid.appendChild(card);
     });
   });
@@ -347,7 +347,7 @@ function openDetail(s){
       st.textContent=r.ok?'Started. Check back in a minute or two; if it needs your OK it will appear under "Waiting for you".':'Could not start ('+r.status+').';
     }catch(e){st.textContent='Could not reach the dashboard.';rb.disabled=false;}
   };
-  dlg.showModal();
+  if(!dlg.open)dlg.showModal();
 }
 function rels(label,val){
   if(!val)return '';
@@ -492,12 +492,13 @@ document.getElementById('dclose').addEventListener('click',()=>dlg.close());
 document.getElementById('q').addEventListener('input',render);
 document.getElementById('showArchived').addEventListener('change',render);
 function followSopref(e){
-  const a=e.target.closest('a.sopref');if(!a)return;
+  const a=e.target.closest('a.sopref');if(!a)return false;
   const t=sopById(a.dataset.id);if(t)openDetail(t);
+  return true;
 }
-document.getElementById('dbody').addEventListener('click',followSopref);
-document.getElementById('dbody').addEventListener('keydown',e=>{
-  if(e.key==='Enter'||e.key===' '){followSopref(e);}
+document.addEventListener('click',followSopref);
+document.addEventListener('keydown',e=>{
+  if(e.key==='Enter'||e.key===' '){if(followSopref(e))e.preventDefault();}
 });
 let connDead=false;
 function startLiveness(){
