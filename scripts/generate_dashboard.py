@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from humanize import humanize_failure, humanize_source, humanize_spec
 
 SKIP_NAMES = {"INDEX.md", "_template.md"}
-NON_SOP_DIRS = {"pending", "payloads", "triggers"}
+NON_SOP_DIRS = {"pending", "payloads", "triggers", "queue"}
 
 
 def resolve_sop_dir():

@@ -81,6 +81,20 @@ def required_inputs(sop_dir, sid):
     return None
 
 
+def queue_run(sop_dir, sop_id, inputs=None):
+    sid = re.sub(r"[^a-z0-9-]", "", str(sop_id).lower())
+    if not sid or not any(sop_dir.rglob(f"{sid}.md")):
+        raise ValueError("unknown task")
+    qdir = sop_dir / "queue"
+    qdir.mkdir(exist_ok=True)
+    now = datetime.now(timezone.utc)
+    body = (f"---\nsop: {sid}\nrequested: {now.isoformat()}\nsource: dashboard\nstatus: queued\n---\n")
+    if inputs:
+        body += f"\nOwner's notes for the run:\n{str(inputs)[:2000]}\n"
+    (qdir / f"{now.strftime('%Y%m%dT%H%M%S')}-{sid}.md").write_text(body, encoding="utf-8")
+    return sid
+
+
 def start_run(sop_dir, sop_id, inputs=None):
     sid = re.sub(r"[^a-z0-9-]", "", str(sop_id).lower())
     if not sid:
@@ -122,7 +136,7 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(200, html, "text/html")
 
     def do_POST(self):
-        if self.path not in ("/api/suggest", "/api/resolve", "/api/run"):
+        if self.path not in ("/api/suggest", "/api/resolve", "/api/run", "/api/queue"):
             return self._send(404, '{"error":"not found"}')
         if self.headers.get("X-Token") != TOKEN:
             return self._send(403, '{"error":"bad or missing token"}')
@@ -139,6 +153,10 @@ class Handler(BaseHTTPRequestHandler):
                 status = resolve_pending_file(self.sop_dir, payload.get("file", ""),
                                               str(payload.get("decision", "")))
                 return self._send(200, json.dumps({"ok": True, "status": status}))
+            if self.path == "/api/queue":
+                sid = queue_run(self.sop_dir, payload.get("id", ""),
+                                inputs=str(payload.get("inputs") or "").strip() or None)
+                return self._send(200, json.dumps({"ok": True, "queued": sid}))
             if self.path == "/api/run":
                 sid = start_run(self.sop_dir, payload.get("id", ""),
                                 inputs=str(payload.get("inputs") or "").strip() or None)
