@@ -3,6 +3,7 @@ id: meeting-follow-up
 title: Meeting follow-up and recap
 category: clients
 triggers: follow up from the meeting, send the recap, meeting notes, action items
+run_inputs: the meeting notes or transcript
 version: 1
 created: INSTALL-DATE
 updated: INSTALL-DATE

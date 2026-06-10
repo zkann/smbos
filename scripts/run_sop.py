@@ -100,6 +100,13 @@ def main():
                           "note": f"status is '{status}'; only active/trusted SOPs run unattended"})
         sys.exit(f"Refused: '{args.sop_id}' is {status}. Drafts need a human first run. Use --force to override.")
 
+    required = frontmatter_field(sop_path, "run_inputs")
+    if required and not args.inputs and not args.force:
+        log_run(sop_dir, {**base, "result": "refused", "cost_usd": 0,
+                          "note": f"needs inputs before it can run: {required}"})
+        sys.exit(f"Refused (free, no model spawned): '{args.sop_id}' needs inputs: {required}. "
+                 f"Pass --inputs \"...\" or use --force.")
+
     cap = budget(sop_dir)
     spent = month_spend(sop_dir)
     if cap and spent >= cap and not args.force:
