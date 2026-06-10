@@ -66,11 +66,13 @@ You don't need to memorize these. The session protocol handles matching, capturi
 | `/sop-triggers` | Schedules, event triggers, budget, and automation cost reports |
 | `/sop-connect` | Connect the library to Claude Desktop via MCP (no terminal there) |
 
-## Claude Desktop and mobile (MCP)
+## Claude Desktop (MCP)
 
-The terminal is optional. `/sop-connect` wires a small MCP server (stdlib Python, same files, zero dependencies) into Claude Desktop, and from there your SOPs work in plain chat: Claude checks the library before business tasks and follows your "My way" automatically, you capture new SOPs by describing how you do something, corrections become suggestions the next Code session folds in, and the approval queue is reviewable from anywhere ("what's waiting for me?" then approve or discard).
+The terminal is optional. `/sop-connect` wires a small MCP server (stdlib Python, same files, zero dependencies) into Claude Desktop chat, and from there your SOPs work in plain conversation: Claude checks the library before business tasks and follows your "My way" automatically, you capture new SOPs by describing how you do something, corrections become suggestions the next Code session folds in, and the approval queue is reviewable ("what's waiting for me?" then approve or discard). Cowork sessions on the same machine typically inherit the server too, though Anthropic doesn't officially support local MCP there yet.
 
-The security split is deliberate: chat surfaces can read, suggest, capture drafts, and record decisions, but actions execute only where the full plugin runs. Approving from your phone records the decision; the next Claude Code session (or scheduled run) executes it and confirms.
+The security split is deliberate: chat surfaces can read, suggest, capture drafts, and record decisions, but actions execute only where the full plugin runs. Approving in Desktop records the decision; the next Claude Code session (or scheduled run) executes it and confirms.
+
+Scope honestly stated: this is local stdio MCP, so it reaches Claude Desktop on the machine where your SOPs live. claude.ai web and mobile only support remote (HTTP) connectors; a hosted bridge for phone approvals is on the roadmap, not in the box.
 
 ## Triggers and automation
 
