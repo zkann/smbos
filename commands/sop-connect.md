@@ -2,7 +2,7 @@
 description: Connect the SOP library to Claude Desktop (and other MCP clients)
 ---
 
-Set up the SmbOS MCP server so the user's SOPs work from Claude Desktop (and claude.ai / mobile via Desktop sync), with no terminal needed there.
+Set up the SmbOS MCP server so the user's SOPs work from Claude Desktop chat, with no terminal needed there. (Local stdio MCP reaches Desktop on this machine; Cowork usually inherits it unofficially. claude.ai web and mobile need a remote HTTP connector, which this does not provide; say so if asked.)
 
 The server is `scripts/mcp_server.py` under the plugin root (the parent of the "Starter library:" path announced at session start). It is stdlib-only; `python3` is the only requirement.
 
