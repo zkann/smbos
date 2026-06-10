@@ -120,3 +120,14 @@ def test_iterm_script_used(library, monkeypatch):
     assert "write text" in scripts[-1] and "weekly numbers" in scripts[-1]
     sv.open_terminal_with_claude(library, "x", terminal="terminal")
     assert 'tell application "Terminal"' in scripts[-1]
+
+
+def test_start_run_refuses_unrecorded_changes(library, monkeypatch):
+    from smbos_lib import content_fingerprint, set_frontmatter_fields, split_frontmatter
+    sop = library / "ops" / "weekly-metrics-report.md"
+    text = sop.read_text()
+    _, body = split_frontmatter(text)
+    sop.write_text(set_frontmatter_fields(text, {"content_hash": content_fingerprint(body)}))
+    sop.write_text(sop.read_text().replace("Do the thing.", "Do something else."))
+    with pytest.raises(ValueError, match="outside the normal save flow"):
+        sv.start_run(library, "weekly-metrics-report")
