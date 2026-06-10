@@ -88,7 +88,7 @@
   /* shadcn Progress */
   .spend{margin-top:10px}
   .spend b{font-family:var(--mono)}
-  .spendbar{height:8px;border-radius:999px;background:rgba(34,197,94,.15);overflow:hidden;max-width:340px;border:none}
+  .spendbar{height:8px;border-radius:999px;background:var(--card-raised);border:1px solid var(--border);overflow:hidden;max-width:340px}
   .spendbar>div{height:100%;background:var(--primary);border-radius:999px}
 
   #meter .step{margin-right:14px;color:var(--subtle-fg)}
