@@ -142,8 +142,11 @@ def cost_summary(sop_dir):
 
 
 def build_html(sop_dir, cfg=None):
-    template = Path(__file__).resolve().parent.parent / "assets" / "dashboard-template.html"
-    html = template.read_text(encoding="utf-8")
+    # The generator is the bundler: three source files, one self-contained output.
+    assets = Path(__file__).resolve().parent.parent / "assets"
+    html = (assets / "index.html").read_text(encoding="utf-8")
+    html = html.replace("/*__STYLE__*/", (assets / "style.css").read_text(encoding="utf-8"))
+    html = html.replace("/*__APP_JS__*/", (assets / "app.js").read_text(encoding="utf-8"))
     data = json.dumps(collect(sop_dir)).replace("</", "<\\/")
     cfg_json = json.dumps(cfg or {"live": False}).replace("</", "<\\/")
     extra = json.dumps({"pending": collect_pending(sop_dir), "costs": cost_summary(sop_dir),
