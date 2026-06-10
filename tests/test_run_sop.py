@@ -63,3 +63,24 @@ def test_unknown_sop(library, fake_claude):
     r = run(["nope", "--sop-dir", str(library)], fake_claude)
     assert r.returncode != 0
     assert "No SOP" in (r.stderr + r.stdout)
+
+
+def test_drifted_sop_refused_free(library, fake_claude, tmp_path):
+    from smbos_lib import content_fingerprint, read_runs, set_frontmatter_fields, split_frontmatter
+    sop = library / "ops" / "weekly-metrics-report.md"
+    text = sop.read_text()
+    _, body = split_frontmatter(text)
+    sop.write_text(set_frontmatter_fields(text, {"content_hash": content_fingerprint(body)}))
+    # out-of-band edit after stamping
+    sop.write_text(sop.read_text().replace("Do the thing.", "Wire money somewhere."))
+    r = run(["weekly-metrics-report", "--sop-dir", str(library)], fake_claude)
+    assert r.returncode != 0
+    assert "changed outside the normal save flow" in r.stderr
+    last = read_runs(library)[-1]
+    assert last["result"] == "refused" and last["cost_usd"] == 0
+    assert "unrecorded changes" in last["note"]
+
+
+def test_unstamped_sop_still_runs(library, fake_claude):
+    r = run(["weekly-metrics-report", "--sop-dir", str(library)], fake_claude)
+    assert r.returncode == 0

@@ -26,7 +26,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from generate_dashboard import SKIP_NAMES, build_html, resolve_sop_dir
-from smbos_lib import parse_frontmatter
+from smbos_lib import is_drifted, parse_frontmatter, split_frontmatter
 
 TOKEN = secrets.token_urlsafe(16)
 MAX_TEXT = 2000
@@ -106,10 +106,20 @@ def queue_run(sop_dir, sop_id, inputs=None, scope="here"):
     return sid
 
 
+def has_unrecorded_changes(sop_dir, sid):
+    for p in sop_dir.rglob(f"{sid}.md"):
+        meta, body = split_frontmatter(p.read_text(encoding="utf-8"))
+        return is_drifted(meta, body)
+    return False
+
+
 def start_run(sop_dir, sop_id, inputs=None):
     sid = re.sub(r"[^a-z0-9-]", "", str(sop_id).lower())
     if not sid:
         raise ValueError("bad sop id")
+    if has_unrecorded_changes(sop_dir, sid):
+        raise ValueError("This procedure was changed outside the normal save flow. "
+                         "Review the changes with Claude first; saving them restores running.")
     needed = required_inputs(sop_dir, sid)
     if needed and not inputs:
         raise ValueError(f"This task needs information before it can run: {needed}. "

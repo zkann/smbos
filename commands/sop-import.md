@@ -36,6 +36,6 @@ Mine the user's past Claude Code sessions for recurring tasks that deserve SOPs.
 
 ## Saving (all modes)
 
-Imported SOPs get `status: draft` (they have not survived a real run), today's date, `runs: 0`, `clean_runs: 0`, and a changelog line naming the source ("imported from onboarding-checklist.docx" / "imported from interview" / "imported from session history"). Save to `<category>/<id>.md`, add the INDEX.md line, and commit if the SOP directory is a git repo.
+Imported SOPs get `status: draft` (they have not survived a real run), today's date, `runs: 0`, `clean_runs: 0`, and a changelog line naming the source ("imported from onboarding-checklist.docx" / "imported from interview" / "imported from session history"). Save to `<category>/<id>.md`, record the fingerprint (`python3 <plugin-root>/scripts/sop_version.py stamp <id>`), add the INDEX.md line, and commit if the SOP directory is a git repo.
 
 Close by telling the user: drafts get personalized and promoted the first time they run for real.
