@@ -64,6 +64,13 @@ You don't need to memorize these. The session protocol handles matching, capturi
 | `/sop-review` | Monthly audit: stale, drifted, overlapping, missing, and never-run SOPs |
 | `/sop-dashboard` | Open a visual dashboard of the library in your browser |
 | `/sop-triggers` | Schedules, event triggers, budget, and automation cost reports |
+| `/sop-connect` | Connect the library to Claude Desktop via MCP (no terminal there) |
+
+## Claude Desktop and mobile (MCP)
+
+The terminal is optional. `/sop-connect` wires a small MCP server (stdlib Python, same files, zero dependencies) into Claude Desktop, and from there your SOPs work in plain chat: Claude checks the library before business tasks and follows your "My way" automatically, you capture new SOPs by describing how you do something, corrections become suggestions the next Code session folds in, and the approval queue is reviewable from anywhere ("what's waiting for me?" then approve or discard).
+
+The security split is deliberate: chat surfaces can read, suggest, capture drafts, and record decisions, but actions execute only where the full plugin runs. Approving from your phone records the decision; the next Claude Code session (or scheduled run) executes it and confirms.
 
 ## Triggers and automation
 

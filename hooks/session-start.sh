@@ -86,11 +86,18 @@ if [ "$pending" -gt 0 ]; then
   echo "PENDING DASHBOARD SUGGESTIONS: $pending note(s) tagged 'via dashboard' are waiting in 'Notes for next revision' sections. Early in this session, offer to review them and fold them into SOP edits through the normal diff/approval flow (remove each note once folded in)."
 fi
 parked=0
+approved=0
 for pdir in "$home_dir/pending" "$proj_dir/pending"; do
   [ -d "$pdir" ] || continue
   n=$(grep -l '^status: pending' "$pdir"/*.md 2>/dev/null | grep -c .)
   parked=$((parked + n))
+  a=$(grep -l '^status: approved' "$pdir"/*.md 2>/dev/null | grep -c .)
+  approved=$((approved + a))
 done
+if [ "$approved" -gt 0 ]; then
+  echo ""
+  echo "APPROVED ACTIONS TO EXECUTE: $approved parked run(s) have status: approved (the owner approved them from chat/Desktop, where actions cannot execute). Early in this session: execute each approved action exactly as written in its pending file, confirm completion to the owner, then set the file's status to done (or delete it)."
+fi
 if [ "$parked" -gt 0 ]; then
   echo ""
   echo "TRIGGERED RUNS AWAITING APPROVAL: $parked parked run(s) in the SOP pending/ directory. Early in this session, walk the owner through each one: show the prepared work and the proposed action, get an approve/discard decision, complete approved actions, then set the file's status to approved or discarded (or delete it)."
