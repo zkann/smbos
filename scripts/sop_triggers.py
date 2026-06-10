@@ -26,7 +26,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 SKIP_NAMES = {"INDEX.md", "_template.md"}
-SKIP_DIRS = {"pending", "payloads", "archive", "triggers", "queue"}
+SKIP_DIRS = {"pending", "payloads", "archive", "triggers", "queue", "work"}
 DEFAULT_BUDGET = 20.0
 
 

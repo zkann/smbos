@@ -73,6 +73,22 @@ def build(d):
         lines += [f"## On your plate ({len(queued)})", ""] + queued + \
                  ["", "These start the next time you open Claude in the matching folder; they need you in the loop.", ""]
 
+    # Multi-stage work in progress
+    wdir = d / "work"
+    inflight = []
+    if wdir.is_dir():
+        for p in sorted(wdir.glob("*.md")):
+            text = p.read_text(encoding="utf-8")
+            st = frontmatter_value(text, "status")
+            if st == "done":
+                continue
+            title = frontmatter_value(text, "title") or p.stem
+            stage = frontmatter_value(text, "stage") or "?"
+            blocked = " (blocked)" if st == "blocked" else ""
+            inflight.append(f"- **{title}** is at **{stage}**{blocked}")
+    if inflight:
+        lines += [f"## In flight ({len(inflight)})", ""] + inflight + [""]
+
     # Last 7 days of automation
     log = d / "runs.jsonl"
     week, failures = [], []

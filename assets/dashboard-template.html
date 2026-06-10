@@ -50,6 +50,19 @@
   #meter .step{margin-right:14px;color:var(--muted)}
   #meter .step.done{color:var(--trusted-ink)}
   #meter .nextwin{margin-top:6px;color:var(--ink)}
+  #work{margin:12px 32px 0;padding:14px 16px;border:1px solid var(--line);background:var(--card);border-radius:10px;display:none}
+  #work.show{display:block}
+  #work h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 10px}
+  .witem{padding:8px 0;border-top:1px solid var(--line)}
+  .witem:first-of-type{border-top:none}
+  .witem .wt{font-size:14.5px;font-weight:600}
+  .witem .wt .wflag{font-size:11px;font-weight:600;color:var(--warn);margin-left:6px}
+  .witem .wt .wproj{font-size:12px;font-weight:400;color:var(--muted);margin-left:6px}
+  .wstages{margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+  .wstage{font-size:12px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+  .wstage.done{background:var(--trusted-bg);color:var(--trusted-ink);border-color:transparent}
+  .wstage.cur{background:var(--ink);color:#fff;border-color:transparent}
+  .warrow{color:var(--line)}
   #attention strong{color:var(--warn)}
   #attention ul{margin:6px 0 0;padding-left:18px}
   main{padding:10px 32px 60px;max-width:1180px}
@@ -113,6 +126,7 @@
   <input type="search" id="q" placeholder="Search SOPs, triggers, steps...">
   <label><input type="checkbox" id="showArchived"> show archived</label>
 </div>
+<div id="work"></div>
 <div id="meter"></div>
 <div id="parked"></div>
 <div id="attention"></div>
@@ -312,6 +326,25 @@ function rels(label,val){
   return val.split(',').map(x=>x.trim()).filter(Boolean)
     .map(id=>'<span class="pill relpill">'+label+': '+refLink(id)+'</span>').join('');
 }
+function renderWork(){
+  const items=EXTRA.work||[];
+  const el=document.getElementById('work');
+  if(!items.length)return;
+  el.className='show';
+  el.innerHTML='<h2>Work in progress</h2>'+items.map(w=>{
+    let passed=true;
+    const chips=(w.stages.length?w.stages:[w.stage]).map(s=>{
+      let cls='wstage';
+      if(s===w.stage){cls+=' cur';passed=false;}
+      else if(passed){cls+=' done';}
+      return '<span class="'+cls+'">'+esc(s)+'</span>';
+    }).join('<span class="warrow">›</span>');
+    return '<div class="witem"><div class="wt">'+esc(w.title)
+      +(w.status==='blocked'?'<span class="wflag">BLOCKED</span>':'')
+      +(w.project?'<span class="wproj">'+esc(w.project)+'</span>':'')
+      +'</div><div class="wstages">'+chips+'</div></div>';
+  }).join('');
+}
 function renderMeter(){
   const live=sops.filter(s=>!s.archived);
   if(!live.length)return;
@@ -426,6 +459,7 @@ function summary(){
         pk.querySelectorAll('.pbtn[data-i="'+btn.dataset.i+'"]').forEach(b=>b.disabled=false);}
     };});
   }
+  renderWork();
   renderMeter();
   const att=sops.filter(s=>s.flags.length);
   const el=document.getElementById('attention');
