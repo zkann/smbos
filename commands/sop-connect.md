@@ -10,19 +10,21 @@ The server is `scripts/mcp_server.py` under the plugin root (the parent of the "
 
 Config file: `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS (`%APPDATA%\Claude\claude_desktop_config.json` on Windows).
 
-1. If the file exists, read it first and MERGE; never overwrite other servers. Back it up to `claude_desktop_config.json.bak` before editing.
-2. Add under `mcpServers`:
+1. CHECK THAT CLAUDE DESKTOP IS FULLY QUIT before editing (`pgrep -x Claude`). Desktop writes its in-memory config back on quit, silently erasing edits made while it runs. If it is running, ask the user to quit it first.
+2. If the file exists, read it first and MERGE; never overwrite other servers. Back it up to `claude_desktop_config.json.bak` before editing.
+2. Add under `mcpServers`, using an ABSOLUTE python path (Desktop spawns servers with a minimal PATH; on macOS `/usr/bin/python3` is the safe choice and the server's stdlib-only code runs on its 3.9):
 
 ```json
 "smbos": {
-  "command": "python3",
+  "command": "/usr/bin/python3",
   "args": ["<plugin-root>/scripts/mcp_server.py"]
 }
 ```
 
 (Pass the SOP directory as a second arg only if the user's library is somewhere non-standard; the server resolves `$SOP_DIR` then `~/sops` on its own.)
 
-3. Tell the user to restart Claude Desktop, then verify by asking it "what SOPs do I have?".
+3. Tell the user to FULLY QUIT Claude Desktop (Cmd+Q, not just closing the window) and reopen it; config is only read at launch. Verify by asking it "what SOPs do I have?".
+4. Set expectations explicitly: Claude Desktop has NO slash commands. There is no /sop-anything there; the user just talks ("what SOPs do I have", "anything waiting for my approval", "save this as an SOP"). Troubleshooting: if Desktop doesn't know about SOPs after a restart, check `~/Library/Logs/Claude/mcp-server-smbos.log`; no such file means Desktop never launched the server (config typo or no full restart).
 
 ## 2. What to tell the user it enables (plain words)
 
