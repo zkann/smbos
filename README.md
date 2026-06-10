@@ -123,6 +123,7 @@ See [examples/weekly-metrics-report.md](examples/weekly-metrics-report.md) for a
 id: send-invoice            # filename and reference handle
 triggers: invoice X, bill   # phrases you actually say
 version: 3                  # bumped on every approved change
+content_hash: 3f9a1c2b4d6e  # fingerprint of the steps; edits that skip the save flow get noticed
 runs: 12                    # usage tracking feeds the review audit
 status: trusted             # draft -> active (1 real run) -> trusted (3 clean runs)
 ---
@@ -133,6 +134,8 @@ status: trusted             # draft -> active (1 real run) -> trusted (3 clean r
 ```
 
 The "My way" section is the heart. If it is empty, you did not need an SOP; the AI's default behavior was already fine.
+
+Versions are enforced, not honor-system. Every saved SOP carries a fingerprint of its procedure content; if a file is edited outside the normal save flow (a text editor, another tool), the dashboard flags it as "unrecorded changes", unattended runs refuse it for free, and the next session offers to reconcile. Approved edits go through one command (`scripts/sop_version.py bump`) that bumps the version, writes the changelog line, refreshes the fingerprint, and sends a trusted SOP back to active to re-earn its three clean runs. Notes and changelog entries never count as drift; only the steps do. If the library is a git repo (offered at setup), full diff history sits underneath.
 
 ## Status
 

@@ -42,3 +42,9 @@ def test_failure_mapping():
     assert "hasn't been done" in plain
     plain, action = humanize_failure("some weird thing")
     assert "unexpected error" in plain and "some weird thing" in action
+
+
+def test_unrecorded_changes_failure_is_plain():
+    plain, action = humanize_failure("unrecorded changes since the last saved version")
+    assert "outside the normal save flow" in plain
+    assert "review the changes" in action
