@@ -57,6 +57,9 @@
   .wstage.done{background:var(--trusted-bg);color:var(--trusted-ink);border-color:transparent}
   .wstage.cur{background:var(--ink);color:#fff;border-color:transparent}
   .warrow{color:var(--line)}
+  @media (prefers-reduced-motion: reduce){
+    *{transition:none !important;animation:none !important}
+  }
   @media (pointer:coarse){
     .pbtn,.suggest button,.tab{min-height:44px}
   }
