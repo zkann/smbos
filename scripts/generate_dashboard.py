@@ -8,6 +8,7 @@ For the interactive live mode, see serve_dashboard.py.
 """
 import json
 import os
+import re
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -16,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from humanize import humanize_failure, humanize_source, humanize_spec
 
 SKIP_NAMES = {"INDEX.md", "_template.md"}
-NON_SOP_DIRS = {"pending", "payloads", "triggers", "queue"}
+NON_SOP_DIRS = {"pending", "payloads", "triggers", "queue", "work"}
 
 
 def resolve_sop_dir():
@@ -64,6 +65,30 @@ def collect_pending(sop_dir):
             items.append({"path": p.name, "content": content,
                           "source_plain": humanize_source(src) if src else "an automated run"})
     return items
+
+
+def work_items(sop_dir):
+    out = []
+    wd = sop_dir / "work"
+    if not wd.is_dir():
+        return out
+    for p in sorted(wd.glob("*.md")):
+        text = p.read_text(encoding="utf-8")
+        m = {}
+        fm = re.match(r"^---\r?\n(.*?)\r?\n---", text, re.S)
+        if fm:
+            for line in fm.group(1).splitlines():
+                if ":" in line:
+                    k, _, v = line.partition(":")
+                    m[k.strip()] = v.strip()
+        if m.get("status") == "done":
+            continue
+        out.append({"title": m.get("title", p.stem),
+                    "stages": [s.strip() for s in m.get("stages", "").split(",") if s.strip()],
+                    "stage": m.get("stage", ""), "status": m.get("status", "active"),
+                    "project": Path(m["project"]).name if m.get("project") else "",
+                    "updated": (m.get("updated", "") or "")[:10]})
+    return out
 
 
 def schedules(sop_dir):
@@ -129,7 +154,8 @@ def build_html(sop_dir, cfg=None):
     cfg_json = json.dumps(cfg or {"live": False}).replace("</", "<\\/")
     extra = json.dumps({"pending": collect_pending(sop_dir), "costs": cost_summary(sop_dir),
                         "schedules": schedules(sop_dir),
-                        "failures": recent_failures(sop_dir)}).replace("</", "<\\/")
+                        "failures": recent_failures(sop_dir),
+                        "work": work_items(sop_dir)}).replace("</", "<\\/")
     html = html.replace("__SOPS_JSON__", data)
     html = html.replace("__CFG_JSON__", cfg_json)
     html = html.replace("__EXTRA_JSON__", extra)

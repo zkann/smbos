@@ -66,7 +66,7 @@ SOPs are the user's documented way of doing recurring tasks. They override your 
 
 PLAIN WORDS. When talking to the user, render system state in plain language: schedules as "every Monday at 8:57 AM" (never cron syntax), trigger sources as "its schedule" / "a Linear event" (never "source: cron"), failures as what happened plus one suggested fix (never raw API errors). Spec syntax belongs in files, not conversation. Mention overlays/variants as "the version for this project" / "the TypeScript way" unless the user uses the technical terms first.
 
-Commands: /sop-init, /sop-new, /sop-import, /sop-run, /sop-update, /sop-list, /sop-review, /sop-dashboard (visual library view in the browser), /sop-triggers (schedules, automation, costs), /sop-connect (Claude Desktop). The user never needs to memorize these; plain requests ("save this as an SOP", "show my SOPs", "what has automation cost") route to the same flows.
+Commands: /sop-init, /sop-new, /sop-import, /sop-run, /sop-update, /sop-list, /sop-review, /sop-dashboard (visual library view in the browser), /sop-triggers (schedules, automation, costs), /sop-connect (Claude Desktop), /sop-work (track multi-stage work in progress). The user never needs to memorize these; plain requests ("save this as an SOP", "show my SOPs", "what has automation cost") route to the same flows.
 EOF
 echo ""
 if [ "$mature" -lt 5 ]; then
@@ -136,6 +136,28 @@ if [ -n "$elsewhere_list" ]; then
   folders=$(printf '%s' "$elsewhere_list" | grep -v '^$' | sort -u | xargs -n1 basename 2>/dev/null | paste -sd ', ' -)
   echo ""
   echo "QUEUED TASKS FOR OTHER PROJECTS: the owner has queued task(s) tied to a different folder than this one ($folders). Do NOT run them here. If the user asks about them, tell them to open Claude Code in that folder; this session is the wrong place for project-specific work."
+fi
+inflight_here=""
+for wd in "$home_dir/work" "$proj_dir/work"; do
+  [ -d "$wd" ] || continue
+  for f in "$wd"/*.md; do
+    [ -f "$f" ] || continue
+    grep -q '^status: done' "$f" && continue
+    wproj=$(grep -m1 '^project:' "$f" | sed 's/^project:[[:space:]]*//')
+    [ -n "$wproj" ] && [ "$wproj" != "$cwd" ] && continue
+    title=$(grep -m1 '^title:' "$f" | sed 's/^title:[[:space:]]*//')
+    stage=$(grep -m1 '^stage:' "$f" | sed 's/^stage:[[:space:]]*//')
+    st=$(grep -m1 '^status:' "$f" | sed 's/^status:[[:space:]]*//')
+    flag=""; [ "$st" = "blocked" ] && flag=" (BLOCKED)"
+    inflight_here="$inflight_here  - $title: at stage '$stage'$flag
+"
+  done
+done
+if [ -n "$inflight_here" ]; then
+  echo ""
+  echo "WORK IN PROGRESS (multi-stage items active in this folder or unscoped):"
+  printf '%s' "$inflight_here"
+  echo "If the user picks one up, follow its workflow SOP for the current stage, then advance it (work.py advance) and log what happened. Surface blocked items so they don't stall silently."
 fi
 if [ -n "$proj_dir" ] && [ -f "$proj_dir/INDEX.md" ]; then
   echo ""
