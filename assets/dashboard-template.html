@@ -277,7 +277,7 @@ function runBox(s){
     +'"></textarea>'
     +'<div class="row"><button class="runbtn" id="runbtn"'+(req?' disabled':'')+'>Run this now</button>'
     +'<span class="sstatus err" id="runstatus">'+(req?'Fill in what it needs first':'')+'</span></div>'
-    +'<div class="hint">Runs in the background and uses a small amount of your automation credit. It stops for your approval before anything is sent.</div></div>';
+    +'<div class="hint">Runs in the background using a little of your Claude plan’s automation allowance (the dollar figures track that usage, not separate charges). It stops for your approval before anything is sent.</div></div>';
 }
 function rels(label,val){
   if(!val)return '';
@@ -354,7 +354,7 @@ function summary(){
     +(sops.length-live.length?'<span class="pill">'+(sops.length-live.length)+' archived</span>':'')
     +(EXTRA.costs&&(EXTRA.costs.runs>0||EXTRA.costs.budget>0)
       ?'<span class="pill">automation: $'+EXTRA.costs.month_total.toFixed(2)
-        +(EXTRA.costs.budget?' of $'+EXTRA.costs.budget.toFixed(0)+' budget':'')
+        +(EXTRA.costs.budget?' of $'+EXTRA.costs.budget.toFixed(0)+' allowance':'')
         +' ('+EXTRA.costs.runs+' runs this month)</span>':'');
   const parkedItems=(EXTRA.pending||[]).map(p=>({...p,...parseSop(p.content)}))
     .filter(p=>(p.meta.status||'pending')==='pending');

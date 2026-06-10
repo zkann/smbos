@@ -13,7 +13,7 @@ The plugin root is the parent of the "Starter library:" path announced at sessio
 - Triggers are created DISABLED. Enabling is always an explicit owner decision.
 - Only `active` or `trusted` SOPs run unattended; the runner refuses drafts.
 - Every triggered run executes up to the first **[APPROVAL]** step or externally visible action, then PARKS: the prepared work lands in `<sop-dir>/pending/` and the owner approves or discards it later (session start and the dashboard both surface pending items). Nothing external happens without a human.
-- Every run logs cost to `<sop-dir>/runs.jsonl`. A monthly budget in triggers.json stops runs once spent (headless runs bill against the plan's separate agent credit, so the guard protects real money).
+- Every run logs cost to `<sop-dir>/runs.jsonl` as the API-equivalent dollar value Claude Code reports. On a subscription login these figures are plan usage, not separate charges; from 2026-06-15 headless runs draw from the plan's included monthly agent credit ($20 Pro / $100 Max 5x / $200 Max 20x), and the `monthly_budget_usd` guard should be set to match that allowance. If the user asks whether automation costs extra money: it does not, unless they deliberately configure an API key.
 
 ## Routing user requests
 
