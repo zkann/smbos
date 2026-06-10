@@ -23,6 +23,7 @@ The plugin root is the parent of the "Starter library:" path announced at sessio
 - "what has automation cost" / costs: `sop_triggers.py costs`; summarize, and flag if the month is over 80% of budget.
 - "set the budget to X": `sop_triggers.py budget <amount>`.
 - test a trigger now: `run_sop.py <sop-id> --source manual` (warn that this spends real credit; suggest `--model haiku` for a cheap test).
+- inputs: a run that needs information gets it via `--inputs "client: Acme, month: May"` (owner-provided, trusted). Standing inputs for a schedule: `sop_triggers.py set <trigger-id> inputs "..."`, which the crontab line then carries. A run missing required inputs parks immediately and says exactly what it needs instead of guessing or burning credit.
 
 ## Installing a cron schedule (after enable)
 

@@ -243,9 +243,10 @@ function openDetail(s){
     rb.disabled=true;
     const st=document.getElementById('runstatus');
     try{
+      const ri=document.getElementById('runinputs');
       const r=await fetch('/api/run',{method:'POST',
         headers:{'Content-Type':'application/json','X-Token':CFG.token},
-        body:JSON.stringify({id:s.meta.id})});
+        body:JSON.stringify({id:s.meta.id,inputs:ri?ri.value.trim():''})});
       st.textContent=r.ok?'Started. Check back in a minute or two; if it needs your OK it will appear in the approval list.':'Could not start ('+r.status+').';
     }catch(e){st.textContent='Could not reach the dashboard server.';rb.disabled=false;}
   };
@@ -253,7 +254,11 @@ function openDetail(s){
 }
 function runBox(s){
   if(!CFG.live||s.archived||s.status==='draft')return '';
-  return '<div class="suggest"><div class="row"><button class="runbtn" id="runbtn">Run this now</button>'
+  const needs=section(s.body,'Inputs');
+  return '<div class="suggest"><div class="slabel">Run this task</div>'
+    +(needs?'<div class="hint" style="margin:0 0 6px">It will need: '+inline(needs.split('\n').map(l=>l.replace(/^[-*]\s*/,'')).filter(Boolean).join('; '))+'</div>':'')
+    +'<textarea id="runinputs" rows="2" placeholder="Anything this run needs to know (which client, which file, amounts...). Leave empty if none."></textarea>'
+    +'<div class="row"><button class="runbtn" id="runbtn">Run this now</button>'
     +'<span class="sstatus" id="runstatus"></span></div>'
     +'<div class="hint">Runs in the background and uses a small amount of your automation credit. It stops for your approval before anything is sent.</div></div>';
 }

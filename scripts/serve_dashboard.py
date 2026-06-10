@@ -74,15 +74,16 @@ def resolve_pending_file(sop_dir, rel_name, decision):
     return new_status
 
 
-def start_run(sop_dir, sop_id):
+def start_run(sop_dir, sop_id, inputs=None):
     sid = re.sub(r"[^a-z0-9-]", "", str(sop_id).lower())
     if not sid:
         raise ValueError("bad sop id")
     runner = Path(__file__).resolve().parent / "run_sop.py"
+    cmd = [sys.executable, str(runner), sid, "--source", "dashboard", "--sop-dir", str(sop_dir)]
+    if inputs:
+        cmd += ["--inputs", str(inputs)[:2000]]
     log = (sop_dir / "trigger.log").open("a")
-    subprocess.Popen([sys.executable, str(runner), sid, "--source", "dashboard",
-                      "--sop-dir", str(sop_dir)],
-                     stdout=log, stderr=log, start_new_session=True)
+    subprocess.Popen(cmd, stdout=log, stderr=log, start_new_session=True)
     return sid
 
 
@@ -128,7 +129,8 @@ class Handler(BaseHTTPRequestHandler):
                                               str(payload.get("decision", "")))
                 return self._send(200, json.dumps({"ok": True, "status": status}))
             if self.path == "/api/run":
-                sid = start_run(self.sop_dir, payload.get("id", ""))
+                sid = start_run(self.sop_dir, payload.get("id", ""),
+                                inputs=str(payload.get("inputs") or "").strip() or None)
                 return self._send(200, json.dumps({"ok": True, "started": sid}))
         except (PermissionError, FileNotFoundError, ValueError) as e:
             return self._send(400, json.dumps({"error": str(e)}))
