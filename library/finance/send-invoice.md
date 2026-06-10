@@ -3,6 +3,7 @@ id: send-invoice
 title: Send an invoice
 category: finance
 triggers: send an invoice, invoice the client, bill them, time to invoice
+run_inputs: which client, what is being billed (period or items and amounts)
 version: 1
 created: INSTALL-DATE
 updated: INSTALL-DATE

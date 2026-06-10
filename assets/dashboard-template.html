@@ -239,6 +239,10 @@ function openDetail(s){
   const btn=document.getElementById('sgbtn');
   if(btn)btn.onclick=()=>submitSuggestion(s);
   const rb=document.getElementById('runbtn');
+  const ri0=document.getElementById('runinputs');
+  if(rb&&ri0&&(s.meta.run_inputs||'').trim()){
+    ri0.addEventListener('input',()=>{rb.disabled=!ri0.value.trim();});
+  }
   if(rb)rb.onclick=async()=>{
     rb.disabled=true;
     const st=document.getElementById('runstatus');
@@ -254,12 +258,15 @@ function openDetail(s){
 }
 function runBox(s){
   if(!CFG.live||s.archived||s.status==='draft')return '';
+  const req=(s.meta.run_inputs||'').trim();
   const needs=section(s.body,'Inputs');
   return '<div class="suggest"><div class="slabel">Run this task</div>'
     +(needs?'<div class="hint" style="margin:0 0 6px">It will need: '+inline(needs.split('\n').map(l=>l.replace(/^[-*]\s*/,'')).filter(Boolean).join('; '))+'</div>':'')
-    +'<textarea id="runinputs" rows="2" placeholder="Anything this run needs to know (which client, which file, amounts...). Leave empty if none."></textarea>'
-    +'<div class="row"><button class="runbtn" id="runbtn">Run this now</button>'
-    +'<span class="sstatus" id="runstatus"></span></div>'
+    +'<textarea id="runinputs" rows="2" placeholder="'
+    +(req?'Required before this can run: '+esc(req):'Anything this run needs to know (which client, which file, amounts...). Leave empty if none.')
+    +'"></textarea>'
+    +'<div class="row"><button class="runbtn" id="runbtn"'+(req?' disabled':'')+'>Run this now</button>'
+    +'<span class="sstatus" id="runstatus">'+(req?'Needs: '+esc(req):'')+'</span></div>'
     +'<div class="hint">Runs in the background and uses a small amount of your automation credit. It stops for your approval before anything is sent.</div></div>';
 }
 function rels(label,val){

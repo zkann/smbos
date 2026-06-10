@@ -74,10 +74,21 @@ def resolve_pending_file(sop_dir, rel_name, decision):
     return new_status
 
 
+def required_inputs(sop_dir, sid):
+    for p in sop_dir.rglob(f"{sid}.md"):
+        m = re.search(r"^run_inputs: *(.+)$", p.read_text(encoding="utf-8")[:900], re.M)
+        return m.group(1).strip() if m else None
+    return None
+
+
 def start_run(sop_dir, sop_id, inputs=None):
     sid = re.sub(r"[^a-z0-9-]", "", str(sop_id).lower())
     if not sid:
         raise ValueError("bad sop id")
+    needed = required_inputs(sop_dir, sid)
+    if needed and not inputs:
+        raise ValueError(f"This task needs information before it can run: {needed}. "
+                         "Fill in the box above the Run button.")
     runner = Path(__file__).resolve().parent / "run_sop.py"
     cmd = [sys.executable, str(runner), sid, "--source", "dashboard", "--sop-dir", str(sop_dir)]
     if inputs:

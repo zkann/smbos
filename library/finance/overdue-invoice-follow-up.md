@@ -3,6 +3,7 @@ id: overdue-invoice-follow-up
 title: Follow up on an overdue invoice
 category: finance
 triggers: chase the invoice, overdue invoice, payment reminder, they have not paid
+run_inputs: which invoice (number or client)
 version: 1
 created: INSTALL-DATE
 updated: INSTALL-DATE

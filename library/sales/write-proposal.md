@@ -3,6 +3,7 @@ id: write-proposal
 title: Write a proposal
 category: sales
 triggers: write a proposal, send a quote, scope of work, SOW
+run_inputs: which prospect, where the discovery notes are
 version: 1
 created: INSTALL-DATE
 updated: INSTALL-DATE

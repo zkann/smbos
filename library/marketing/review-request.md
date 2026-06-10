@@ -3,6 +3,7 @@ id: review-request
 title: Ask a customer for a review or testimonial
 category: marketing
 triggers: ask for a review, testimonial, google review, get a review
+run_inputs: which customer, the happy moment to reference
 version: 1
 created: INSTALL-DATE
 updated: INSTALL-DATE

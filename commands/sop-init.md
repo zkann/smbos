@@ -36,6 +36,7 @@ triggers: phrase one, phrase two
 # needs: upstream-sop-id (optional; this SOP consumes that one's output)
 # next: follow-on-sop-id (optional; what typically runs after)
 # extends: home-sop-id (optional; only in project ./sops overlays: delta sections over the home SOP)
+# run_inputs: which client, what is being billed (optional; per-run info an UNATTENDED run must have; gates triggered runs for free before any model spawns)
 version: 1
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
