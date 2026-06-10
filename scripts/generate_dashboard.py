@@ -7,6 +7,7 @@ Writes <sop_dir>/dashboard.html and prints its path. No network, stdlib only.
 For the interactive live mode, see serve_dashboard.py.
 """
 import json
+import os
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -157,7 +158,7 @@ def build_html(sop_dir, cfg=None):
     html = html.replace("__GENERATED__", datetime.now(timezone.utc).isoformat())
     display_dir = str(sop_dir)
     home = str(Path.home())
-    if display_dir.startswith(home):
+    if display_dir == home or display_dir.startswith(home + os.sep):
         display_dir = "~" + display_dir[len(home):]
     html = html.replace("__SOP_DIR__", display_dir)
     return html
