@@ -89,7 +89,7 @@
   /* shadcn Progress */
   .spend{margin-top:10px}
   .spend b{font-family:var(--mono)}
-  .spendbar{height:8px;border-radius:999px;background:var(--card-raised);border:1px solid var(--border);overflow:hidden;max-width:340px}
+  .spendbar{margin-top:6px;height:8px;border-radius:999px;background:var(--card-raised);border:1px solid var(--border);overflow:hidden;max-width:340px}
   .spendbar>div{height:100%;background:var(--primary);border-radius:999px}
 
   #meter .step{margin-right:14px;color:var(--subtle-fg)}
@@ -166,7 +166,16 @@
     border-radius:6px;padding:8px 16px;min-height:34px;font-size:13.5px;font-weight:600;cursor:pointer}
   .btn-primary:hover{background:var(--primary-hover)}
   .btn-primary:disabled{background:transparent;color:var(--subtle-fg);border:1px dashed var(--border-strong);cursor:not-allowed}
-  .suggest .sstatus{font-size:13px;color:var(--green)}
+  .pstatus,.sstatus{margin-left:8px;font-size:13px}
+  .suggest .sstatus{color:var(--green)}
+  .suggest .hint.lead,.hint.lead{margin:0 0 8px}
+  .suggest .row.lead{margin:0 0 10px}
+  .suggest label{margin-right:10px}
+  .panel-note{margin-top:6px;color:var(--muted-fg);font-size:13px}
+  .quiet{color:var(--muted-fg)}
+  .empty-state{color:var(--muted-fg);padding:40px 0}
+  .fileline{margin-top:18px;color:var(--muted-fg);font-size:12.5px}
+  .fileline a{color:var(--blue)}
   .suggest .sstatus.err{color:var(--amber)}
   .suggest .hint{margin-top:8px;font-size:13px;color:var(--subtle-fg)}
   .reqchip{font-style:normal;background:var(--chip-bg);border:1px solid var(--border);border-radius:6px;padding:2px 9px;

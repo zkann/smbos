@@ -118,9 +118,9 @@ function renderWaiting(){
       +(relTime(p.meta.created)?', '+relTime(p.meta.created):'')
       +(CFG.live?'<button class="pbtn okb" data-i="'+i+'" data-d="approve">Approve</button>'
                 +'<button class="pbtn nob" data-i="'+i+'" data-d="discard">Discard</button>'
-                +'<span class="pstatus" data-i="'+i+'" style="margin-left:8px;font-size:13px"></span>':'')
+                +'<span class="pstatus" data-i="'+i+'"></span>':'')
       +'</li>').join('')
-    +'</ul><div style="margin-top:6px;color:var(--muted);font-size:13px">'
+    +'</ul><div class="panel-note">'
     +(CFG.live?'Approve records your decision; the action itself happens in your next Claude session. Discard cancels it.'
               :'Approve or discard these in Claude: "review my pending runs".')+'</div>';
   el.querySelectorAll('.pitem').forEach(n=>{
@@ -193,9 +193,9 @@ function renderPlate(){
     +items.map((q,i)=>'<li><b>'+esc(sopTitle(q.sop))+'</b>'
       +(q.project?': for the <b>'+esc(q.project)+'</b> folder':'')
       +(CFG.live?'<button class="pbtn okb qstart" data-i="'+i+'">Start in Claude</button>'
-        +'<span class="sstatus qst" data-i="'+i+'" style="margin-left:8px;font-size:13px"></span>':'')
+        +'<span class="sstatus qst" data-i="'+i+'"></span>':'')
       +'</li>').join('')
-    +'</ul><div style="margin-top:6px;color:var(--muted);font-size:13px">These are tasks you saved to do together; they need you in the loop.'
+    +'</ul><div class="panel-note">These are tasks you saved to do together; they need you in the loop.'
     +(CFG.live?' "Start in Claude" opens a terminal window in the right folder with the task ready to go.':'')+'</div>';
   el.querySelectorAll('.qstart').forEach(b=>{b.onclick=()=>{
     const q=items[+b.dataset.i];b.disabled=true;
@@ -216,14 +216,14 @@ function renderComing(){
       return '<li><b>'+esc(s?s.title:n)+'</b> runs '+sch[n].map(esc).join('; ')+'</li>';
     }).join('')+'</ul>';
   }else{
-    html+='<div style="color:var(--muted)">Nothing is scheduled yet. Pick a recurring task and tell Claude: "run this every Monday morning".</div>';
+    html+='<div class="quiet">Nothing is scheduled yet. Pick a recurring task and tell Claude: "run this every Monday morning".</div>';
   }
   if(c&&(c.runs>0||c.budget>0)){
     const pct=c.budget?Math.min(100,c.month_total/c.budget*100):0;
     html+='<div class="spend">Automation has used <b>$'+c.month_total.toFixed(2)+'</b>'
       +(c.budget?' of its $'+c.budget.toFixed(0)+' monthly allowance':'')
       +' ('+c.runs+' run'+(c.runs===1?'':'s')+' this month). These figures track your Claude plan usage, not separate charges.'
-      +(c.budget?'<div class="spendbar" style="margin-top:6px"><div style="width:'+pct+'%"></div></div>':'')+'</div>';
+      +(c.budget?'<div class="spendbar"><div style="width:'+pct+'%"></div></div>':'')+'</div>';
   }
   el.innerHTML=html;
 }
@@ -259,7 +259,7 @@ function render(){
   const vis=sops.filter(s=>(!s.archived||showArch)&&(!q||s.raw.toLowerCase().includes(q)));
   const cats={};vis.forEach(s=>{(cats[s.category]=cats[s.category]||[]).push(s);});
   const main=document.getElementById('main');main.innerHTML='';
-  if(!vis.length){main.innerHTML='<div style="color:var(--muted);padding:40px 0">'+(sops.length?'No procedures match that search.':'Nothing here yet. Tell Claude about your business and it will set up a starter pack.')+'</div>';return;}
+  if(!vis.length){main.innerHTML='<div class="empty-state">'+(sops.length?'No procedures match that search.':'Nothing here yet. Tell Claude about your business and it will set up a starter pack.')+'</div>';return;}
   const catKey=cat=>{
     const best=Math.min(...cats[cat].map(s=>RANK[s.status]??2));
     const recent=Math.min(...cats[cat].map(s=>{const n=daysAgo(s.meta.last_used);return n===null?9999:n;}));
@@ -315,8 +315,8 @@ function openDetail(s){
     +runBox(s)
     +suggestBox(s)
     +mdToHtml(s.body)
-    +'<div style="margin-top:18px;color:var(--muted);font-size:12.5px">File: '+esc(s.path)
-    +(CFG.live?' <a href="#" id="openfile" style="color:var(--active-ink)">open in editor</a>':'')+'</div>';
+    +'<div class="fileline">File: '+esc(s.path)
+    +(CFG.live?' <a href="#" id="openfile">open in editor</a>':'')+'</div>';
   const btn=document.getElementById('sgbtn');
   if(btn)btn.onclick=()=>submitSuggestion(s);
   const qb=document.getElementById('queuebtn');
@@ -359,13 +359,13 @@ function runBox(s){
   if(s.status==='draft'){
     const trig=(s.meta.triggers||'').split(',')[0].trim();
     return '<div class="suggest"><div class="slabel">Run this task</div>'
-      +'<div class="hint" style="margin:0 0 8px">This task hasn’t been done together yet, so it can’t run in the background. '
+      +'<div class="hint lead">This task hasn’t been done together yet, so it can’t run in the background. '
       +'Do it once with Claude'+(trig?' (just say “'+esc(trig)+'”)':'')+' and the Run button appears here afterward.'+'</div>'
-      +(CFG.live?'<div class="row" style="margin:0 0 10px"><button class="btn-primary runbtn" id="donowbtn">Do it with Claude now</button>'
+      +(CFG.live?'<div class="row lead"><button class="btn-primary runbtn" id="donowbtn">Do it with Claude now</button>'
         +'<span class="sstatus" id="donowstatus"></span></div>'
         +'<textarea id="queueinputs" rows="2" placeholder="Anything Claude should know when you do it together? Optional."></textarea>'
         +scopeChoice()
-        +'<div class="row"><button class="pbtn" id="queuebtn" style="padding:6px 12px">Put it on my plate for later</button>'
+        +'<div class="row"><button class="pbtn" id="queuebtn">Put it on my plate for later</button>'
         +'<span class="sstatus" id="queuestatus"></span></div>':'')
       +'</div>';
   }
@@ -373,22 +373,22 @@ function runBox(s){
   const req=(s.meta.run_inputs||'').trim();
   const items=req?req.split(',').map(x=>x.trim()).filter(Boolean):[];
   return '<div class="suggest"><div class="slabel">Run this task</div>'
-    +(items.length?'<div class="hint" style="margin:0 0 8px">Tell it: '
+    +(items.length?'<div class="hint lead">Tell it: '
       +items.map(t=>'<em class="reqchip">'+esc(t)+'</em>').join('')+'</div>':'')
     +'<textarea id="runinputs" rows="2" placeholder="'
     +(items.length?'Type those here':'Anything this run should know? Optional.')
     +'"></textarea>'
     +scopeChoice()
     +'<div class="row"><button class="btn-primary runbtn" id="runbtn"'+(req?' disabled':'')+'>Run this now</button>'
-    +'<button class="pbtn" id="queuebtn" style="margin-left:8px">Put it on my plate instead</button>'
+    +'<button class="pbtn" id="queuebtn">Put it on my plate instead</button>'
     +'<span class="sstatus err" id="runstatus">'+(req?'Fill in what it needs first':'')+'</span>'
     +'<span class="sstatus" id="queuestatus"></span></div>'
     +'<div class="hint">Run now happens in the background using a little of your Claude plan’s automation allowance (the dollar figures track that usage, not separate charges), and stops for your approval before anything is sent. "On my plate" does it with you, live, next time you open Claude; pick that for anything that needs you mid-task.</div></div>';
 }
 function scopeChoice(){
   if(!CFG.project)return '';
-  return '<div class="hint" style="margin:0 0 6px">When you save it, do it in: '
-    +'<label style="margin-right:10px"><input type="radio" name="qscope" value="here" checked> '+esc(CFG.project)+' (this folder)</label>'
+  return '<div class="hint lead">When you save it, do it in: '
+    +'<label><input type="radio" name="qscope" value="here" checked> '+esc(CFG.project)+' (this folder)</label>'
     +'<label><input type="radio" name="qscope" value="anywhere"> any folder</label></div>';
 }
 function queueDest(scope){
