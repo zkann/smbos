@@ -56,6 +56,9 @@ def humanize_failure(note):
     if "budget reached" in n:
         return ("automation hit its monthly spending cap",
                 "raise the budget if this was expected (say: set my automation budget)")
+    if "unrecorded changes" in n:
+        return ("its steps were changed outside the normal save flow, so it won't run on its own",
+                "ask Claude to review the changes; recording them restores running")
     if "status is 'draft'" in n or "drafts need a human" in n:
         return ("this task hasn't been done with you yet, so it won't run on its own",
                 "do it once together in Claude Code and automation unlocks")

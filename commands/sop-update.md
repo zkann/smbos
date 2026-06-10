@@ -31,10 +31,9 @@ Show the exact edit as before/after. Rules:
 
 On approval:
 
-1. Apply the edit, bump `version`, set `updated` to today.
-2. Add a dated changelog line: what changed and why.
-3. Reset `clean_runs` to 0; if the SOP was `trusted`, return it to `active` (it changed, so it re-earns trust).
-4. Update the SOP's line in `INDEX.md` if title, description, or triggers changed.
-5. If the SOP directory is a git repo, commit.
+1. Apply the edit to the body, and set `updated` to today.
+2. Finish with the bookkeeping command: `python3 <plugin-root>/scripts/sop_version.py bump <id> --note "<what changed and why>"`. It bumps `version`, adds the dated changelog line, refreshes the content fingerprint, resets `clean_runs`, and returns a `trusted` SOP to `active` (it changed, so it re-earns trust). Do not hand-edit `version`, the changelog, or `content_hash`.
+3. Update the SOP's line in `INDEX.md` if title, description, or triggers changed.
+4. If the SOP directory is a git repo, commit.
 
 Confirm what changed and the new version number.
