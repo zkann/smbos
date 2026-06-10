@@ -71,7 +71,7 @@
   .pbtn.okb:hover{background:var(--green-soft)}
   .pbtn.nob{border-color:var(--amber-border);color:var(--amber)}
   .pbtn.nob:hover{background:var(--amber-soft)}
-  .pbtn:disabled{opacity:.5;cursor:default}
+  .pbtn:disabled{border-style:dashed;color:var(--subtle-fg);background:transparent;cursor:default}
   .pitem{cursor:pointer;text-decoration:underline;text-underline-offset:3px}
 
   .witem{padding:9px 0;border-top:1px solid var(--border)}
