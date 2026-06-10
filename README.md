@@ -136,4 +136,4 @@ The "My way" section is the heart. If it is empty, you did not need an SOP; the 
 
 ## Status
 
-v0.2.0. Built and dogfooded by [Zak Kann](mailto:zak@zakkann.com). Roadmap candidates: scheduled SOP runs (recurring reports that run themselves), trigger-miss detection, an MCP server over the same files so SOPs work from Claude Desktop and claude.ai, and more SmbOS modules beyond SOPs.
+v0.8.0. Built and dogfooded by [Zak Kann](mailto:zak@zakkann.com). What's next lives in [ROADMAP.md](ROADMAP.md).
