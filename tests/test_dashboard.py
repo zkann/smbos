@@ -78,22 +78,23 @@ def test_queued_surfaces(library):
     assert data["queued"] == [{"sop": "send-invoice", "file": "a.md", "project": "skypulse"}]
 
 
-def test_sop_dir_tilde_only_for_true_subpaths(library, monkeypatch):
-    import pathlib
+def test_sop_dir_tilde_only_for_true_subpaths(tmp_path, monkeypatch):
     import generate_dashboard as gd
-    fake_home = pathlib.Path("/Users/foo")
+    fake_home = tmp_path / "foo"
     monkeypatch.setattr(gd.Path, "home", staticmethod(lambda: fake_home))
-    sibling = pathlib.Path("/Users/foobar/sops")
-    html = gd.build_html(library)  # smoke: real library still builds
-    assert "__SOP_DIR__" not in html
-    # the displayed dir logic itself
-    home = str(fake_home)
-    for raw, expect in [
-        ("/Users/foo/sops", "~/sops"),
-        ("/Users/foo", "~"),
-        ("/Users/foobar/sops", "/Users/foobar/sops"),
-    ]:
-        d = raw
-        if d == home or d.startswith(home + "/"):
-            d = "~" + d[len(home):]
-        assert d == expect, raw
+
+    subpath = fake_home / "sops"
+    sibling = tmp_path / "foobar" / "sops"
+    for d in (subpath, sibling):
+        d.mkdir(parents=True)
+
+    html = gd.build_html(subpath)
+    assert ">~/sops<" in html
+    assert str(subpath) not in html
+
+    html = gd.build_html(sibling)  # shared prefix, not a home subpath
+    assert str(sibling) in html
+    assert "~" + "bar" not in html
+
+    html = gd.build_html(fake_home)  # home itself
+    assert ">~<" in html
