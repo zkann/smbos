@@ -64,7 +64,7 @@ SOPs are the user's documented way of doing recurring tasks. They override your 
 8. PROMOTE. After a draft completes its first real run, set status: active. When an active SOP reaches clean_runs of 3 or more, set status: trusted. Any approved content edit resets clean_runs to 0 and returns a trusted SOP to active. Sub-runs count for the sub-SOP's promotion too.
 9. IMPLICIT FEEDBACK. Treat these as SOP feedback even when the user does not phrase them as such: mid-task corrections, re-asking a request in different words, editing your output afterward, telling you to skip a step. Fold them into update proposals (step 7) or trigger-phrase improvements.
 
-PLAIN WORDS. When talking to the user, render system state in plain language: schedules as "every Monday at 8:57 AM" (never cron syntax), trigger sources as "its schedule" / "a Linear event" (never "source: cron"), failures as what happened plus one suggested fix (never raw API errors). Spec syntax belongs in files, not conversation. Mention overlays/variants as "the version for this project" / "the TypeScript way" unless the user uses the technical terms first.
+PLAIN WORDS. When talking to the user, render system state in plain language: schedules as "every Monday at 8:57 AM" (never cron syntax), trigger sources as "its schedule" / "a Linear event" (never "source: cron"), failures as what happened plus one suggested fix (never raw API errors). Spec syntax belongs in files, not conversation. Mention overlays/variants as "the version for this project" / "the TypeScript way" unless the user uses the technical terms first. Use the shared vocabulary the digest and dashboard use: "waiting for you" (parked approvals), "on your plate" (owner-queued tasks), "in flight" (multi-stage work), "coming up" (schedules).
 
 Commands: /sop-init, /sop-new, /sop-import, /sop-run, /sop-update, /sop-list, /sop-review, /sop-dashboard (visual library view in the browser), /sop-triggers (schedules, automation, costs), /sop-connect (Claude Desktop), /sop-work (track multi-stage work in progress). The user never needs to memorize these; plain requests ("save this as an SOP", "show my SOPs", "what has automation cost") route to the same flows.
 EOF
@@ -109,7 +109,7 @@ if [ "$approved" -gt 0 ]; then
 fi
 if [ "$parked" -gt 0 ]; then
   echo ""
-  echo "TRIGGERED RUNS AWAITING APPROVAL: $parked parked run(s) in the SOP pending/ directory. Early in this session, walk the owner through each one: show the prepared work and the proposed action, get an approve/discard decision, complete approved actions, then set the file's status to approved or discarded (or delete it)."
+  echo "WAITING FOR YOU (parked approvals): $parked parked run(s) in the SOP pending/ directory. Early in this session, walk the owner through each one: show the prepared work and the proposed action, get an approve/discard decision, complete approved actions, then set the file's status to approved or discarded (or delete it)."
 fi
 cwd="$(pwd)"
 queued_here=0
@@ -130,12 +130,12 @@ for qdir in "$home_dir/queue" "$proj_dir/queue"; do
 done
 if [ "$queued_here" -gt 0 ]; then
   echo ""
-  echo "OWNER-QUEUED TASKS FOR THIS SESSION: $queued_here task(s) the owner queued (from the dashboard) to do together, that belong in this folder or are project-agnostic. Early in this session, offer to start: for each matching queue/ file, read its sop id and any owner notes, then run that SOP interactively (this is also how drafts get verified and promoted). When one finishes, set the queue file's status to done (or delete the file)."
+  echo "ON YOUR PLATE (this session): $queued_here task(s) the owner queued to do together, that belong in this folder or are project-agnostic. Early in this session, offer to start: for each matching queue/ file, read its sop id and any owner notes, then run that SOP interactively (this is also how drafts get verified and promoted). When one finishes, set the queue file's status to done (or delete the file)."
 fi
 if [ -n "$elsewhere_list" ]; then
   folders=$(printf '%s' "$elsewhere_list" | grep -v '^$' | sort -u | xargs -n1 basename 2>/dev/null | paste -sd ', ' -)
   echo ""
-  echo "QUEUED TASKS FOR OTHER PROJECTS: the owner has queued task(s) tied to a different folder than this one ($folders). Do NOT run them here. If the user asks about them, tell them to open Claude Code in that folder; this session is the wrong place for project-specific work."
+  echo "ON YOUR PLATE ELSEWHERE: the owner has queued task(s) tied to a different folder than this one ($folders). Do NOT run them here. If the user asks about them, tell them to open Claude Code in that folder; this session is the wrong place for project-specific work."
 fi
 inflight_here=""
 for wd in "$home_dir/work" "$proj_dir/work"; do
@@ -155,7 +155,7 @@ for wd in "$home_dir/work" "$proj_dir/work"; do
 done
 if [ -n "$inflight_here" ]; then
   echo ""
-  echo "WORK IN PROGRESS (multi-stage items active in this folder or unscoped):"
+  echo "IN FLIGHT (multi-stage items active in this folder or unscoped):"
   printf '%s' "$inflight_here"
   echo "If the user picks one up, follow its workflow SOP for the current stage, then advance it (work.py advance) and log what happened. Surface blocked items so they don't stall silently."
 fi

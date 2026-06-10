@@ -66,3 +66,13 @@ def test_runtime_dirs_not_collected_as_sops(library):
         (sub / "x.md").write_text("---\nid: ghost\n---\n")
     paths = [f["path"] for f in gd.collect(library)]
     assert paths == ["ops/weekly-metrics-report.md"]
+
+
+def test_queued_surfaces(library):
+    q = library / "queue"
+    q.mkdir()
+    (q / "a.md").write_text(
+        "---\nsop: send-invoice\nproject: /x/skypulse\nstatus: queued\n---\n")
+    (q / "b.md").write_text("---\nsop: other\nproject: \nstatus: done\n---\n")
+    data = extra_of(gd.build_html(library))
+    assert data["queued"] == [{"sop": "send-invoice", "project": "skypulse"}]
