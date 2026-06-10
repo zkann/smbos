@@ -9,6 +9,7 @@
     --blue:#60a5fa; --blue-soft:rgba(96,165,250,.12); --blue-border:rgba(96,165,250,.25);
     --amber:#fbbf24; --amber-soft:rgba(251,191,36,.1); --amber-border:rgba(251,191,36,.25);
     --red:#f87171; --red-soft:rgba(248,113,113,.08); --red-border:rgba(248,113,113,.4);
+    --chip-bg:#18181b; --border-strong:#3f3f46; --primary-hover:#1eb554; --inset:#0c0c0f;
     --radius:8px;
     --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
     /* legacy variable aliases used throughout */
@@ -44,7 +45,7 @@
   .pill.trusted{background:var(--green-soft);color:var(--green);border-color:var(--green-border)}
 
   /* shadcn Tabs: muted pill container, active item elevated */
-  #tabs{margin-top:16px;display:inline-flex;gap:2px;background:#18181b;border:1px solid var(--border);
+  #tabs{margin-top:16px;display:inline-flex;gap:2px;background:var(--chip-bg);border:1px solid var(--border);
     border-radius:10px;padding:3px;margin-bottom:14px}
   .tab{border:none;background:none;font-size:14px;font-weight:500;padding:6px 16px;cursor:pointer;
     color:var(--muted-fg);border-radius:7px}
@@ -108,7 +109,7 @@
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
   .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 18px;cursor:pointer;
     transition:border-color .12s, background .12s}
-  .card:hover{border-color:#3f3f46;background:var(--card-raised)}
+  .card:hover{border-color:var(--border-strong);background:var(--card-raised)}
   .card .top{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
   .card h3{margin:0;font-size:15.5px;font-weight:600}
 
@@ -124,7 +125,7 @@
   .card .stats{margin-top:12px;display:flex;gap:14px;font-size:13px;color:var(--subtle-fg);flex-wrap:wrap}
   .flag{color:var(--amber);font-weight:600}
   .card .trig{margin-top:10px;font-size:12.5px;color:var(--subtle-fg)}
-  .card .trig em{font-style:normal;background:#18181b;border:1px solid var(--border);border-radius:6px;
+  .card .trig em{font-style:normal;background:var(--chip-bg);border:1px solid var(--border);border-radius:6px;
     padding:1px 7px;margin-right:4px;display:inline-block;margin-top:3px;color:var(--muted-fg)}
 
   /* shadcn Dialog */
@@ -145,14 +146,14 @@
   .dbody ol,.dbody ul{padding-left:22px;margin:8px 0}
   .dbody li{margin:4px 0}
   .dbody p{margin:8px 0}
-  .dbody code{background:#18181b;border:1px solid var(--border);border-radius:5px;padding:1px 6px;font-size:13px;font-family:var(--mono)}
+  .dbody code{background:var(--chip-bg);border:1px solid var(--border);border-radius:5px;padding:1px 6px;font-size:13px;font-family:var(--mono)}
   .slot{background:var(--amber-soft);color:var(--amber);border-radius:5px;padding:1px 6px}
   .sopref{color:var(--blue);background:var(--blue-soft);border-radius:5px;padding:1px 7px;cursor:pointer;text-decoration:none}
   .sopref.missing{color:var(--amber);background:var(--amber-soft);border:1px dashed var(--amber-border);cursor:default}
   .relpill{cursor:pointer;border-color:var(--blue-border) !important}
   .approval{background:var(--blue-soft);color:var(--blue);border-radius:5px;padding:1px 7px;font-weight:600;font-size:12px}
 
-  .suggest{margin:20px 0 4px;padding:15px 18px;border:1px solid var(--border);border-radius:10px;background:#0c0c0f}
+  .suggest{margin:20px 0 4px;padding:15px 18px;border:1px solid var(--border);border-radius:10px;background:var(--inset)}
   .suggest .slabel{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.13em;color:var(--subtle-fg);margin-bottom:9px;font-weight:500}
   .suggest textarea{width:100%;border:1px solid var(--input);border-radius:6px;padding:8px 11px;font-size:14px;
     resize:vertical;background:transparent;color:var(--foreground)}
@@ -161,14 +162,14 @@
   /* shadcn primary button */
   .suggest button,.suggest button.runbtn{border:none;background:var(--primary);color:var(--primary-fg);
     border-radius:6px;padding:8px 16px;min-height:34px;font-size:13.5px;font-weight:600;cursor:pointer}
-  .suggest button:hover,.suggest button.runbtn:hover{background:#1eb554}
+  .suggest button:hover,.suggest button.runbtn:hover{background:var(--primary-hover)}
   .suggest button.pbtn{background:transparent;color:var(--foreground);border:1px solid var(--input);font-weight:500}
   .suggest button.pbtn:hover{background:var(--card-raised)}
-  .suggest button.runbtn:disabled{background:transparent;color:var(--subtle-fg);border:1px dashed #3f3f46;cursor:not-allowed}
+  .suggest button.runbtn:disabled{background:transparent;color:var(--subtle-fg);border:1px dashed var(--border-strong);cursor:not-allowed}
   .suggest .sstatus{font-size:13px;color:var(--green)}
   .suggest .sstatus.err{color:var(--amber)}
   .suggest .hint{margin-top:9px;font-size:13px;color:var(--subtle-fg)}
-  .reqchip{font-style:normal;background:#18181b;border:1px solid var(--border);border-radius:6px;padding:2px 9px;
+  .reqchip{font-style:normal;background:var(--chip-bg);border:1px solid var(--border);border-radius:6px;padding:2px 9px;
     margin:0 4px 4px 0;display:inline-block;font-size:13px;color:var(--muted-fg)}
 
   footer{margin:30px 32px;max-width:1180px;border-top:1px solid var(--border);padding-top:16px;color:var(--subtle-fg);font-size:13.5px}
