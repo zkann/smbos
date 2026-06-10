@@ -339,7 +339,7 @@ function renderPlate(){
   el.style.display='block';
   el.innerHTML='<h2>On your plate ('+items.length+')</h2><ul>'
     +items.map(q=>'<li><b>'+esc(sopTitle(q.sop))+'</b>'
-      +(q.project?' — next time you open Claude in <b>'+esc(q.project)+'</b>':' — next time you open Claude')
+      +(q.project?': next time you open Claude in <b>'+esc(q.project)+'</b>':': next time you open Claude')
       +'</li>').join('')
     +'</ul><div style="margin-top:6px;color:var(--muted);font-size:13px">These are tasks you saved to do together; they need you in the loop.</div>';
 }
