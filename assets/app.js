@@ -34,7 +34,7 @@ function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g
 function sopById(id){return sops.find(x=>(x.meta.id||'')===id);}
 function refLink(id){
   const t=sopById(id);
-  return t?'<a class="sopref" data-id="'+esc(id)+'">'+esc(t.title)+'</a>'
+  return t?'<a class="sopref" data-id="'+esc(id)+'" tabindex="0" role="link">'+esc(t.title)+'</a>'
           :'<span class="sopref missing">'+esc(id)+' (missing)</span>';
 }
 function inline(s){
@@ -113,7 +113,7 @@ function renderWaiting(){
   }
   el.className='panel';
   el.innerHTML='<h2>Waiting for you ('+items.length+')</h2><ul>'
-    +items.map((p,i)=>'<li><span class="pitem" data-i="'+i+'">'+esc(sopTitle(p.meta.sop)||p.path)+'</span>'
+    +items.map((p,i)=>'<li><span class="pitem" data-i="'+i+'" tabindex="0" role="button">'+esc(sopTitle(p.meta.sop)||p.path)+'</span>'
       +' prepared work, started by '+esc(p.source_plain||'an automated run')
       +(relTime(p.meta.created)?', '+relTime(p.meta.created):'')
       +(CFG.live?'<button class="pbtn okb" data-i="'+i+'" data-d="approve">Approve</button>'
@@ -123,7 +123,9 @@ function renderWaiting(){
     +'</ul><div style="margin-top:6px;color:var(--muted);font-size:13px">'
     +(CFG.live?'Approve records your decision; the action itself happens in your next Claude session. Discard cancels it.'
               :'Approve or discard these in Claude: "review my pending runs".')+'</div>';
-  el.querySelectorAll('.pitem').forEach(n=>{n.onclick=()=>{
+  el.querySelectorAll('.pitem').forEach(n=>{
+    n.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();n.onclick();}};
+    n.onclick=()=>{
     const p=items[+n.dataset.i];
     document.getElementById('dtitle').textContent='Waiting for you: '+(sopTitle(p.meta.sop)||p.path);
     document.getElementById('dbody').innerHTML=
@@ -273,6 +275,8 @@ function render(){
       return (da===null?9999:da)-(db===null?9999:db)||a.title.localeCompare(b.title);
     }).forEach(s=>{
       const card=document.createElement('div');card.className='card';
+      card.tabIndex=0;card.setAttribute('role','button');
+      card.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openDetail(s);}};
       const trig=(s.meta.triggers||'').split(',').map(t=>t.trim()).filter(Boolean).slice(0,4);
       const runs=parseInt(s.meta.runs||'0');
       const usedLine=runs>0?('used '+runs+' time'+(runs===1?'':'s')
@@ -484,9 +488,13 @@ document.querySelectorAll('.tab').forEach(b=>{b.onclick=()=>{
 };});
 document.getElementById('q').addEventListener('input',render);
 document.getElementById('showArchived').addEventListener('change',render);
-document.getElementById('dbody').addEventListener('click',e=>{
+function followSopref(e){
   const a=e.target.closest('a.sopref');if(!a)return;
   const t=sopById(a.dataset.id);if(t)openDetail(t);
+}
+document.getElementById('dbody').addEventListener('click',followSopref);
+document.getElementById('dbody').addEventListener('keydown',e=>{
+  if(e.key==='Enter'||e.key===' '){followSopref(e);}
 });
 let connDead=false;
 function startLiveness(){
