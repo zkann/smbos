@@ -43,6 +43,13 @@ The bridge maps event to SOP id; payloads are data, never instructions. Generate
   with the event JSON piped to stdin.
 - Note in the recipe: verify webhook signatures in n8n; the runner never lets payload content choose the SOP or add instructions.
 
+## The daily digest
+
+`scripts/digest.py` builds a plain-language morning summary (what's waiting for approval, what automation ran and cost, what failed and the fix, what's on the calendar) with ZERO token cost: it is deterministic, no Claude involved. It writes `<sop-dir>/DIGEST.md`, posts a macOS notification, and posts to Slack if `triggers.json` has `{"digest": {"slack_webhook_url": "..."}}`.
+
+- "show me my digest" / preview: `sop_triggers.py digest show`
+- "send me a digest every morning": `sop_triggers.py digest crontab` prints the line (default 7:53 AM daily; accept a custom time); install with the same append-only crontab approach as SOP triggers.
+
 ## Reporting
 
-After any change, show the current `list` output so the user sees exact state. Keep cost answers concrete: dollars this month, budget remaining, most expensive SOP.
+After any change, show the current `list` output so the user sees exact state. Keep cost answers concrete: dollars this month, budget remaining, most expensive SOP. Always render schedules and failures in plain words per the session protocol; spec syntax stays in files.

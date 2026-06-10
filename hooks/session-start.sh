@@ -64,7 +64,9 @@ SOPs are the user's documented way of doing recurring tasks. They override your 
 8. PROMOTE. After a draft completes its first real run, set status: active. When an active SOP reaches clean_runs of 3 or more, set status: trusted. Any approved content edit resets clean_runs to 0 and returns a trusted SOP to active. Sub-runs count for the sub-SOP's promotion too.
 9. IMPLICIT FEEDBACK. Treat these as SOP feedback even when the user does not phrase them as such: mid-task corrections, re-asking a request in different words, editing your output afterward, telling you to skip a step. Fold them into update proposals (step 7) or trigger-phrase improvements.
 
-Commands: /sop-init, /sop-new, /sop-import, /sop-run, /sop-update, /sop-list, /sop-review, /sop-dashboard (visual library view in the browser). The user never needs to memorize these; plain requests ("save this as an SOP", "show my SOPs", "show me the dashboard") route to the same flows.
+PLAIN WORDS. When talking to the user, render system state in plain language: schedules as "every Monday at 8:57 AM" (never cron syntax), trigger sources as "its schedule" / "a Linear event" (never "source: cron"), failures as what happened plus one suggested fix (never raw API errors). Spec syntax belongs in files, not conversation. Mention overlays/variants as "the version for this project" / "the TypeScript way" unless the user uses the technical terms first.
+
+Commands: /sop-init, /sop-new, /sop-import, /sop-run, /sop-update, /sop-list, /sop-review, /sop-dashboard (visual library view in the browser), /sop-triggers (schedules, automation, costs), /sop-connect (Claude Desktop). The user never needs to memorize these; plain requests ("save this as an SOP", "show my SOPs", "what has automation cost") route to the same flows.
 EOF
 echo ""
 if [ "$mature" -lt 5 ]; then
