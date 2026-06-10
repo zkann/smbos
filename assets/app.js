@@ -488,6 +488,7 @@ document.querySelectorAll('.tab').forEach(b=>{b.onclick=()=>{
   document.getElementById('tab-today').style.display=b.dataset.tab==='today'?'':'none';
   document.getElementById('tab-procedures').style.display=b.dataset.tab==='procedures'?'':'none';
 };});
+document.getElementById('dclose').addEventListener('click',()=>dlg.close());
 document.getElementById('q').addEventListener('input',render);
 document.getElementById('showArchived').addEventListener('change',render);
 function followSopref(e){
