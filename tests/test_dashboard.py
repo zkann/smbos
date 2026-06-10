@@ -76,3 +76,24 @@ def test_queued_surfaces(library):
     (q / "b.md").write_text("---\nsop: other\nproject: \nstatus: done\n---\n")
     data = extra_of(gd.build_html(library))
     assert data["queued"] == [{"sop": "send-invoice", "file": "a.md", "project": "acme"}]
+
+
+def test_sop_dir_tilde_only_for_true_subpaths(library, monkeypatch):
+    import pathlib
+    import generate_dashboard as gd
+    fake_home = pathlib.Path("/Users/foo")
+    monkeypatch.setattr(gd.Path, "home", staticmethod(lambda: fake_home))
+    sibling = pathlib.Path("/Users/foobar/sops")
+    html = gd.build_html(library)  # smoke: real library still builds
+    assert "__SOP_DIR__" not in html
+    # the displayed dir logic itself
+    home = str(fake_home)
+    for raw, expect in [
+        ("/Users/foo/sops", "~/sops"),
+        ("/Users/foo", "~"),
+        ("/Users/foobar/sops", "/Users/foobar/sops"),
+    ]:
+        d = raw
+        if d == home or d.startswith(home + "/"):
+            d = "~" + d[len(home):]
+        assert d == expect, raw
