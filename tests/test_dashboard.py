@@ -76,3 +76,25 @@ def test_queued_surfaces(library):
     (q / "b.md").write_text("---\nsop: other\nproject: \nstatus: done\n---\n")
     data = extra_of(gd.build_html(library))
     assert data["queued"] == [{"sop": "send-invoice", "file": "a.md", "project": "acme"}]
+
+
+def test_sop_dir_tilde_only_for_true_subpaths(tmp_path, monkeypatch):
+    import generate_dashboard as gd
+    fake_home = tmp_path / "foo"
+    monkeypatch.setattr(gd.Path, "home", staticmethod(lambda: fake_home))
+
+    subpath = fake_home / "sops"
+    sibling = tmp_path / "foobar" / "sops"
+    for d in (subpath, sibling):
+        d.mkdir(parents=True)
+
+    html = gd.build_html(subpath)
+    assert ">~/sops<" in html
+    assert str(subpath) not in html
+
+    html = gd.build_html(sibling)  # shared prefix, not a home subpath
+    assert str(sibling) in html
+    assert "~" + "bar" not in html
+
+    html = gd.build_html(fake_home)  # home itself
+    assert ">~<" in html
