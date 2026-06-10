@@ -19,6 +19,7 @@ Triggers are created DISABLED; enabling is explicit. Stdlib only.
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from datetime import date, datetime, timezone
@@ -109,7 +110,8 @@ def cmd_crontab(d, t, plugin_root):
         sys.exit(f"'{t['id']}' is an event trigger; crontab does not apply.")
     expr = t["spec"][5:-1].strip()
     runner = plugin_root / "scripts" / "run_sop.py"
-    print(f"{expr} /usr/bin/env python3 {runner} {t['sop']} --source cron --model {t['model']} "
+    extra = f" --inputs {shlex.quote(t['inputs'])}" if t.get("inputs") else ""
+    print(f"{expr} /usr/bin/env python3 {runner} {t['sop']} --source cron --model {t['model']}{extra} "
           f">> {d}/trigger.log 2>&1")
 
 
@@ -184,8 +186,8 @@ def main():
         print(f"removed {t['id']}")
     elif cmd == "set" and len(args) >= 4:
         t = find_trigger(reg, args[1])
-        if args[2] not in ("spec", "model", "channel", "routine_id", "notes"):
-            sys.exit("settable fields: spec, model, channel, routine_id, notes")
+        if args[2] not in ("spec", "model", "channel", "routine_id", "notes", "inputs"):
+            sys.exit("settable fields: spec, model, channel, routine_id, notes, inputs")
         t[args[2]] = args[3]
         if args[2] == "spec":
             t["kind"] = kind_of(args[3])
