@@ -144,6 +144,74 @@ def month_spend(sop_dir):
     return total
 
 
+def notify(title, body):
+    """macOS notification; silent no-op elsewhere and on any failure."""
+    if sys.platform != "darwin":
+        return False
+    esc = lambda s: str(s).replace("\\", "\\\\").replace('"', '\\"')
+    try:
+        import subprocess
+        done = subprocess.run(["/usr/bin/osascript", "-e",
+                               f'display notification "{esc(body)}" with title "{esc(title)}"'],
+                              capture_output=True, timeout=10)
+        return done.returncode == 0
+    except (OSError, Exception):
+        return False
+
+
+def _flock(fd):
+    import fcntl
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def acquire_run_lock(sop_dir, sop_id):
+    """One concurrent run per SOP, across every entry point (dashboard, cron, CLI).
+
+    flock on a persistent lockfile: the kernel releases it when the holder
+    exits, however it exits, so there is no staleness, no pid parsing, and no
+    reclaim protocol (a hand-rolled pid version had unfixable TOCTOU races;
+    the race test caught two winners). The lockfile is never deleted: its
+    presence means nothing, only the flock does. The pid/date written into it
+    is diagnostic. Returns an opaque handle (keep it until release), or None
+    if a live run holds the lock.
+    """
+    locks = Path(sop_dir) / "triggers"
+    locks.mkdir(exist_ok=True)
+    lock = locks / f"{sop_id}.lock"
+    fd = os.open(lock, os.O_CREAT | os.O_RDWR)
+    try:
+        _flock(fd)
+    except OSError:
+        os.close(fd)
+        return None
+    os.ftruncate(fd, 0)
+    os.write(fd, f"{os.getpid()} {date.today().isoformat()}\n".encode("utf-8"))
+    return fd
+
+
+def release_run_lock(lock):
+    if lock is not None:
+        try:
+            os.close(lock)  # closing the fd releases the flock
+        except OSError:
+            pass
+
+
+def run_lock_held(sop_dir, sop_id):
+    """Is a live run holding this SOP's lock? (try-lock and immediately release)"""
+    lock = Path(sop_dir) / "triggers" / f"{sop_id}.lock"
+    if not lock.exists():
+        return False
+    fd = os.open(lock, os.O_RDWR)
+    try:
+        _flock(fd)
+        return False  # we got it, so nobody holds it
+    except OSError:
+        return True
+    finally:
+        os.close(fd)
+
+
 def append_run(sop_dir, record):
     with (Path(sop_dir) / "runs.jsonl").open("a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")

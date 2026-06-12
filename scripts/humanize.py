@@ -56,6 +56,15 @@ def humanize_failure(note):
     if "budget reached" in n:
         return ("automation hit its monthly spending cap",
                 "raise the budget if this was expected (say: set my automation budget)")
+    if "no artifact parked" in n:
+        return ("it ran without you but produced nothing to review",
+                "try it once together in Claude Code to see where it gets stuck")
+    if "already running" in n:
+        return ("it was asked to run while an earlier run was still going",
+                "nothing to do; the earlier run's result will appear under \"waiting for you\"")
+    if "personalize slots" in n:
+        return ("it still has blanks to personalize, so it won't run on its own",
+                "open it with Claude once to fill in your way of doing it")
     if "unrecorded changes" in n:
         return ("its steps were changed outside the normal save flow, so it won't run on its own",
                 "ask Claude to review the changes; recording them restores running")
