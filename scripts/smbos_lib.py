@@ -144,6 +144,56 @@ def month_spend(sop_dir):
     return total
 
 
+def notify(title, body):
+    """macOS notification; silent no-op elsewhere and on any failure."""
+    if sys.platform != "darwin":
+        return False
+    esc = lambda s: str(s).replace("\\", "\\\\").replace('"', '\\"')
+    try:
+        import subprocess
+        subprocess.run(["osascript", "-e",
+                        f'display notification "{esc(body)}" with title "{esc(title)}"'],
+                       capture_output=True, timeout=10)
+        return True
+    except (OSError, Exception):
+        return False
+
+
+def _pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def acquire_run_lock(sop_dir, sop_id):
+    """One concurrent run per SOP, across every entry point (dashboard, cron, CLI).
+
+    pid-bearing lockfile in the runtime dir; a lock whose pid is dead is stale
+    and reclaimed (no deadlock after kill -9). Returns the lock path, or None
+    if a live run already holds it.
+    """
+    locks = Path(sop_dir) / "triggers"
+    locks.mkdir(exist_ok=True)
+    lock = locks / f"{sop_id}.lock"
+    if lock.exists():
+        try:
+            pid = int(lock.read_text().split()[0])
+        except (ValueError, IndexError):
+            pid = -1
+        if _pid_alive(pid):
+            return None
+        lock.unlink(missing_ok=True)  # stale
+    lock.write_text(f"{os.getpid()} {date.today().isoformat()}\n", encoding="utf-8")
+    return lock
+
+
+def release_run_lock(lock):
+    if lock:
+        Path(lock).unlink(missing_ok=True)
+
+
 def append_run(sop_dir, record):
     with (Path(sop_dir) / "runs.jsonl").open("a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
