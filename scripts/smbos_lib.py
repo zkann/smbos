@@ -151,7 +151,7 @@ def notify(title, body):
     esc = lambda s: str(s).replace("\\", "\\\\").replace('"', '\\"')
     try:
         import subprocess
-        done = subprocess.run(["osascript", "-e",
+        done = subprocess.run(["/usr/bin/osascript", "-e",
                                f'display notification "{esc(body)}" with title "{esc(title)}"'],
                               capture_output=True, timeout=10)
         return done.returncode == 0
