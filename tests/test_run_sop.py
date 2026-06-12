@@ -84,3 +84,120 @@ def test_drifted_sop_refused_free(library, fake_claude, tmp_path):
 def test_unstamped_sop_still_runs(library, fake_claude):
     r = run(["weekly-metrics-report", "--sop-dir", str(library)], fake_claude)
     assert r.returncode == 0
+
+
+# ---------- prepare mode (background-first) ----------
+
+def make_recording_claude(tmp_path):
+    """A claude shim that records its argv and emits the JSON envelope."""
+    import os, stat
+    bindir = tmp_path / "recbin"; bindir.mkdir(exist_ok=True)
+    argv_file = tmp_path / "claude-argv.txt"
+    shim = bindir / "claude"
+    shim.write_text("#!/bin/sh\nprintf '%s\\n' \"$@\" > " + str(argv_file) + "\n"
+                    "echo '{\"total_cost_usd\": 0.01, \"duration_ms\": 5, "
+                    "\"session_id\": \"t\", \"result\": \"done\", \"is_error\": false}'\n")
+    shim.chmod(shim.stat().st_mode | stat.S_IEXEC)
+    env = dict(os.environ)
+    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env.pop("SOP_DIR", None)
+    return env, argv_file
+
+
+def test_prepare_runs_drafts_and_builds_the_cage(library, tmp_path):
+    from smbos_lib import read_runs
+    env, argv_file = make_recording_claude(tmp_path)
+    make_sop(library, id="draft-prep", status="draft",
+             extra="research_domains: example.com\ndeliverable: a test artifact\n")
+    import subprocess, sys as _sys
+    subprocess.run([_sys.executable, str(SCRIPTS / "sop_version.py"),
+                    "--sop-dir", str(library), "stamp", "draft-prep"], capture_output=True)
+    r = run(["draft-prep", "--prepare", "--sop-dir", str(library)], env)
+    assert r.returncode != 0  # no artifact parked -> error (the shim parks nothing)
+    argv = argv_file.read_text()
+    assert "--setting-sources" in argv and "dontAsk" in argv
+    assert "acceptEdits" not in argv
+    assert "WebFetch(domain:example.com)" in argv  # stamped -> domains honored
+    assert '"Bash"' in argv and '"WebSearch"' in argv and '"mcp__*"' in argv
+    assert "///" not in argv  # the triple-slash grammar bug stays dead
+    last = read_runs(library)[-1]
+    assert last["result"] == "error" and "no artifact parked" in last["note"]
+
+
+def test_prepare_unstamped_gets_no_domains(library, tmp_path):
+    env, argv_file = make_recording_claude(tmp_path)
+    make_sop(library, id="unstamped-prep", status="draft",
+             extra="research_domains: example.com\n")
+    run(["unstamped-prep", "--prepare", "--sop-dir", str(library)], env)
+    assert "WebFetch(domain:" not in argv_file.read_text()
+
+
+def test_prepare_gate_matrix(library, fake_claude, tmp_path):
+    from smbos_lib import read_runs
+    # personalize slots -> refused free
+    p = make_sop(library, id="slotted", status="draft")
+    p.write_text(p.read_text().replace("Do the thing.", "Do [personalize: how?] now."))
+    r = run(["slotted", "--prepare", "--sop-dir", str(library)], fake_claude)
+    assert r.returncode != 0 and "personalize" in r.stderr.lower()
+    assert read_runs(library)[-1]["cost_usd"] == 0
+    # drift -> still refused in prepare
+    import subprocess, sys as _sys
+    q = make_sop(library, id="drifty", status="draft")
+    subprocess.run([_sys.executable, str(SCRIPTS / "sop_version.py"),
+                    "--sop-dir", str(library), "stamp", "drifty"], capture_output=True)
+    q.write_text(q.read_text().replace("Do the thing.", "Changed."))
+    r = run(["drifty", "--prepare", "--sop-dir", str(library)], fake_claude)
+    assert r.returncode != 0 and "normal save flow" in r.stderr
+    # missing inputs -> still refused in prepare
+    make_sop(library, id="needy", status="draft", extra="run_inputs: which client\n")
+    r = run(["needy", "--prepare", "--sop-dir", str(library)], fake_claude)
+    assert r.returncode != 0 and "needs inputs" in r.stderr
+    # --prepare + --force -> argparse error
+    r = run(["needy", "--prepare", "--force", "--sop-dir", str(library)], fake_claude)
+    assert r.returncode == 2 and "cannot be combined" in r.stderr
+
+
+def test_run_lock_blocks_and_reclaims(library, fake_claude):
+    import os
+    from smbos_lib import read_runs
+    locks = library / "triggers"; locks.mkdir(exist_ok=True)
+    lock = locks / "weekly-metrics-report.lock"
+    lock.write_text(f"{os.getpid()} live\n")  # this test process is alive
+    r = run(["weekly-metrics-report", "--sop-dir", str(library)], fake_claude)
+    assert r.returncode != 0 and "already running" in r.stderr
+    assert read_runs(library)[-1]["note"] == "already running"
+    lock.write_text("999999 dead\n")  # stale -> reclaimed, run proceeds
+    r = run(["weekly-metrics-report", "--sop-dir", str(library)], fake_claude)
+    assert r.returncode == 0
+    assert not lock.exists() or lock.read_text().split()[0] != "999999"
+
+
+def test_build_prompt_contracts():
+    import run_sop as rs
+    class A: sop_id = "x"; source = "cron"
+    prep = rs.build_prompt("prepare", A, "/p/x.md", "park: write to /p/pending/f.md (...)",
+                           "", "", "- inputs clause\n", deliverable="a list")
+    trig = rs.build_prompt("triggered", A, "/p/x.md", "park: write to /p/pending/f.md (...)",
+                           "", "", "- inputs clause\n")
+    assert "NO externally visible action" in prep and "empty result is a result" in prep
+    assert "partial: true" in prep and "a list" in prep
+    assert "[APPROVAL]" in trig
+    for shared in ("My way", "Plain words"):
+        assert shared in prep and shared in trig
+
+
+def test_notify_and_lock_helpers(monkeypatch, tmp_path):
+    import smbos_lib as lib
+    calls = []
+    monkeypatch.setattr(lib, "os", lib.os)
+    import subprocess as sp
+    monkeypatch.setattr(sp, "run", lambda cmd, **kw: calls.append(cmd))
+    monkeypatch.setattr(lib.sys, "platform", "darwin")
+    assert lib.notify("T", 'say "hi"') is True
+    assert "osascript" in calls[-1][0] and '\\"hi\\"' in calls[-1][-1]
+    monkeypatch.setattr(lib.sys, "platform", "linux")
+    assert lib.notify("T", "b") is False
+    lock = lib.acquire_run_lock(tmp_path, "abc")
+    assert lock and lib.acquire_run_lock(tmp_path, "abc") is None  # held by live pid
+    lib.release_run_lock(lock)
+    assert lib.acquire_run_lock(tmp_path, "abc") is not None

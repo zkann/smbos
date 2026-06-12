@@ -131,3 +131,30 @@ def test_start_run_refuses_unrecorded_changes(library, monkeypatch):
     sop.write_text(sop.read_text().replace("Do the thing.", "Do something else."))
     with pytest.raises(ValueError, match="outside the normal save flow"):
         sv.start_run(library, "weekly-metrics-report")
+
+
+def test_api_prepare_mode_and_lock(library, monkeypatch):
+    calls = []
+    class FakePopen:
+        def __init__(self, cmd, **kw): calls.append(cmd)
+    monkeypatch.setattr(sv.subprocess, "Popen", FakePopen)
+    sv.start_run(library, "weekly-metrics-report", prepare=True)
+    assert "--prepare" in calls[-1]
+    locks = library / "triggers"; locks.mkdir(exist_ok=True)
+    (locks / "weekly-metrics-report.lock").write_text("12345 x\n")
+    with pytest.raises(ValueError, match="already running"):
+        sv.start_run(library, "weekly-metrics-report", prepare=True)
+
+
+def test_discard_reason_lands_in_notes(library):
+    pend = library / "pending"; pend.mkdir()
+    (pend / "a.md").write_text("---\nsop: weekly-metrics-report\nstatus: pending\n---\nbody\n")
+    sv.resolve_pending_file(library, "a.md", "discard")
+    # the endpoint-level reason path: emulate what do_POST does
+    from smbos_lib import find_sop as lf, frontmatter_field as ff
+    sop_id = ff(pend / "a.md", "sop")
+    target = lf(library, sop_id)
+    sv.append_suggestion(library, str(target.relative_to(library)),
+                         "(discarded a prepared result) too generic")
+    text = target.read_text()
+    assert "via dashboard) (discarded a prepared result) too generic" in text

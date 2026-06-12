@@ -27,6 +27,8 @@ Show the exact edit as before/after. Rules:
 - If the change makes an existing line obsolete, remove it rather than stacking contradictions.
 - If items in **Notes for next revision** are addressed by this edit, fold them in and remove them from the notes.
 
+Write a one-line `deliverable:` naming exactly what the owner receives when it runs; if the SOP researches the web in background runs, declare `research_domains:` (and `research_reads:` for files outside the library). These are honored only on stamped SOPs.
+
 ## 4. Apply
 
 On approval:

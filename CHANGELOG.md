@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.20.0 (2026-06-12)
+
+- Background-first: "Do it without me" is the primary verb on every runnable SOP. Prepare mode runs any SOP (drafts included) inside a harness-enforced capability cage: settings-source isolation, fetch only stamped `research_domains:`, reads only the library plus stamped `research_reads:` (empty scratch cwd makes read allow-listing real), writes only to pending/, no shell/search/MCP, secret-path deny belt. Gate matrix: prepare skips draft status only; personalize slots, unrecorded changes, missing inputs, and budget still refuse free; one run per SOP at a time via stale-safe pid lockfiles. Every run ends in a parked artifact (deliverable named, partial flagged, empty results are honest results; producing nothing is an error that notifies and shows under needs-attention). Discarding a result asks "what was off?" and writes it into the SOP's notes; approving a prepared result counts as a draft's first real run. New `scripts/canary_prepare.py` live-proves the cage (12 checks against a real model) and pins the verified CLI version; the runner warns on drift. find-jobs dry-ran to an approvable 8-role artifact under the cage ($0.41).
+
 ## 0.19.0 (2026-06-10)
 
 - Version integrity: SOPs carry a content fingerprint (sha256 of the procedure body; notes and changelog excluded). Edits that skip the save flow show up as "unrecorded changes": flagged on the dashboard with the version pill and a reconcile hint, refused (free) by unattended runs at all three gate layers, surfaced by the session hook with a reconciliation offer, and marked in Claude Desktop. New `sop_version.py`: `check`, `stamp`, and `bump --note`, which replaces five hand edits (version, changelog line, fingerprint, trusted-to-active demotion, clean-run reset) with one command. Missing fingerprints are quiet; existing libraries adopt via `stamp --all` or naturally through edits and promotions.
