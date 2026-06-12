@@ -26,7 +26,9 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from generate_dashboard import SKIP_NAMES, build_html, resolve_sop_dir
-from smbos_lib import is_drifted, parse_frontmatter, split_frontmatter
+from smbos_lib import find_sop as lib_find_sop
+from smbos_lib import (frontmatter_field, is_drifted, parse_frontmatter,
+                       run_lock_held, split_frontmatter)
 
 TOKEN = secrets.token_urlsafe(16)
 MAX_TEXT = 2000
@@ -113,10 +115,13 @@ def has_unrecorded_changes(sop_dir, sid):
     return False
 
 
-def start_run(sop_dir, sop_id, inputs=None):
+def start_run(sop_dir, sop_id, inputs=None, prepare=False):
     sid = re.sub(r"[^a-z0-9-]", "", str(sop_id).lower())
     if not sid:
         raise ValueError("bad sop id")
+    if run_lock_held(sop_dir, sid):
+        raise ValueError("This procedure is already running. Its result will appear "
+                         'under "waiting for you" when it finishes.')
     if has_unrecorded_changes(sop_dir, sid):
         raise ValueError("This procedure was changed outside the normal save flow. "
                          "Review the changes with Claude first; saving them restores running.")
@@ -126,6 +131,8 @@ def start_run(sop_dir, sop_id, inputs=None):
                          "Fill in the box above the Run button.")
     runner = Path(__file__).resolve().parent / "run_sop.py"
     cmd = [sys.executable, str(runner), sid, "--source", "dashboard", "--sop-dir", str(sop_dir)]
+    if prepare:
+        cmd.append("--prepare")
     if inputs:
         cmd += ["--inputs", str(inputs)[:2000]]
     log = (sop_dir / "trigger.log").open("a")
@@ -264,8 +271,16 @@ class Handler(BaseHTTPRequestHandler):
                 append_suggestion(self.sop_dir, str(payload.get("path", "")), text)
                 return self._send(200, '{"ok":true}')
             if self.path == "/api/resolve":
-                status = resolve_pending_file(self.sop_dir, payload.get("file", ""),
+                pending_name = Path(str(payload.get("file", ""))).name
+                status = resolve_pending_file(self.sop_dir, pending_name,
                                               str(payload.get("decision", "")))
+                reason = str(payload.get("reason") or "").strip()[:MAX_TEXT]
+                if status == "discarded" and reason:
+                    sop_id = frontmatter_field(self.sop_dir / "pending" / pending_name, "sop")
+                    target = lib_find_sop(self.sop_dir, sop_id) if sop_id else None
+                    if target:
+                        append_suggestion(self.sop_dir, str(target.relative_to(self.sop_dir)),
+                                          f"(discarded a prepared result) {reason}")
                 return self._send(200, json.dumps({"ok": True, "status": status}))
             if self.path == "/api/launch":
                 msg = launch(self.sop_dir, payload)
@@ -276,6 +291,14 @@ class Handler(BaseHTTPRequestHandler):
                                 scope=str(payload.get("scope") or "here"))
                 return self._send(200, json.dumps({"ok": True, "queued": sid}))
             if self.path == "/api/run":
+                mode = payload.get("mode")
+                if mode not in (None, "", "prepare"):
+                    raise ValueError("unknown run mode")
+                if mode == "prepare":
+                    sid = start_run(self.sop_dir, payload.get("id", ""),
+                                    inputs=str(payload.get("inputs") or "").strip() or None,
+                                    prepare=True)
+                    return self._send(200, json.dumps({"ok": True, "id": sid, "mode": "prepare"}))
                 sid = start_run(self.sop_dir, payload.get("id", ""),
                                 inputs=str(payload.get("inputs") or "").strip() or None)
                 return self._send(200, json.dumps({"ok": True, "started": sid}))

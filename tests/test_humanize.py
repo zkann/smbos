@@ -48,3 +48,12 @@ def test_unrecorded_changes_failure_is_plain():
     plain, action = humanize_failure("unrecorded changes since the last saved version")
     assert "outside the normal save flow" in plain
     assert "review the changes" in action
+
+
+def test_prepare_failure_mappings_are_plain():
+    plain, action = humanize_failure("no artifact parked. something")
+    assert "produced nothing to review" in plain
+    plain, action = humanize_failure("already running")
+    assert "earlier run" in plain
+    plain, action = humanize_failure("has unresolved personalize slots")
+    assert "blanks to personalize" in plain

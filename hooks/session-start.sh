@@ -116,7 +116,7 @@ for pdir in "$home_dir/pending" "$proj_dir/pending"; do
 done
 if [ "$approved" -gt 0 ]; then
   echo ""
-  echo "APPROVED ACTIONS TO EXECUTE: $approved parked run(s) have status: approved (the owner approved them from chat/Desktop, where actions cannot execute). Early in this session: execute each approved action exactly as written in its pending file, confirm completion to the owner, then set the file's status to done (or delete it)."
+  echo "APPROVED ACTIONS TO EXECUTE: $approved parked run(s) have status: approved (the owner approved them from chat/Desktop, where actions cannot execute). Early in this session: execute each approved action exactly as written in its pending file, confirm completion to the owner, then set the file's status to done (or delete it). An approved PREPARED result also counts as that SOP's first real run: update its runs/last_used, promote draft to active, and stamp it (sop_version.py stamp <id>) per rule 8."
 fi
 if [ "$parked" -gt 0 ]; then
   echo ""

@@ -115,7 +115,9 @@ function renderWaiting(){
   el.className='panel';
   el.innerHTML='<h2>Waiting for you ('+items.length+')</h2><ul>'
     +items.map((p,i)=>'<li><span class="pitem" data-i="'+i+'" tabindex="0" role="button">'+esc(sopTitle(p.meta.sop)||p.path)+'</span>'
-      +' prepared work, started by '+esc(p.source_plain||'an automated run')
+      +(p.meta.deliverable?' — '+esc(p.meta.deliverable):' prepared work')
+      +(p.meta.partial==='true'?' <span class="badge pending">partial</span>':'')
+      +', from '+esc(p.source_plain||'an automated run')
       +(relTime(p.meta.created)?', '+relTime(p.meta.created):'')
       +(CFG.live?'<button class="pbtn okb" data-i="'+i+'" data-d="approve">Approve</button>'
                 +'<button class="pbtn nob" data-i="'+i+'" data-d="discard">Discard</button>'
@@ -139,11 +141,24 @@ function renderWaiting(){
   el.querySelectorAll('.pbtn').forEach(btn=>{btn.onclick=async()=>{
     const p=items[+btn.dataset.i];
     const st=el.querySelector('.pstatus[data-i="'+btn.dataset.i+'"]');
+    let reason='';
+    if(btn.dataset.d==='discard'&&!btn.dataset.askedReason){
+      btn.dataset.askedReason='1';
+      st.innerHTML='What was off? (helps it improve; optional) <input class="reasonbox" data-i="'+btn.dataset.i+'" size="28"> ';
+      btn.textContent='Discard it';
+      st.querySelector('.reasonbox').focus();
+      return;
+    }
+    if(btn.dataset.d==='discard'){
+      const rb=el.querySelector('.reasonbox[data-i="'+btn.dataset.i+'"]');
+      reason=rb?rb.value.trim():'';
+      st.textContent='';
+    }
     el.querySelectorAll('.pbtn[data-i="'+btn.dataset.i+'"]').forEach(b=>b.disabled=true);
     try{
       const r=await fetch('/api/resolve',{method:'POST',
         headers:{'Content-Type':'application/json','X-Token':CFG.token},
-        body:JSON.stringify({file:p.path,decision:btn.dataset.d})});
+        body:JSON.stringify({file:p.path,decision:btn.dataset.d,reason:reason})});
       if(r.ok){
         if(btn.dataset.d==='approve'){
           st.innerHTML='Approved. <button class="pbtn okb" id="donow'+btn.dataset.i+'">Do it now in Claude</button>';
@@ -326,34 +341,34 @@ function openDetail(s){
     +(CFG.live?' <a href="#" id="openfile">open in editor</a>':'')+'</div>';
   const btn=document.getElementById('sgbtn');
   if(btn)btn.onclick=()=>submitSuggestion(s);
+  const pb=document.getElementById('preparebtn');
+  if(pb)pb.onclick=async()=>{
+    const ri=document.getElementById('runinputs');
+    const st=document.getElementById('runstatus');
+    pb.disabled=true;st.className='sstatus';st.textContent='Starting…';
+    try{
+      const r=await fetch('/api/run',{method:'POST',
+        headers:{'Content-Type':'application/json','X-Token':CFG.token},
+        body:JSON.stringify({id:s.meta.id,mode:'prepare',inputs:ri?ri.value.trim():''})});
+      if(r.ok){st.textContent='Working on it without you. The result lands under "Waiting for you" (you’ll get a notification).';}
+      else{const e=await r.json().catch(()=>({}));st.className='sstatus err';st.textContent=e.error||('Could not start ('+r.status+').');pb.disabled=false;}
+    }catch(e){st.className='sstatus err';st.textContent='Could not reach the dashboard.';pb.disabled=false;}
+  };
   const qb=document.getElementById('queuebtn');
   if(qb)qb.onclick=()=>queueTask(s);
   const of=document.getElementById('openfile');
   if(of)of.onclick=(e)=>{e.preventDefault();launchClaude({kind:'open_file',id:s.meta.id},null);};
   const dn=document.getElementById('donowbtn');
   if(dn)dn.onclick=()=>{dn.disabled=true;launchClaude({kind:'sop',id:s.meta.id},document.getElementById('donowstatus'));};
-  const rb=document.getElementById('runbtn');
   const ri0=document.getElementById('runinputs');
-  if(rb&&ri0&&(s.meta.run_inputs||'').trim()){
+  if(pb&&ri0&&(s.meta.run_inputs||'').trim()&&!s.drift&&!s.body.includes('[personalize:')){
     ri0.addEventListener('input',()=>{
       const filled=!!ri0.value.trim();
-      rb.disabled=!filled;
+      pb.disabled=!filled;
       const st0=document.getElementById('runstatus');
       st0.textContent=filled?'':'Fill in what it needs first';
     });
   }
-  if(rb)rb.onclick=async()=>{
-    rb.disabled=true;
-    const st=document.getElementById('runstatus');
-    st.className='sstatus';
-    try{
-      const ri=document.getElementById('runinputs');
-      const r=await fetch('/api/run',{method:'POST',
-        headers:{'Content-Type':'application/json','X-Token':CFG.token},
-        body:JSON.stringify({id:s.meta.id,inputs:ri?ri.value.trim():''})});
-      st.textContent=r.ok?'Started. Check back in a minute or two; if it needs your OK it will appear under "Waiting for you".':'Could not start ('+r.status+').';
-    }catch(e){st.textContent='Could not reach the dashboard.';rb.disabled=false;}
-  };
   if(!dlg.open)dlg.showModal();
 }
 function rels(label,val){
@@ -363,35 +378,30 @@ function rels(label,val){
 }
 function runBox(s){
   if(s.archived)return '';
-  if(s.status==='draft'){
-    const trig=(s.meta.triggers||'').split(',')[0].trim();
-    return '<div class="suggest"><div class="slabel">Run this task</div>'
-      +'<div class="hint lead">This task hasn’t been done together yet, so it can’t run in the background. '
-      +'Do it once with Claude'+(trig?' (just say “'+esc(trig)+'”)':'')+' and the Run button appears here afterward.'+'</div>'
-      +(CFG.live?'<div class="row lead"><button class="btn-primary runbtn" id="donowbtn">Do it with Claude now</button>'
-        +'<span class="sstatus" id="donowstatus"></span></div>'
-        +'<textarea id="queueinputs" rows="2" placeholder="Anything Claude should know when you do it together? Optional."></textarea>'
-        +scopeChoice()
-        +'<div class="row"><button class="pbtn" id="queuebtn">Put it on my plate for later</button>'
-        +'<span class="sstatus" id="queuestatus"></span></div>':'')
-      +'</div>';
-  }
   if(!CFG.live)return '';
   const blocked=s.drift;
+  const needsPersonalize=s.body.includes('[personalize:');
   const req=(s.meta.run_inputs||'').trim();
   const items=req?req.split(',').map(x=>x.trim()).filter(Boolean):[];
+  const gate=blocked?'Record its changes first (tell Claude)'
+            :(needsPersonalize?'Personalize it first (open it with Claude once)'
+            :(req?'Fill in what it needs first':''));
+  const deliverable=s.meta.deliverable||'';
   return '<div class="suggest"><div class="slabel">Run this task</div>'
+    +(deliverable?'<div class="hint lead">You get: '+esc(deliverable)+'</div>':'')
     +(items.length?'<div class="hint lead">Tell it: '
       +items.map(t=>'<em class="reqchip">'+esc(t)+'</em>').join('')+'</div>':'')
     +'<textarea id="runinputs" rows="2" placeholder="'
     +(items.length?'Type those here':'Anything this run should know? Optional.')
     +'"></textarea>'
     +scopeChoice()
-    +'<div class="row"><button class="btn-primary runbtn" id="runbtn"'+((req||blocked)?' disabled':'')+'>Run this now</button>'
+    +'<div class="row"><button class="btn-primary runbtn" id="preparebtn"'+(gate?' disabled':'')+'>Do it without me</button>'
     +'<button class="pbtn" id="queuebtn">Put it on my plate instead</button>'
-    +'<span class="sstatus err" id="runstatus">'+(blocked?'Record its changes first (tell Claude)':(req?'Fill in what it needs first':''))+'</span>'
-    +'<span class="sstatus" id="queuestatus"></span></div>'
-    +'<div class="hint">Run now happens in the background using a little of your Claude plan’s automation allowance (the dollar figures track that usage, not separate charges), and stops for your approval before anything is sent. "On my plate" does it with you, live, next time you open Claude; pick that for anything that needs you mid-task.</div></div>';
+    +(s.status==='draft'?'<button class="pbtn okb" id="donowbtn">Do it with Claude now</button>':'')
+    +'<span class="sstatus err" id="runstatus">'+gate+'</span>'
+    +'<span class="sstatus" id="queuestatus"></span>'
+    +'<span class="sstatus" id="donowstatus"></span></div>'
+    +'<div class="hint">"Do it without me" prepares the work in the background inside a safety cage (it can’t send, publish, or spend; it can only research the sources this procedure declares) and the result lands under "Waiting for you", with a notification. It uses a little of your Claude plan’s automation allowance; the dollar figures track that usage, not separate charges. "On my plate" does it with you, live, next time you open Claude.</div></div>';
 }
 function scopeChoice(){
   if(!CFG.project)return '';
@@ -418,7 +428,7 @@ async function launchClaude(body,st,doing){
 async function queueTask(s){
   const qb=document.getElementById('queuebtn');
   const st=document.getElementById('queuestatus');
-  const box=document.getElementById('queueinputs')||document.getElementById('runinputs');
+  const box=document.getElementById('runinputs');
   const picked=document.querySelector('input[name=qscope]:checked');
   const scope=picked?picked.value:'here';
   qb.disabled=true;
