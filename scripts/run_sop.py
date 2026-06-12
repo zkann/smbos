@@ -28,6 +28,68 @@ def find_sop(sop_dir, sop_id):
     return p
 
 
+# Prepare-mode capability profile.
+#
+#   what a prepare run may do          enforced by
+#   ---------------------------------  ----------------------------------
+#   fetch stamped research_domains     WebFetch(domain:) allow rules
+#   read library + stamped reads       Read allow rules; reads OUTSIDE the
+#                                      cwd are default-denied under dontAsk,
+#                                      and prepare runs use an EMPTY SCRATCH
+#                                      cwd, so this is true allow-listing
+#                                      (in-cwd reads are free, which is why
+#                                      the scratch dir must stay empty) -
+#                                      live-canary verified 2026-06-12
+#   write ONLY into pending/           Edit path allow + dontAsk default-deny
+#   no shell / search / MCP            explicit denies
+#   secret paths                       Read deny rules as a second belt
+#                                      (deny beats allow if a declared read
+#                                      path ever encloses a secret)
+#   no inherited permissions           --setting-sources isolation
+#
+# The stamp gate: research_domains and research_reads are honored only when
+# the SOP carries a clean content fingerprint. An AI-imported draft nobody
+# read does not get to author its own network or filesystem access.
+#
+# Accepted residual: run data (and allowed-path contents) could leak via
+# query strings to a stamped domain. Bounded by the owner's own lists.
+def _abs_rule(tool, path, suffix=""):
+    """Permission rule with the //absolute anchor (// + path WITHOUT its leading slash).
+    A triple slash silently fails to match — live-canary verified 2026-06-12."""
+    return f"{tool}(//{str(path).lstrip('/')}{suffix})"
+
+
+SECRET_READ_DENY_PATHS = [".ssh", ".aws", ".config/gh", ".claude", ".netrc", ".npmrc", ".git-credentials"]
+SECRET_READ_DENY_GLOBS = ["Read(**/.env)", "Read(**/.env.*)", "Read(**/credentials*)", "Read(**/triggers.json)"]
+
+
+def _csv_field(meta, field):
+    return [x.strip() for x in (meta.get(field) or "").split(",") if x.strip()]
+
+
+def prepare_settings(sop_dir, meta, body):
+    """Build the prepare-mode permission settings for one SOP. Returns (settings_dict, stamped)."""
+    from smbos_lib import content_fingerprint
+    home = Path.home()
+    stamped = bool(meta.get("content_hash")) and meta["content_hash"] == content_fingerprint(body)
+    allow = [_abs_rule("Edit", sop_dir, "/pending/**"), _abs_rule("Read", sop_dir, "/**")]
+    if stamped:
+        allow += [f"WebFetch(domain:{d})" for d in _csv_field(meta, "research_domains")]
+        allow += [_abs_rule("Read", Path(x).expanduser()) for x in _csv_field(meta, "research_reads")]
+    deny = ["Bash", "WebSearch", "mcp__*"]
+    deny += [_abs_rule("Read", home / d, "/**") for d in SECRET_READ_DENY_PATHS]
+    deny += SECRET_READ_DENY_GLOBS
+    return {"permissions": {"allow": allow, "deny": deny}}, stamped
+
+
+def prepare_cmd_flags(settings):
+    """The harness flags that make the profile the sole authority."""
+    return ["--permission-mode", "dontAsk",
+            "--setting-sources", "",
+            "--strict-mcp-config",
+            "--settings", json.dumps(settings)]
+
+
 def budget(sop_dir):
     cfg = sop_dir / "triggers.json"
     if cfg.exists():
