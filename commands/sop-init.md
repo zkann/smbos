@@ -20,7 +20,9 @@ Create the directory plus two files:
 # SOP Index
 
 One line per SOP. Keep in sync with the files on disk.
-Line format: `- **Title** (category/file.md): one-line description | triggers: phrase, phrase`
+Line format: `- **Title** (category/file.md): one-line description | deliverable:    # what the owner receives when it runs (needed for background runs)
+research_domains:   # web domains background runs may fetch (optional)
+triggers: phrase, phrase`
 
 (no SOPs yet)
 ```
