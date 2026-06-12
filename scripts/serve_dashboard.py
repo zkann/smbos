@@ -27,7 +27,8 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from generate_dashboard import SKIP_NAMES, build_html, resolve_sop_dir
 from smbos_lib import find_sop as lib_find_sop
-from smbos_lib import frontmatter_field, is_drifted, parse_frontmatter, split_frontmatter
+from smbos_lib import (frontmatter_field, is_drifted, parse_frontmatter,
+                       run_lock_held, split_frontmatter)
 
 TOKEN = secrets.token_urlsafe(16)
 MAX_TEXT = 2000
@@ -118,8 +119,7 @@ def start_run(sop_dir, sop_id, inputs=None, prepare=False):
     sid = re.sub(r"[^a-z0-9-]", "", str(sop_id).lower())
     if not sid:
         raise ValueError("bad sop id")
-    lock = sop_dir / "triggers" / f"{sid}.lock"
-    if lock.exists():
+    if run_lock_held(sop_dir, sid):
         raise ValueError("This procedure is already running. Its result will appear "
                          'under "waiting for you" when it finishes.')
     if has_unrecorded_changes(sop_dir, sid):
@@ -271,12 +271,12 @@ class Handler(BaseHTTPRequestHandler):
                 append_suggestion(self.sop_dir, str(payload.get("path", "")), text)
                 return self._send(200, '{"ok":true}')
             if self.path == "/api/resolve":
-                status = resolve_pending_file(self.sop_dir, payload.get("file", ""),
+                pending_name = Path(str(payload.get("file", ""))).name
+                status = resolve_pending_file(self.sop_dir, pending_name,
                                               str(payload.get("decision", "")))
                 reason = str(payload.get("reason") or "").strip()[:MAX_TEXT]
                 if status == "discarded" and reason:
-                    sop_id = frontmatter_field(self.sop_dir / "pending" / payload.get("file", ""),
-                                               "sop")
+                    sop_id = frontmatter_field(self.sop_dir / "pending" / pending_name, "sop")
                     target = lib_find_sop(self.sop_dir, sop_id) if sop_id else None
                     if target:
                         append_suggestion(self.sop_dir, str(target.relative_to(self.sop_dir)),
@@ -291,7 +291,10 @@ class Handler(BaseHTTPRequestHandler):
                                 scope=str(payload.get("scope") or "here"))
                 return self._send(200, json.dumps({"ok": True, "queued": sid}))
             if self.path == "/api/run":
-                if payload.get("mode") == "prepare":
+                mode = payload.get("mode")
+                if mode not in (None, "", "prepare"):
+                    raise ValueError("unknown run mode")
+                if mode == "prepare":
                     sid = start_run(self.sop_dir, payload.get("id", ""),
                                     inputs=str(payload.get("inputs") or "").strip() or None,
                                     prepare=True)

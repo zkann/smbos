@@ -140,10 +140,14 @@ def test_api_prepare_mode_and_lock(library, monkeypatch):
     monkeypatch.setattr(sv.subprocess, "Popen", FakePopen)
     sv.start_run(library, "weekly-metrics-report", prepare=True)
     assert "--prepare" in calls[-1]
+    import os
     locks = library / "triggers"; locks.mkdir(exist_ok=True)
-    (locks / "weekly-metrics-report.lock").write_text("12345 x\n")
+    lock = locks / "weekly-metrics-report.lock"
+    lock.write_text(f"{os.getpid()} live\n")
     with pytest.raises(ValueError, match="already running"):
         sv.start_run(library, "weekly-metrics-report", prepare=True)
+    lock.write_text("999999 dead\n")  # stale lock no longer blocks the dashboard
+    sv.start_run(library, "weekly-metrics-report", prepare=True)
 
 
 def test_discard_reason_lands_in_notes(library):

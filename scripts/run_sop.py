@@ -270,7 +270,8 @@ def main():
                               inputs_clause, payload_clause, missing_inputs_clause,
                               deliverable=deliverable)
         settings, stamped = prepare_settings(sop_dir, meta, body)
-        scratch = tempfile.mkdtemp(prefix="smbos-prepare-")
+        scratch_ctx = tempfile.TemporaryDirectory(prefix="smbos-prepare-")
+        scratch = scratch_ctx.name
         cmd = (["claude", "-p", prompt, "--output-format", "json", "--model", args.model]
                + prepare_cmd_flags(settings))
         run_cwd = scratch
@@ -288,6 +289,9 @@ def main():
         log_run(sop_dir, {**base, "result": "error", "cost_usd": 0, "note": "timeout after 900s"})
         notify("SmbOS", f"{args.sop_id} took too long and was stopped.")
         sys.exit("Run timed out.")
+    finally:
+        if args.prepare:
+            scratch_ctx.cleanup()
 
     cost = duration = session_id = None
     summary = ""
