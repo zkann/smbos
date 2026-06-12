@@ -66,7 +66,7 @@ def main():
     doc = ("---\nid: canary\ntitle: Canary\ncategory: ops\ntriggers: canary\n"
            "research_domains: example.com\nversion: 1\nstatus: draft\n---\n\n# Canary\n\n## Steps\n1. x.\n")
     meta, body = split_frontmatter(doc)
-    fixture.write_text(set_frontmatter_fields(doc, {"content_hash": content_fingerprint(body)}))
+    fixture.write_text(set_frontmatter_fields(doc, {"content_hash": content_fingerprint(body, meta)}))
     meta, body = split_frontmatter(fixture.read_text())
     settings, stamped = prepare_settings(fix_dir, meta, body)
     assert stamped, "fixture must be stamped"

@@ -106,8 +106,8 @@ def test_collect_marks_unrecorded_changes(library):
     sop = library / "ops" / "weekly-metrics-report.md"
     assert gd.collect(library)[0]["drift"] is False  # unstamped stays quiet
     text = sop.read_text()
-    _, body = split_frontmatter(text)
-    sop.write_text(set_frontmatter_fields(text, {"content_hash": content_fingerprint(body)}))
+    _m, body = split_frontmatter(text)
+    sop.write_text(set_frontmatter_fields(text, {"content_hash": content_fingerprint(body, _m)}))
     assert gd.collect(library)[0]["drift"] is False  # stamped and clean
     sop.write_text(sop.read_text().replace("Do the thing.", "Changed."))
     assert gd.collect(library)[0]["drift"] is True

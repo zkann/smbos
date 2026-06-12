@@ -80,8 +80,8 @@ def test_list_sops_flags_unrecorded_changes(library):
     from smbos_lib import content_fingerprint, set_frontmatter_fields, split_frontmatter
     sop = library / "ops" / "weekly-metrics-report.md"
     text = sop.read_text()
-    _, body = split_frontmatter(text)
-    sop.write_text(set_frontmatter_fields(text, {"content_hash": content_fingerprint(body)}))
+    _m, body = split_frontmatter(text)
+    sop.write_text(set_frontmatter_fields(text, {"content_hash": content_fingerprint(body, _m)}))
     sop.write_text(sop.read_text().replace("Do the thing.", "Changed."))
     out = rpc(library, [INIT, call("list_sops", {})])
     txt = text_of(out[-1])

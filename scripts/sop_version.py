@@ -53,7 +53,7 @@ def cmd_check(sop_dir, as_json):
 def stamp_file(path):
     text = path.read_text(encoding="utf-8")
     meta, body = split_frontmatter(text)
-    path.write_text(set_frontmatter_fields(text, {"content_hash": content_fingerprint(body)}),
+    path.write_text(set_frontmatter_fields(text, {"content_hash": content_fingerprint(body, meta)}),
                     encoding="utf-8")
     return meta
 
@@ -97,7 +97,7 @@ def cmd_bump(sop_dir, sop_id, note):
         sys.exit(f"version field is '{meta.get('version')}'; expected a whole number.")
     new_body = add_changelog_line(body, f"- v{new_version} ({date.today().isoformat()}): {note}")
     updates = {"version": new_version, "clean_runs": 0,
-               "content_hash": content_fingerprint(new_body)}
+               "content_hash": content_fingerprint(new_body, meta)}
     demoted = meta.get("status") == "trusted"
     if demoted:
         updates["status"] = "active"

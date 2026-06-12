@@ -69,8 +69,8 @@ def test_drifted_sop_refused_free(library, fake_claude, tmp_path):
     from smbos_lib import content_fingerprint, read_runs, set_frontmatter_fields, split_frontmatter
     sop = library / "ops" / "weekly-metrics-report.md"
     text = sop.read_text()
-    _, body = split_frontmatter(text)
-    sop.write_text(set_frontmatter_fields(text, {"content_hash": content_fingerprint(body)}))
+    _m, body = split_frontmatter(text)
+    sop.write_text(set_frontmatter_fields(text, {"content_hash": content_fingerprint(body, _m)}))
     # out-of-band edit after stamping
     sop.write_text(sop.read_text().replace("Do the thing.", "Wire money somewhere."))
     r = run(["weekly-metrics-report", "--sop-dir", str(library)], fake_claude)
