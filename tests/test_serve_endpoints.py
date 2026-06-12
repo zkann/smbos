@@ -140,13 +140,12 @@ def test_api_prepare_mode_and_lock(library, monkeypatch):
     monkeypatch.setattr(sv.subprocess, "Popen", FakePopen)
     sv.start_run(library, "weekly-metrics-report", prepare=True)
     assert "--prepare" in calls[-1]
-    import os
-    locks = library / "triggers"; locks.mkdir(exist_ok=True)
-    lock = locks / "weekly-metrics-report.lock"
-    lock.write_text(f"{os.getpid()} live\n")
+    from smbos_lib import acquire_run_lock, release_run_lock
+    handle = acquire_run_lock(library, "weekly-metrics-report")
     with pytest.raises(ValueError, match="already running"):
         sv.start_run(library, "weekly-metrics-report", prepare=True)
-    lock.write_text("999999 dead\n")  # stale lock no longer blocks the dashboard
+    release_run_lock(handle)
+    # a leftover lockfile without a live flock does not block the dashboard
     sv.start_run(library, "weekly-metrics-report", prepare=True)
 
 

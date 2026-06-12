@@ -159,56 +159,57 @@ def notify(title, body):
         return False
 
 
-def _pid_alive(pid):
-    if not isinstance(pid, int) or pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-        return True
-    except (OSError, ValueError):
-        return False
-
-
-def _lock_holder(lock):
-    """The pid recorded in a lockfile, or 0 when missing/corrupt."""
-    try:
-        return int(Path(lock).read_text().split()[0])
-    except (OSError, ValueError, IndexError):
-        return 0
-
-
-def run_lock_held(sop_dir, sop_id):
-    """Read-only, stale-aware: is a LIVE run holding this SOP's lock?"""
-    lock = Path(sop_dir) / "triggers" / f"{sop_id}.lock"
-    return lock.exists() and _pid_alive(_lock_holder(lock))
+def _flock(fd):
+    import fcntl
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
 def acquire_run_lock(sop_dir, sop_id):
     """One concurrent run per SOP, across every entry point (dashboard, cron, CLI).
 
-    pid-bearing lockfile in the runtime dir; a lock whose pid is dead is stale
-    and reclaimed (no deadlock after kill -9). Returns the lock path, or None
-    if a live run already holds it.
+    flock on a persistent lockfile: the kernel releases it when the holder
+    exits, however it exits, so there is no staleness, no pid parsing, and no
+    reclaim protocol (a hand-rolled pid version had unfixable TOCTOU races;
+    the race test caught two winners). The lockfile is never deleted: its
+    presence means nothing, only the flock does. The pid/date written into it
+    is diagnostic. Returns an opaque handle (keep it until release), or None
+    if a live run holds the lock.
     """
     locks = Path(sop_dir) / "triggers"
     locks.mkdir(exist_ok=True)
     lock = locks / f"{sop_id}.lock"
-    for _ in range(3):  # O_EXCL makes acquisition atomic; loop covers stale reclaim
-        try:
-            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(f"{os.getpid()} {date.today().isoformat()}\n")
-            return lock
-        except FileExistsError:
-            if _pid_alive(_lock_holder(lock)):
-                return None
-            lock.unlink(missing_ok=True)  # stale or corrupt; retry
-    return None
+    fd = os.open(lock, os.O_CREAT | os.O_RDWR)
+    try:
+        _flock(fd)
+    except OSError:
+        os.close(fd)
+        return None
+    os.ftruncate(fd, 0)
+    os.write(fd, f"{os.getpid()} {date.today().isoformat()}\n".encode("utf-8"))
+    return fd
 
 
 def release_run_lock(lock):
-    if lock:
-        Path(lock).unlink(missing_ok=True)
+    if lock is not None:
+        try:
+            os.close(lock)  # closing the fd releases the flock
+        except OSError:
+            pass
+
+
+def run_lock_held(sop_dir, sop_id):
+    """Is a live run holding this SOP's lock? (try-lock and immediately release)"""
+    lock = Path(sop_dir) / "triggers" / f"{sop_id}.lock"
+    if not lock.exists():
+        return False
+    fd = os.open(lock, os.O_RDWR)
+    try:
+        _flock(fd)
+        return False  # we got it, so nobody holds it
+    except OSError:
+        return True
+    finally:
+        os.close(fd)
 
 
 def append_run(sop_dir, record):
