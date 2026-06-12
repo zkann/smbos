@@ -166,10 +166,11 @@ def test_run_lock_blocks_and_reclaims(library, fake_claude):
     r = run(["weekly-metrics-report", "--sop-dir", str(library)], fake_claude)
     assert r.returncode != 0 and "already running" in r.stderr
     assert read_runs(library)[-1]["note"] == "already running"
-    lock.write_text("999999 dead\n")  # stale -> reclaimed, run proceeds
-    r = run(["weekly-metrics-report", "--sop-dir", str(library)], fake_claude)
-    assert r.returncode == 0
-    assert not lock.exists() or lock.read_text().split()[0] != "999999"
+    for corrupt in ("999999 dead\n", "", "garbage\n", "-1 x\n", "0\n"):
+        lock.write_text(corrupt)  # stale or corrupt -> reclaimed, run proceeds
+        r = run(["weekly-metrics-report", "--sop-dir", str(library)], fake_claude)
+        assert r.returncode == 0, corrupt
+    assert not lock.exists() or lock.read_text().split()[0] not in ("999999", "garbage", "-1", "0")
 
 
 def test_build_prompt_contracts():
@@ -189,9 +190,11 @@ def test_build_prompt_contracts():
 def test_notify_and_lock_helpers(monkeypatch, tmp_path):
     import smbos_lib as lib
     calls = []
+    class Done:
+        returncode = 0
     monkeypatch.setattr(lib, "os", lib.os)
     import subprocess as sp
-    monkeypatch.setattr(sp, "run", lambda cmd, **kw: calls.append(cmd))
+    monkeypatch.setattr(sp, "run", lambda cmd, **kw: (calls.append(cmd), Done())[1])
     monkeypatch.setattr(lib.sys, "platform", "darwin")
     assert lib.notify("T", 'say "hi"') is True
     assert "osascript" in calls[-1][0] and '\\"hi\\"' in calls[-1][-1]

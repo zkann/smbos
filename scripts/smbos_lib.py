@@ -151,20 +151,36 @@ def notify(title, body):
     esc = lambda s: str(s).replace("\\", "\\\\").replace('"', '\\"')
     try:
         import subprocess
-        subprocess.run(["osascript", "-e",
-                        f'display notification "{esc(body)}" with title "{esc(title)}"'],
-                       capture_output=True, timeout=10)
-        return True
+        done = subprocess.run(["osascript", "-e",
+                               f'display notification "{esc(body)}" with title "{esc(title)}"'],
+                              capture_output=True, timeout=10)
+        return done.returncode == 0
     except (OSError, Exception):
         return False
 
 
 def _pid_alive(pid):
+    if not isinstance(pid, int) or pid <= 0:
+        return False
     try:
         os.kill(pid, 0)
         return True
     except (OSError, ValueError):
         return False
+
+
+def _lock_holder(lock):
+    """The pid recorded in a lockfile, or 0 when missing/corrupt."""
+    try:
+        return int(Path(lock).read_text().split()[0])
+    except (OSError, ValueError, IndexError):
+        return 0
+
+
+def run_lock_held(sop_dir, sop_id):
+    """Read-only, stale-aware: is a LIVE run holding this SOP's lock?"""
+    lock = Path(sop_dir) / "triggers" / f"{sop_id}.lock"
+    return lock.exists() and _pid_alive(_lock_holder(lock))
 
 
 def acquire_run_lock(sop_dir, sop_id):
@@ -177,16 +193,17 @@ def acquire_run_lock(sop_dir, sop_id):
     locks = Path(sop_dir) / "triggers"
     locks.mkdir(exist_ok=True)
     lock = locks / f"{sop_id}.lock"
-    if lock.exists():
+    for _ in range(3):  # O_EXCL makes acquisition atomic; loop covers stale reclaim
         try:
-            pid = int(lock.read_text().split()[0])
-        except (ValueError, IndexError):
-            pid = -1
-        if _pid_alive(pid):
-            return None
-        lock.unlink(missing_ok=True)  # stale
-    lock.write_text(f"{os.getpid()} {date.today().isoformat()}\n", encoding="utf-8")
-    return lock
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(f"{os.getpid()} {date.today().isoformat()}\n")
+            return lock
+        except FileExistsError:
+            if _pid_alive(_lock_holder(lock)):
+                return None
+            lock.unlink(missing_ok=True)  # stale or corrupt; retry
+    return None
 
 
 def release_run_lock(lock):

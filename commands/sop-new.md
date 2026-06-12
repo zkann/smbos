@@ -14,7 +14,7 @@ Resolve the SOP directory: `$SOP_DIR` if set, else `./sops` if it exists, else `
 
 ## 2. Draft
 
-Use `_template.md` in the SOP directory as the skeleton (fall back to the structure described in /sop-init if it is missing). Fill in:
+Use `_template.md` in the SOP directory as the skeleton (fall back to the structure described in /sop-init if it is missing). Write a one-line `deliverable:` naming exactly what the owner receives when it runs; if the SOP researches the web in background runs, declare `research_domains:` (and `research_reads:` for files outside the library); these are honored only on stamped SOPs. Fill in:
 
 - **id/title/category**: short, recognizable. File goes to `<category>/<id>.md`.
 - **triggers**: the phrases the user actually says when they want this task ("send the invoice", "do the weekly numbers"). Write them how the user talks, not how a manual would.
@@ -34,8 +34,6 @@ Show the full draft. Iterate until the user approves. Then:
 
 1. Set status by grounding: if this SOP was distilled from a task actually completed in this conversation, it has survived a real run, so `status: active`. If it was written from a description of a task not performed here, `status: draft`; drafts may keep `[personalize: question]` slots for unknowns and get verified on first run.
 2. Save to `<sop-dir>/<category>/<id>.md` with today's date in `created`/`updated`, `runs` set to 1 for active (0 for draft), `clean_runs: 0`.
-Write a one-line `deliverable:` naming exactly what the owner receives when it runs; if the SOP researches the web in background runs, declare `research_domains:` (and `research_reads:` for files outside the library). These are honored only on stamped SOPs.
-
 3. Record the content fingerprint: `python3 <plugin-root>/scripts/sop_version.py stamp <id>` (this is what lets the system notice later edits that skip the save flow).
 4. Add one line to `INDEX.md` in the standard format: `- **Title** (category/file.md): one-line description | triggers: phrase, phrase`.
 5. If the SOP directory is a git repo, commit the new SOP with a one-line message.
