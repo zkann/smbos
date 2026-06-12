@@ -170,6 +170,8 @@
   .btn-primary:hover{background:var(--primary-hover)}
   .btn-primary:disabled{background:transparent;color:var(--subtle-fg);border:1px dashed var(--border-strong);cursor:not-allowed}
   .pstatus,.sstatus{margin-left:8px;font-size:13px}
+  .reasonbox{background:transparent;border:1px solid var(--input);border-radius:6px;
+    padding:2px 8px;font-size:13px;color:var(--foreground);margin:0 4px}
   .suggest .sstatus{color:var(--green)}
   .suggest .hint.lead,.hint.lead{margin:0 0 8px}
   .suggest .row.lead{margin:0 0 10px}
