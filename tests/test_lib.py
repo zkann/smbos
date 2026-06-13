@@ -53,7 +53,8 @@ def test_resolve_sop_dir_env(tmp_path, monkeypatch):
 
 def test_digest_not_treated_as_sop(tmp_path):
     from smbos_lib import iter_sops, find_sop
-    d = tmp_path / "sops"; (d / "ops").mkdir(parents=True)
+    d = tmp_path / "sops"
+    (d / "ops").mkdir(parents=True)
     (d / "DIGEST.md").write_text("# Your day\n3 waiting.\n")  # generated, no frontmatter
     (d / "ops" / "real.md").write_text("---\nid: real\ntitle: Real\n---\n# Real\n")
     names = [p.name for p in iter_sops(d)]

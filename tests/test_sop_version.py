@@ -125,7 +125,14 @@ def test_capability_fields_are_fingerprinted():
 
 
 def test_stamp_all_skips_frontmatterless_files(library, monkeypatch, capsys):
-    (library / "DIGEST.md").write_text("# Your day\nnothing waiting.\n")
+    # a non-SOP markdown file iter_sops DOES yield (unlike SKIP_NAMES entries)
+    (library / "ops" / "scratch-notes.md").write_text("# notes\nno frontmatter\n")
     out = run_cli(monkeypatch, capsys, "--sop-dir", str(library), "stamp", "--all")
-    assert "procedure" in out  # did not crash
-    assert not __import__("smbos_lib").parse_frontmatter((library / "DIGEST.md").read_text())
+    assert "procedure" in out  # did not crash on the frontmatterless file
+    assert "content_hash" not in (library / "ops" / "scratch-notes.md").read_text()
+    # single-file stamp of a non-SOP exits cleanly, not a traceback
+    import sys as _sys, pytest as _pt
+    monkeypatch.setattr(_sys, "argv",
+                        ["sop_version.py", "--sop-dir", str(library), "stamp", "scratch-notes"])
+    with _pt.raises(SystemExit):
+        sv.main()
