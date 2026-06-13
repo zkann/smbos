@@ -51,8 +51,12 @@ def cmd_check(sop_dir, as_json):
 
 
 def stamp_file(path):
+    """Stamp one SOP. Returns its meta, or None if the file has no frontmatter
+    (a non-SOP markdown file slipped past iter_sops): skip it, don't crash."""
     text = path.read_text(encoding="utf-8")
     meta, body = split_frontmatter(text)
+    if not meta:
+        return None
     path.write_text(set_frontmatter_fields(text, {"content_hash": content_fingerprint(body, meta)}),
                     encoding="utf-8")
     return meta
@@ -60,16 +64,15 @@ def stamp_file(path):
 
 def cmd_stamp(sop_dir, sop_id, all_sops):
     if all_sops:
-        n = 0
-        for p in iter_sops(sop_dir):
-            stamp_file(p)
-            n += 1
+        n = sum(1 for p in iter_sops(sop_dir) if stamp_file(p) is not None)
         print(f"Recorded current content for {n} procedure{'s' if n != 1 else ''}.")
         return
     path = find_sop(sop_dir, sop_id)
     if not path:
         sys.exit(f"No SOP named '{sop_id}' found.")
     meta = stamp_file(path)
+    if meta is None:
+        sys.exit(f"'{sop_id}' has no frontmatter; it is not an SOP.")
     print(f"{meta.get('title', sop_id)}: current content recorded as v{meta.get('version', '1')}.")
 
 

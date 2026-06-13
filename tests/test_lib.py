@@ -49,3 +49,14 @@ def test_resolve_sop_dir_env(tmp_path, monkeypatch):
     assert lib.resolve_sop_dir() == d
     monkeypatch.delenv("SOP_DIR")
     assert lib.resolve_sop_dir(explicit=str(d)) == d
+
+
+def test_digest_not_treated_as_sop(tmp_path):
+    from smbos_lib import iter_sops, find_sop
+    d = tmp_path / "sops"
+    (d / "ops").mkdir(parents=True)
+    (d / "DIGEST.md").write_text("# Your day\n3 waiting.\n")  # generated, no frontmatter
+    (d / "ops" / "real.md").write_text("---\nid: real\ntitle: Real\n---\n# Real\n")
+    names = [p.name for p in iter_sops(d)]
+    assert "DIGEST.md" not in names and "real.md" in names
+    assert find_sop(d, "DIGEST") is None
