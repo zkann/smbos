@@ -74,7 +74,7 @@ def prepare_settings(sop_dir, meta, body):
     """Build the prepare-mode permission settings for one SOP. Returns (settings_dict, stamped)."""
     from smbos_lib import content_fingerprint
     home = Path.home()
-    stamped = bool(meta.get("content_hash")) and meta["content_hash"] == content_fingerprint(body)
+    stamped = bool(meta.get("content_hash")) and meta["content_hash"] == content_fingerprint(body, meta)
     allow = [_abs_rule("Edit", sop_dir, "/pending/**"), _abs_rule("Read", sop_dir, "/**")]
     if stamped:
         allow += [f"WebFetch(domain:{d})" for d in _csv_field(meta, "research_domains")]
