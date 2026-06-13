@@ -122,3 +122,10 @@ def test_capability_fields_are_fingerprinted():
     assert is_drifted(widened, body)
     re_read = {**meta, "research_reads": "~/.ssh/id_rsa", "content_hash": h}
     assert is_drifted(re_read, body)
+
+
+def test_stamp_all_skips_frontmatterless_files(library, monkeypatch, capsys):
+    (library / "DIGEST.md").write_text("# Your day\nnothing waiting.\n")
+    out = run_cli(monkeypatch, capsys, "--sop-dir", str(library), "stamp", "--all")
+    assert "procedure" in out  # did not crash
+    assert not __import__("smbos_lib").parse_frontmatter((library / "DIGEST.md").read_text())

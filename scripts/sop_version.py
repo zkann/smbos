@@ -60,10 +60,7 @@ def stamp_file(path):
 
 def cmd_stamp(sop_dir, sop_id, all_sops):
     if all_sops:
-        n = 0
-        for p in iter_sops(sop_dir):
-            stamp_file(p)
-            n += 1
+        n = sum(1 for p in iter_sops(sop_dir) if stamp_file(p) is not None)
         print(f"Recorded current content for {n} procedure{'s' if n != 1 else ''}.")
         return
     path = find_sop(sop_dir, sop_id)
