@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.20.1 (2026-06-12)
+
+- The content fingerprint now covers the background-run permission fields (`deliverable:`, `research_domains:`, `research_reads:`) as well as the steps. Before this, editing a stamped procedure's web-domain list outside the normal save flow kept its stamp, quietly widening what a background run could reach; now any such edit reads as unrecorded changes and background runs refuse until you review it. Found while dogfooding the first real background run. Re-stamp your library once after updating: `python3 scripts/sop_version.py stamp --all`.
+
 ## 0.20.0 (2026-06-12)
 
 - Background-first: "Do it without me" is the primary verb on every runnable SOP. Prepare mode runs any SOP (drafts included) inside a harness-enforced capability cage: settings-source isolation, fetch only stamped `research_domains:`, reads only the library plus stamped `research_reads:` (empty scratch cwd makes read allow-listing real), writes only to pending/, no shell/search/MCP, secret-path deny belt. Gate matrix: prepare skips draft status only; personalize slots, unrecorded changes, missing inputs, and budget still refuse free; one run per SOP at a time via stale-safe pid lockfiles. Every run ends in a parked artifact (deliverable named, partial flagged, empty results are honest results; producing nothing is an error that notifies and shows under needs-attention). Discarding a result asks "what was off?" and writes it into the SOP's notes; approving a prepared result counts as a draft's first real run. New `scripts/canary_prepare.py` live-proves the cage (12 checks against a real model) and pins the verified CLI version; the runner warns on drift. find-jobs dry-ran to an approvable 8-role artifact under the cage ($0.41).

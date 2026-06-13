@@ -109,3 +109,16 @@ def test_bump_missing_sop_exits(library, monkeypatch, capsys):
                         ["sop_version.py", "--sop-dir", str(library), "bump", "nope", "--note", "x"])
     with pytest.raises(SystemExit):
         sv.main()
+
+
+def test_capability_fields_are_fingerprinted():
+    """Editing research_domains on a stamped SOP must read as drift: the stamp
+    is what makes the allowlist owner-sanctioned (dogfooding find 2026-06-12)."""
+    body = "## Steps\n1. Do it.\n"
+    meta = {"research_domains": "example.com", "deliverable": "a list"}
+    h = content_fingerprint(body, meta)
+    assert not is_drifted({**meta, "content_hash": h}, body)
+    widened = {**meta, "research_domains": "example.com, attacker.example", "content_hash": h}
+    assert is_drifted(widened, body)
+    re_read = {**meta, "research_reads": "~/.ssh/id_rsa", "content_hash": h}
+    assert is_drifted(re_read, body)

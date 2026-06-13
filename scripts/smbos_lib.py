@@ -58,12 +58,21 @@ def split_frontmatter(text):
 _JOURNAL_SECTIONS = ("Notes for next revision", "Changelog")
 
 
-def content_fingerprint(body):
-    """Hash of the procedure-bearing body: journal sections stripped, line endings normalized."""
+# Frontmatter fields that grant capabilities to background runs. They MUST be
+# inside the fingerprint: the stamp is what makes them owner-sanctioned, and a
+# body-only hash would let an out-of-band edit widen the allowlist of an
+# already-stamped SOP without tripping the drift gate.
+CAPABILITY_FIELDS = ("research_domains", "research_reads", "deliverable")
+
+
+def content_fingerprint(body, meta=None):
+    """Hash of the procedure: body (journal sections stripped, line endings
+    normalized) plus the capability-granting frontmatter fields."""
     text = body.replace("\r\n", "\n")
     for name in _JOURNAL_SECTIONS:
         text = re.sub(rf"^## {re.escape(name)}\n.*?(?=^## |\Z)", "", text, flags=re.M | re.S)
-    return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()[:12]
+    caps = "\n".join(f"{k}={(meta or {}).get(k, '')}" for k in CAPABILITY_FIELDS)
+    return hashlib.sha256((caps + "\n" + text.strip()).encode("utf-8")).hexdigest()[:12]
 
 
 def is_drifted(meta, body):
@@ -73,7 +82,7 @@ def is_drifted(meta, body):
     stay quiet until their SOPs are stamped or bumped.
     """
     recorded = meta.get("content_hash")
-    return bool(recorded) and recorded != content_fingerprint(body)
+    return bool(recorded) and recorded != content_fingerprint(body, meta)
 
 
 def set_frontmatter_fields(text, updates):
