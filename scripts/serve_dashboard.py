@@ -172,14 +172,86 @@ def preferred_terminal(sop_dir):
     return "terminal"
 
 
-def open_terminal_with_claude(folder, prompt, terminal="terminal"):
-    """Open a terminal window in `folder` running claude with `prompt` (macOS)."""
+# Permission posture for the Claude session a launch button opens. The owner
+# clicked to run their own documented SOP, so these only affect sessions they
+# explicitly start from the dashboard.
+#   "trust" (default): accept file edits without asking, still ask before
+#                      running commands, and remember the launch folder so the
+#                      workspace trust dialog stops re-appearing on every launch.
+#   "ask":             no flags; Claude prompts the normal way.
+#   "skip":            bypass every check (zero prompts).
+LAUNCH_PERMISSION_FLAGS = {
+    "ask": [],
+    "trust": ["--permission-mode", "acceptEdits"],
+    "skip": ["--dangerously-skip-permissions"],
+}
+DEFAULT_LAUNCH_PERMISSION = "trust"
+# The store Claude Code writes when you accept the workspace trust dialog.
+CLAUDE_CONFIG = str(Path.home() / ".claude.json")
+
+
+def launch_permission(sop_dir):
+    """Config override in triggers.json ("launch_permission"); default 'trust'."""
+    cfg = sop_dir / "triggers.json"
+    if cfg.exists():
+        try:
+            val = str(json.loads(cfg.read_text(encoding="utf-8")).get("launch_permission") or "").lower()
+            if val in LAUNCH_PERMISSION_FLAGS:
+                return val
+        except ValueError:
+            pass
+    return DEFAULT_LAUNCH_PERMISSION
+
+
+def remember_folder_trust(folder):
+    """Persist workspace trust for `folder`, the same record the trust dialog
+    writes when you click "trust". Skips home and the filesystem root (too broad
+    to auto-trust) and a folder already trusted, and never raises: on any problem
+    the launch still happens and Claude just asks once, as before."""
+    folder = Path(folder).expanduser().resolve()
+    if folder == Path.home().resolve() or folder == folder.parent:
+        return
+    cfg = Path(CLAUDE_CONFIG)
+    try:
+        data = json.loads(cfg.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    projects = data.get("projects")
+    if not isinstance(projects, dict):
+        return
+    key = str(folder)
+    entry = projects.get(key)
+    if isinstance(entry, dict) and entry.get("hasTrustDialogAccepted") is True:
+        return
+    projects[key] = {**(entry if isinstance(entry, dict) else {}),
+                     "hasTrustDialogAccepted": True}
+    tmp = cfg.with_name(cfg.name + ".smbos-tmp")
+    try:
+        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        os.replace(tmp, cfg)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+def open_terminal_with_claude(folder, prompt, terminal="terminal",
+                              permission=DEFAULT_LAUNCH_PERMISSION):
+    """Open a terminal window in `folder` running claude with `prompt` (macOS).
+
+    `permission` picks the launched session's posture (see LAUNCH_PERMISSION_FLAGS);
+    "trust" also remembers `folder` so the workspace trust dialog stops nagging."""
     if sys.platform != "darwin":
         raise ValueError("launching Claude from the dashboard only works on macOS")
     folder = Path(folder).expanduser()
     if not folder.is_dir():
         raise ValueError("that folder no longer exists")
-    shell_cmd = "cd " + shlex.quote(str(folder)) + " && claude " + shlex.quote(prompt)
+    if permission == "trust":
+        remember_folder_trust(folder)
+    flags = LAUNCH_PERMISSION_FLAGS.get(permission, [])
+    claude_cmd = " ".join(["claude", *flags, shlex.quote(prompt)])
+    shell_cmd = "cd " + shlex.quote(str(folder)) + " && " + claude_cmd
     script = TERMINAL_SCRIPTS.get(terminal, TERMINAL_SCRIPTS["terminal"]).format(
         cmd=applescript_escape(shell_cmd))
     subprocess.run(["osascript", "-e", script], check=True, capture_output=True, timeout=20)
@@ -224,7 +296,8 @@ def launch(sop_dir, payload):
         return "opened folder"
     else:
         raise ValueError("unknown launch kind")
-    open_terminal_with_claude(folder, prompt, terminal=preferred_terminal(sop_dir))
+    open_terminal_with_claude(folder, prompt, terminal=preferred_terminal(sop_dir),
+                              permission=launch_permission(sop_dir))
     return "launched"
 
 

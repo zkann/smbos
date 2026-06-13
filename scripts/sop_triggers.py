@@ -11,6 +11,7 @@ Usage:
   sop_triggers.py costs [--days N]                    spend report from runs.jsonl vs budget
   sop_triggers.py budget [AMOUNT]                     show or set monthly_budget_usd
   sop_triggers.py terminal [terminal|iterm]           which app dashboard launches open (default: auto-detect)
+  sop_triggers.py launch-permission [trust|ask|skip]  how much a dashboard-launched Claude session asks (default: trust)
   sop_triggers.py digest show                         build and print today's digest
   sop_triggers.py digest crontab ["M H * * *"]        print the crontab line for the daily digest
 
@@ -207,6 +208,13 @@ def main():
             reg["terminal"] = args[1]
             save(d, reg)
         print(f"terminal = {reg.get('terminal') or '(auto-detect from the session that starts the dashboard)'}")
+    elif cmd == "launch-permission":
+        if len(args) >= 2:
+            if args[1] not in ("trust", "ask", "skip"):
+                sys.exit("supported: trust, ask, skip")
+            reg["launch_permission"] = args[1]
+            save(d, reg)
+        print(f"launch_permission = {reg.get('launch_permission') or 'trust (accept edits, ask before commands, remember folder trust)'}")
     elif cmd == "digest" and len(args) >= 2:
         runner = plugin_root / "scripts" / "digest.py"
         if args[1] == "show":
