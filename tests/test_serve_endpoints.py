@@ -61,7 +61,8 @@ def test_append_suggestion_placement(library):
 def test_launch_routing(library, monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(sv, "open_terminal_with_claude",
-                        lambda folder, prompt, terminal="terminal": calls.append((str(folder), prompt)))
+                        lambda folder, prompt, terminal="terminal", permission="trust":
+                            calls.append((str(folder), prompt)))
     proj = tmp_path / "projA"
     proj.mkdir()
     q = library / "queue"
@@ -115,11 +116,68 @@ def test_iterm_script_used(library, monkeypatch):
     monkeypatch.setattr(sv.subprocess, "run",
                         lambda cmd, **kw: scripts.append(cmd[2]))
     monkeypatch.setattr(sv.sys, "platform", "darwin")
-    sv.open_terminal_with_claude(library, "weekly numbers", terminal="iterm")
+    sv.open_terminal_with_claude(library, "weekly numbers", terminal="iterm",
+                                 permission="ask")
     assert 'tell application "iTerm"' in scripts[-1]
     assert "write text" in scripts[-1] and "weekly numbers" in scripts[-1]
-    sv.open_terminal_with_claude(library, "x", terminal="terminal")
+    sv.open_terminal_with_claude(library, "x", terminal="terminal", permission="ask")
     assert 'tell application "Terminal"' in scripts[-1]
+
+
+def test_launch_permission_config(library):
+    import json
+    assert sv.launch_permission(library) == "trust"  # default
+    (library / "triggers.json").write_text(json.dumps({"launch_permission": "skip"}))
+    assert sv.launch_permission(library) == "skip"
+    (library / "triggers.json").write_text(json.dumps({"launch_permission": "bogus"}))
+    assert sv.launch_permission(library) == "trust"  # unknown value ignored
+
+
+def test_launch_permission_flags_in_command(library, monkeypatch):
+    scripts = []
+    monkeypatch.setattr(sv.subprocess, "run", lambda cmd, **kw: scripts.append(cmd[2]))
+    monkeypatch.setattr(sv.sys, "platform", "darwin")
+    monkeypatch.setattr(sv, "remember_folder_trust", lambda folder: None)
+    sv.open_terminal_with_claude(library, "weekly numbers", permission="trust")
+    assert "claude --permission-mode acceptEdits" in scripts[-1]
+    sv.open_terminal_with_claude(library, "weekly numbers", permission="skip")
+    assert "claude --dangerously-skip-permissions" in scripts[-1]
+    sv.open_terminal_with_claude(library, "weekly numbers", permission="ask")
+    assert "&& claude '" in scripts[-1] and "permission-mode" not in scripts[-1]
+
+
+def test_remember_folder_trust(tmp_path, monkeypatch):
+    import json
+    cfg = tmp_path / ".claude.json"
+    proj = tmp_path / "projB"
+    proj.mkdir()
+    cfg.write_text(json.dumps({"projects": {}}, indent=2))
+    monkeypatch.setattr(sv, "CLAUDE_CONFIG", str(cfg))
+    sv.remember_folder_trust(proj)
+    data = json.loads(cfg.read_text())
+    assert data["projects"][str(proj.resolve())]["hasTrustDialogAccepted"] is True
+
+    # preserves sibling keys and is idempotent
+    cfg.write_text(json.dumps(
+        {"projects": {str(proj.resolve()): {"history": [1], "hasTrustDialogAccepted": False}}},
+        indent=2))
+    sv.remember_folder_trust(proj)
+    data = json.loads(cfg.read_text())
+    entry = data["projects"][str(proj.resolve())]
+    assert entry["hasTrustDialogAccepted"] is True and entry["history"] == [1]
+
+
+def test_remember_folder_trust_skips_home_and_bad_config(tmp_path, monkeypatch):
+    import json
+    cfg = tmp_path / ".claude.json"
+    cfg.write_text(json.dumps({"projects": {}}, indent=2))
+    monkeypatch.setattr(sv, "CLAUDE_CONFIG", str(cfg))
+    monkeypatch.setattr(sv.Path, "home", staticmethod(lambda: tmp_path))
+    sv.remember_folder_trust(tmp_path)  # home itself: must not be trusted
+    assert json.loads(cfg.read_text())["projects"] == {}
+    # a missing/garbage config never raises
+    cfg.write_text("not json")
+    sv.remember_folder_trust(tmp_path / "whatever")
 
 
 def test_start_run_refuses_unrecorded_changes(library, monkeypatch):
