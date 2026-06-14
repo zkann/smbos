@@ -24,7 +24,7 @@ Read the full SOP file, then resolve context:
 
 Announce what you are running and how it resolved: id, version, status, plus overlay and variant if any ("work-ticket-to-merged-pr v2, Python variant via pyproject.toml, with the acme-ingest overlay"). Check the **Inputs** section and collect anything missing from the user before starting. Skim **Notes for next revision** so known rough edges do not surprise you mid-run.
 
-If frontmatter `needs:` lists upstream SOPs and the input they produce is not already in hand (e.g. send-invoice needs a job from write-proposal), offer to run the upstream SOP first. Offer, never auto-run.
+If frontmatter `needs:` lists upstream SOPs and the input they produce is not already in hand (e.g. send-invoice needs a signed scope from write-proposal), offer to run the upstream SOP first. Offer, never auto-run.
 
 If `status: draft`, personalize before executing: this SOP has never been verified by a real run. Resolve the `[personalize: ...]` slots that this run will actually touch by asking the user, write their answers into the file, and replace any remaining `INSTALL-DATE` placeholders with today's date. Slots the run does not touch can stay for later.
 
@@ -53,7 +53,7 @@ After the task completes:
 
 If the run was clean, just update the metadata and say the SOP held up.
 
-If frontmatter `next:` lists follow-on SOPs, offer the natural one in a single line ("application submitted; queue the next from write-proposal?"). Once, not insistently.
+If frontmatter `next:` lists follow-on SOPs, offer the natural one in a single line ("proposal sent; queue the kickoff from client-onboarding?"). Once, not insistently.
 
 ## Triggered mode
 
