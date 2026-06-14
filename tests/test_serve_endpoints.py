@@ -1,4 +1,5 @@
 import pytest
+from pathlib import Path
 
 import serve_dashboard as sv
 from conftest import make_sop
@@ -234,3 +235,61 @@ def test_discard_reason_lands_in_notes(library):
                          "(discarded a prepared result) too generic")
     text = target.read_text()
     assert "via dashboard) (discarded a prepared result) too generic" in text
+
+
+def test_declared_folder_overrides_launch_cwd(library, monkeypatch, tmp_path):
+    from conftest import make_sop
+    proj = tmp_path / "acme"
+    proj.mkdir()
+    make_sop(library, id="client-report", status="active",
+             extra=f"folder: {proj}\n")
+    # dashboard launched from somewhere irrelevant (e.g. the smbops repo)
+    monkeypatch.setattr(sv, "LAUNCH_CWD", "/Users/zak/smbops")
+    sv.queue_run(library, "client-report", scope="here")
+    q = sorted((library / "queue").glob("*client-report.md"))[-1].read_text()
+    assert f"project: {proj}" in q  # routed to the SOP's home, not launch-cwd
+
+    # explicit "anywhere" still unscopes, declared folder notwithstanding
+    sv.queue_run(library, "client-report", scope="anywhere")
+    q2 = sorted((library / "queue").glob("*client-report.md"))[-1].read_text()
+    assert "project: \n" in q2
+
+    # an SOP with no folder: still uses launch-cwd (unchanged behavior)
+    sv.queue_run(library, "weekly-metrics-report", scope="here")
+    q3 = sorted((library / "queue").glob("*weekly-metrics-report.md"))[-1].read_text()
+    assert "project: /Users/zak/smbops" in q3
+
+
+def test_declared_folder_routes_the_launch(library, monkeypatch, tmp_path):
+    from conftest import make_sop
+    calls = []
+    monkeypatch.setattr(sv, "open_terminal_with_claude",
+                        lambda folder, prompt, terminal="terminal", permission="trust":
+                            calls.append(str(folder)))
+    proj = tmp_path / "acme"
+    proj.mkdir()
+    make_sop(library, id="client-report", status="active", extra=f"folder: {proj}\n")
+    monkeypatch.setattr(sv, "LAUNCH_CWD", "/Users/zak/smbops")
+    sv.launch(library, {"kind": "sop", "id": "client-report"})
+    assert calls[-1] == str(proj)  # terminal opens in the SOP's home
+
+
+def test_declared_folder_ignores_nonexistent_dir(library, monkeypatch):
+    from conftest import make_sop
+    make_sop(library, id="ghost", status="active", extra="folder: /no/such/dir\n")
+    monkeypatch.setattr(sv, "LAUNCH_CWD", "/Users/zak/projA")
+    sv.queue_run(library, "ghost", scope="here")
+    q = sorted((library / "queue").glob("*ghost.md"))[-1].read_text()
+    assert "project: /Users/zak/projA" in q  # bad folder ignored, falls back to launch-cwd
+
+
+def test_queue_response_reports_declared_folder(library, monkeypatch, tmp_path):
+    from conftest import make_sop
+    proj = tmp_path / "acme"
+    proj.mkdir()
+    make_sop(library, id="client-report", status="active", extra=f"folder: {proj}\n")
+    monkeypatch.setattr(sv, "LAUNCH_CWD", "/Users/zak/smbops")
+    sid, project = sv.queue_run(library, "client-report", scope="here")
+    assert sid == "client-report" and project == str(proj)
+    # the message the owner sees must name the real destination, not the launch folder
+    assert Path(project).name == "acme"

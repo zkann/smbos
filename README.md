@@ -98,8 +98,8 @@ Either way, restructuring an SOP stays with the propose/approve diff flow; the d
 Real workflows are rarely one SOP. Three relation types keep them small and chained instead of monolithic:
 
 - A step containing `[[sop:meeting-follow-up]]` executes that SOP inline as a sub-run, with its own approval gates, usage tracking, and learning loop. (Obsidian users get clickable wiki-links for free; the dashboard renders them as links too.)
-- `needs: find-jobs` in frontmatter says this SOP consumes another's output. If you ask to submit an application and there's no job in hand, Claude offers to run the finding step first.
-- `next: submit-job-application` names what typically follows; when a run completes, Claude offers the next link in the chain, once.
+- `needs: write-proposal` in frontmatter says this SOP consumes another's output. If you ask to send an invoice and there's no signed proposal in hand, Claude offers to run the upstream step first.
+- `next: send-invoice` names what typically follows; when a run completes, Claude offers the next link in the chain, once.
 
 `/sop-review` audits composition health: references to missing SOPs, loops, and step blocks duplicated across SOPs that should be extracted into a shared sub-SOP.
 
@@ -122,6 +122,7 @@ See [examples/weekly-metrics-report.md](examples/weekly-metrics-report.md) for a
 ---
 id: send-invoice            # filename and reference handle
 triggers: invoice X, bill   # phrases you actually say
+folder: ~/clients/acme      # optional: always run here, ignoring dashboard launch folder
 version: 3                  # bumped on every approved change
 content_hash: 3f9a1c2b4d6e  # fingerprint of the steps; edits that skip the save flow get noticed
 runs: 12                    # usage tracking feeds the review audit
