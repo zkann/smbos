@@ -89,6 +89,20 @@ def required_inputs(sop_dir, sid):
     return None
 
 
+def sop_declared_folder(sop_dir, sid):
+    """An SOP's canonical `folder:` (expanded), or None. When set, queued tasks
+    and launches for that SOP route there regardless of where the dashboard was
+    launched, e.g. a client SOP always runs in its project folder."""
+    match = next(iter(sop_dir.rglob(f"{sid}.md")), None) if sid else None
+    if match is None:
+        return None
+    raw = parse_frontmatter(match.read_text(encoding="utf-8")).get("folder")
+    if not raw:
+        return None
+    folder = Path(os.path.expanduser(os.path.expandvars(raw.strip()))).resolve()
+    return str(folder) if folder.is_dir() else None
+
+
 def queue_run(sop_dir, sop_id, inputs=None, scope="here"):
     sid = re.sub(r"[^a-z0-9-]", "", str(sop_id).lower())
     if not sid or not any(sop_dir.rglob(f"{sid}.md")):
@@ -96,7 +110,12 @@ def queue_run(sop_dir, sop_id, inputs=None, scope="here"):
     qdir = sop_dir / "queue"
     qdir.mkdir(exist_ok=True)
     now = datetime.now(timezone.utc)
-    if scope == "anywhere" or LAUNCH_CWD in (str(Path.home()), str(sop_dir)):
+    declared = sop_declared_folder(sop_dir, sid)
+    if scope == "anywhere":
+        project = ""  # owner explicitly chose any folder
+    elif declared:
+        project = declared  # the SOP knows its home (e.g. a client SOP -> its project folder)
+    elif LAUNCH_CWD in (str(Path.home()), str(sop_dir)):
         project = ""
     else:
         project = LAUNCH_CWD
@@ -105,7 +124,7 @@ def queue_run(sop_dir, sop_id, inputs=None, scope="here"):
     if inputs:
         body += f"\nOwner's notes for the run:\n{str(inputs)[:2000]}\n"
     (qdir / f"{now.strftime('%Y%m%dT%H%M%S')}-{sid}.md").write_text(body, encoding="utf-8")
-    return sid
+    return sid, project
 
 
 def has_unrecorded_changes(sop_dir, sid):
@@ -287,7 +306,8 @@ def launch(sop_dir, payload):
             raise ValueError("unknown task")
         meta = parse_frontmatter(match.read_text(encoding="utf-8"))
         trigger = (meta.get("triggers") or "").split(",")[0].strip()
-        folder = LAUNCH_CWD if LAUNCH_CWD not in (home, str(sop_dir)) else home
+        folder = (sop_declared_folder(sop_dir, sid)
+                  or (LAUNCH_CWD if LAUNCH_CWD not in (home, str(sop_dir)) else home))
         prompt = trigger or ("Let's do: " + (meta.get("title") or sid))
     elif kind == "approved":
         folder = LAUNCH_CWD if LAUNCH_CWD not in (home, str(sop_dir)) else home
@@ -367,10 +387,11 @@ class Handler(BaseHTTPRequestHandler):
                 msg = launch(self.sop_dir, payload)
                 return self._send(200, json.dumps({"ok": True, "did": msg}))
             if self.path == "/api/queue":
-                sid = queue_run(self.sop_dir, payload.get("id", ""),
-                                inputs=str(payload.get("inputs") or "").strip() or None,
-                                scope=str(payload.get("scope") or "here"))
-                return self._send(200, json.dumps({"ok": True, "queued": sid}))
+                sid, project = queue_run(self.sop_dir, payload.get("id", ""),
+                                         inputs=str(payload.get("inputs") or "").strip() or None,
+                                         scope=str(payload.get("scope") or "here"))
+                dest = Path(project).name if project else "any folder"
+                return self._send(200, json.dumps({"ok": True, "queued": sid, "dest": dest}))
             if self.path == "/api/run":
                 mode = payload.get("mode")
                 if mode not in (None, "", "prepare"):

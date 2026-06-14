@@ -436,7 +436,9 @@ async function queueTask(s){
     const r=await fetch('/api/queue',{method:'POST',
       headers:{'Content-Type':'application/json','X-Token':CFG.token},
       body:JSON.stringify({id:s.meta.id,inputs:box?box.value.trim():'',scope:scope})});
-    st.textContent=r.ok?'On your plate. It comes up next time you open Claude in '+queueDest(scope)+'.':'Could not save ('+r.status+').';
+    if(r.ok){const j=await r.json().catch(()=>({}));
+      st.textContent='On your plate. It comes up next time you open Claude in '+(j.dest||queueDest(scope))+'.';}
+    else st.textContent='Could not save ('+r.status+').';
     if(!r.ok)qb.disabled=false;
   }catch(e){st.textContent='Could not reach the dashboard.';qb.disabled=false;}
 }

@@ -14,7 +14,7 @@ Resolve the SOP directory: `$SOP_DIR` if set, else `./sops` if it exists, else `
 
 ## 2. Draft
 
-Use `_template.md` in the SOP directory as the skeleton (fall back to the structure described in /sop-init if it is missing). Write a one-line `deliverable:` naming exactly what the owner receives when it runs; if the SOP researches the web in background runs, declare `research_domains:` (and `research_reads:` for files outside the library); these are honored only on stamped SOPs. Fill in:
+Use `_template.md` in the SOP directory as the skeleton (fall back to the structure described in /sop-init if it is missing). Write a one-line `deliverable:` naming exactly what the owner receives when it runs; if the SOP researches the web in background runs, declare `research_domains:` (and `research_reads:` for files outside the library); these are honored only on stamped SOPs. Set an optional `folder:` (e.g. `~/clients/acme`) when the SOP always runs in one project regardless of where the dashboard is launched. Fill in:
 
 - **id/title/category**: short, recognizable. File goes to `<category>/<id>.md`.
 - **triggers**: the phrases the user actually says when they want this task ("send the invoice", "do the weekly numbers"). Write them how the user talks, not how a manual would.
