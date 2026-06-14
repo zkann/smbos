@@ -195,10 +195,12 @@ def launch_permission(sop_dir):
     cfg = sop_dir / "triggers.json"
     if cfg.exists():
         try:
-            val = str(json.loads(cfg.read_text(encoding="utf-8")).get("launch_permission") or "").lower()
-            if val in LAUNCH_PERMISSION_FLAGS:
-                return val
-        except ValueError:
+            raw = json.loads(cfg.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                val = str(raw.get("launch_permission") or "").lower()
+                if val in LAUNCH_PERMISSION_FLAGS:
+                    return val
+        except (OSError, ValueError):
             pass
     return DEFAULT_LAUNCH_PERMISSION
 
@@ -213,11 +215,16 @@ def remember_folder_trust(folder):
         return
     cfg = Path(CLAUDE_CONFIG)
     try:
+        mode = cfg.stat().st_mode
         data = json.loads(cfg.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return
+    if not isinstance(data, dict):
+        return
     projects = data.get("projects")
-    if not isinstance(projects, dict):
+    if projects is None:
+        projects = data["projects"] = {}
+    elif not isinstance(projects, dict):
         return
     key = str(folder)
     entry = projects.get(key)
@@ -228,7 +235,8 @@ def remember_folder_trust(folder):
     tmp = cfg.with_name(cfg.name + ".smbos-tmp")
     try:
         tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        os.replace(tmp, cfg)
+        os.chmod(tmp, mode)  # the temp file is created with umask; restore the
+        os.replace(tmp, cfg)  # original mode so a 0600 private config stays private
     except OSError:
         try:
             tmp.unlink()

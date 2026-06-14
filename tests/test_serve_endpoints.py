@@ -62,7 +62,8 @@ def test_launch_routing(library, monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(sv, "open_terminal_with_claude",
                         lambda folder, prompt, terminal="terminal", permission="trust":
-                            calls.append((str(folder), prompt)))
+                            calls.append((str(folder), prompt, permission)))
+    (library / "triggers.json").write_text('{"launch_permission": "skip"}')
     proj = tmp_path / "projA"
     proj.mkdir()
     q = library / "queue"
@@ -72,10 +73,11 @@ def test_launch_routing(library, monkeypatch, tmp_path):
     assert sv.launch(library, {"kind": "queue", "file": "a.md"}) == "launched"
     assert calls[-1][0] == str(proj)
     assert "weekly-metrics-report" in calls[-1][1]
+    assert calls[-1][2] == "skip"  # configured posture forwarded to the launcher
 
     monkeypatch.setattr(sv, "LAUNCH_CWD", str(proj))
     assert sv.launch(library, {"kind": "sop", "id": "weekly-metrics-report"}) == "launched"
-    assert calls[-1] == (str(proj), "weekly numbers")  # first trigger phrase
+    assert calls[-1] == (str(proj), "weekly numbers", "skip")  # first trigger phrase + posture
 
     assert sv.launch(library, {"kind": "approved"}) == "launched"
     assert "approved pending actions" in calls[-1][1]
@@ -131,6 +133,8 @@ def test_launch_permission_config(library):
     assert sv.launch_permission(library) == "skip"
     (library / "triggers.json").write_text(json.dumps({"launch_permission": "bogus"}))
     assert sv.launch_permission(library) == "trust"  # unknown value ignored
+    (library / "triggers.json").write_text("[]")  # valid JSON, wrong shape
+    assert sv.launch_permission(library) == "trust"  # falls back, no crash
 
 
 def test_launch_permission_flags_in_command(library, monkeypatch):
@@ -153,9 +157,12 @@ def test_remember_folder_trust(tmp_path, monkeypatch):
     proj.mkdir()
     cfg.write_text(json.dumps({"projects": {}}, indent=2))
     monkeypatch.setattr(sv, "CLAUDE_CONFIG", str(cfg))
+    import os, stat
+    os.chmod(cfg, 0o600)  # a private config must stay private after the trust write
     sv.remember_folder_trust(proj)
     data = json.loads(cfg.read_text())
     assert data["projects"][str(proj.resolve())]["hasTrustDialogAccepted"] is True
+    assert stat.S_IMODE(cfg.stat().st_mode) == 0o600
 
     # preserves sibling keys and is idempotent
     cfg.write_text(json.dumps(
@@ -178,6 +185,14 @@ def test_remember_folder_trust_skips_home_and_bad_config(tmp_path, monkeypatch):
     # a missing/garbage config never raises
     cfg.write_text("not json")
     sv.remember_folder_trust(tmp_path / "whatever")
+    # valid JSON of the wrong shape (a list) is ignored, not crashed on
+    cfg.write_text("[]")
+    sv.remember_folder_trust(tmp_path / "whatever")
+    assert cfg.read_text() == "[]"
+    # a config missing the projects key gets it created so trust persists
+    cfg.write_text(json.dumps({"other": 1}))
+    sv.remember_folder_trust(tmp_path / "whatever")
+    assert str((tmp_path / "whatever").resolve()) in json.loads(cfg.read_text())["projects"]
 
 
 def test_start_run_refuses_unrecorded_changes(library, monkeypatch):
