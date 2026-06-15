@@ -254,13 +254,21 @@ def test_notify_and_lock_helpers(monkeypatch, tmp_path):
     lib.release_run_lock(lock2)
 
 
-import json
-import subprocess
-import sys
-from pathlib import Path
+def test_resolve_claude_path_first_then_fallback(tmp_path, monkeypatch):
+    import run_sop
+    cand = tmp_path / "bin" / "claude"
+    monkeypatch.setattr(run_sop.shutil, "which", lambda n: None)     # not on PATH
+    monkeypatch.setattr(run_sop, "_CLAUDE_CANDIDATES", [str(cand)])  # controlled candidate set
+    assert run_sop.resolve_claude() is None                         # candidate absent -> None
+    cand.parent.mkdir(parents=True)
+    cand.write_text("#!/bin/sh\n")
+    cand.chmod(0o755)
+    assert run_sop.resolve_claude() == str(cand)                    # found via fallback
+    monkeypatch.setattr(run_sop.shutil, "which", lambda n: "/usr/bin/claude")
+    assert run_sop.resolve_claude() == "/usr/bin/claude"           # PATH wins when present
 
-from conftest import SCRIPTS, make_sop
 
-RUNNER = SCRIPTS / "run_sop.py"
-
-
+def test_run_env_includes_claude_dir(tmp_path):
+    import run_sop
+    env = run_sop.run_env(str(tmp_path / "binx" / "claude"))
+    assert str(tmp_path / "binx") in env["PATH"].split(":")
