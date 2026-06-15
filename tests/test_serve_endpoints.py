@@ -344,6 +344,7 @@ def test_settings_writers(library):
 
 def test_digest_schedule_crontab(library, monkeypatch, tmp_path):
     calls = {"written": None}
+    monkeypatch.setattr(sv, "_scheduler_backend", lambda: "crontab")  # force the cron path on any OS
     monkeypatch.setattr(sv, "_read_crontab", lambda: "0 9 * * * something-else\n")
     monkeypatch.setattr(sv, "_write_crontab", lambda text: calls.__setitem__("written", text) or True)
     assert sv.set_digest_schedule(library, 7, 45) is True
@@ -376,6 +377,38 @@ def test_digest_schedule_crontab(library, monkeypatch, tmp_path):
         or str(spaced).replace(" ", "\\ ") in calls["written"]
     monkeypatch.setattr(sv, "_read_crontab", lambda: calls["written"])
     assert sv.digest_schedule(spaced) == {"hour": 6, "minute": 30}
+
+
+def test_digest_schedule_launchd(library, monkeypatch, tmp_path):
+    import plistlib
+    plist_path = tmp_path / "com.smbos.digest.plist"
+    lc_calls = []
+    cron_clears = []
+    monkeypatch.setattr(sv, "_scheduler_backend", lambda: "launchd")
+    monkeypatch.setattr(sv, "_digest_plist_path", lambda: plist_path)
+    monkeypatch.setattr(sv, "_launchctl", lambda *a: lc_calls.append(a) or True)
+    # don't touch real crontab; record that the legacy-cron cleanup is attempted
+    monkeypatch.setattr(sv, "_clear_digest_crontab", lambda d: cron_clears.append(d) or True)
+
+    assert sv.set_digest_schedule(library, 7, 45) is True
+    d = plistlib.loads(plist_path.read_bytes())
+    assert d["Label"] == "com.smbos.digest"
+    assert d["StartCalendarInterval"] == {"Hour": 7, "Minute": 45}
+    assert d["RunAtLoad"] is False
+    assert str(library) in d["ProgramArguments"]            # --sop-dir wired through
+    assert any(a[0] == "load" for a in lc_calls)            # (re)loaded so it's live now
+    # reads back from the plist
+    assert sv.digest_schedule(library) == {"hour": 7, "minute": 45}
+    # bad time rejected before any write
+    with pytest.raises(ValueError):
+        sv.set_digest_schedule(library, 99, 0)
+    # clear removes the plist and unloads, AND best-effort clears legacy cron
+    # (Codex P2: disabling must stop an old cron-scheduled digest too)
+    before = len(cron_clears)
+    assert sv.clear_digest_schedule(library) is True
+    assert not plist_path.exists()
+    assert sv.digest_schedule(library) is None
+    assert len(cron_clears) > before  # disable path attempted the cron cleanup
 
 
 def test_apply_item(library, monkeypatch, tmp_path):
