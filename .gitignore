@@ -8,3 +8,4 @@ __pycache__/
 .dashboard-token
 dashboard-daemon.log
 .dashboard-server.json
+.playwright-mcp/
