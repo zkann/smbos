@@ -4,8 +4,12 @@ __pycache__/
 __pycache__/
 .pytest_cache/
 .gstack/
+.claude/
 .design-audit/
 .dashboard-token
+state.db
+state.db-wal
+state.db-shm
 dashboard-daemon.log
 .dashboard-server.json
 .playwright-mcp/

@@ -1,0 +1,265 @@
+"""SmbOS work-state store: the canonical SQLite record for the live-mirror dashboard.
+
+Additive layer. The existing filesystem flows (runs.jsonl, pending/, queue/, work/,
+active-runs/, the per-SOP flock) stay canonical for the proven run/approve/queue
+machinery and are unchanged. This store holds the NEW work-state the live mirror
+needs: tasks on the owner's plate, run metadata, and classifier verdicts.
+
+One shared module, called directly from any process (run_sop, monitors, triage, the
+importer, the dashboard server). SQLite runs in WAL mode with a busy_timeout so
+concurrent writers from separate processes wait rather than raise "database is
+locked".
+
+Liveness is deliberately NOT stored here. A stored "running" flag would lie when a
+process is hard-killed, since SQLite has no kernel cleanup. The kernel-held flock
+stays the liveness authority; running-vs-stalled is derived from
+smbos_lib.active_runs(). This module records run METADATA (what ran, when, cost,
+result), never "is it running right now".
+
+Stdlib only, Python 3.9+ (the macOS system python that Claude Desktop uses).
+"""
+import sqlite3
+import time
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+
+SCHEMA_VERSION = 1  # bump when CURRENT_SCHEMA changes; migrations key off PRAGMA user_version
+DB_NAME = "state.db"
+BUSY_TIMEOUT_MS = 5000
+
+# Status enums, validated on write so a bad value fails fast instead of silently.
+TASK_STATUSES = {"waiting", "in_flight", "done", "dismissed"}
+VERDICT_LABELS = {"reply_owed", "ack", "reject", "ignore", "advance"}
+SURFACES = {"cc", "api", "cron"}  # where a run was invoked from
+RESULT_VALUES = {"ok", "parked", "error", "refused", "skipped"}  # terminal run results
+
+# Schema as individual statements (not one executescript blob) so _migrate can run them
+# inside a single held transaction. Future migrations MUST add idempotent statements here
+# and bump SCHEMA_VERSION; never use executescript (it force-commits and breaks atomicity).
+SCHEMA_STATEMENTS = (
+    """CREATE TABLE IF NOT EXISTS task (
+        id INTEGER PRIMARY KEY,
+        domain TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        status TEXT NOT NULL,
+        priority INTEGER NOT NULL DEFAULT 0,
+        source_ref TEXT,
+        created_at TEXT NOT NULL,   -- ISO-8601 UTC from _now(); callers must not write local/naive times
+        updated_at TEXT NOT NULL
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_task_status_priority ON task(status, priority DESC, created_at, id)",
+    """CREATE TABLE IF NOT EXISTS run (
+        id INTEGER PRIMARY KEY,
+        sop_id TEXT NOT NULL,
+        content_hash TEXT,
+        task_id INTEGER REFERENCES task(id),
+        surface TEXT NOT NULL,           -- one of SURFACES; validated in start_run()
+        result TEXT,                     -- ok|parked|error|refused|skipped, or NULL while open
+        cost_usd REAL NOT NULL DEFAULT 0,
+        started_at TEXT NOT NULL,        -- ISO-8601 UTC from _now()
+        ended_at TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_run_started ON run(started_at DESC, id DESC)",
+    """CREATE TABLE IF NOT EXISTS verdict (
+        id INTEGER PRIMARY KEY,
+        thread_id TEXT NOT NULL,
+        detector_label TEXT,
+        oracle_label TEXT,
+        reply_owed INTEGER NOT NULL DEFAULT 0,
+        company TEXT,
+        created_at TEXT NOT NULL
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_verdict_thread ON verdict(thread_id)",
+)
+
+
+class StateStoreError(Exception):
+    """Schema/version or validation failure in the work-state store."""
+
+
+def _now():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def db_path(sop_dir):
+    return Path(sop_dir) / DB_NAME
+
+
+def _migrate(conn):
+    """Apply schema migrations atomically, keyed off PRAGMA user_version.
+
+    Concurrency-safe across separate processes. `BEGIN IMMEDIATE` takes the write lock
+    up front so exactly one migrator proceeds; the rest wait (busy_timeout), then see the
+    bumped version and skip. Schema statements and the user_version bump commit as ONE
+    transaction, so a crash can't leave a schema with a stale version, and two processes
+    can't both apply a future data migration. Requires the connection in autocommit mode
+    (isolation_level=None), set in connect().
+
+    Version-gate: if the DB's user_version is NEWER than this code understands, refuse
+    rather than migrate, an old-binary writer (e.g. a cron run_sop from a not-yet-updated
+    venv during a rollout) must not corrupt a DB written by newer code.
+    """
+    ver = conn.execute("PRAGMA user_version").fetchone()[0]
+    if ver == SCHEMA_VERSION:
+        return  # common case: already migrated, take no write lock (no per-call contention)
+    if ver > SCHEMA_VERSION:
+        raise StateStoreError(
+            f"state.db schema is v{ver} but this code understands v{SCHEMA_VERSION}. "
+            "Update SmbOS before writing to this database."
+        )
+    # ver < SCHEMA_VERSION: migrate under a write lock, serialized across processes.
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        ver = conn.execute("PRAGMA user_version").fetchone()[0]  # re-check under the lock
+        if ver < SCHEMA_VERSION:
+            for stmt in SCHEMA_STATEMENTS:
+                conn.execute(stmt)
+            conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+
+
+SETUP_ATTEMPTS = 6  # retries for the transient lock during a concurrent first-creation race
+
+
+def _open(sop_dir):
+    """Open + configure + migrate, with a bounded retry on the transient WAL-setup lock.
+
+    busy_timeout covers normal write contention, but the `journal_mode=WAL` switch during
+    a simultaneous first-creation race can still raise "database is locked" before any
+    transaction exists (the busy handler does not cover the mode switch). That window is
+    microseconds, so a short bounded retry makes concurrent first-creation safe.
+    """
+    last = None
+    for attempt in range(SETUP_ATTEMPTS):
+        conn = sqlite3.connect(str(db_path(sop_dir)))
+        conn.row_factory = sqlite3.Row
+        conn.isolation_level = None  # autocommit; transactions managed explicitly (see _migrate)
+        try:
+            conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA foreign_keys=ON")
+            _migrate(conn)
+            return conn
+        except sqlite3.OperationalError as exc:
+            conn.close()
+            last = exc
+            if "locked" in str(exc).lower() or "busy" in str(exc).lower():
+                time.sleep(0.02 * (attempt + 1))
+                continue
+            raise
+    raise last
+
+
+@contextmanager
+def connect(sop_dir):
+    """Open the store in WAL with a busy_timeout, run migrations, yield the connection.
+
+    Safe to call from any process: WAL allows concurrent readers plus one writer, and
+    busy_timeout makes a second writer wait (up to BUSY_TIMEOUT_MS) instead of raising.
+    Concurrent first-creation is handled by _open's bounded retry.
+    """
+    conn = _open(sop_dir)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def data_version(conn):
+    """SQLite's change counter; increments on commits from OTHER connections.
+
+    The dashboard reader polls this to decide when to push an SSE update. It does NOT
+    change for writes on the SAME connection, so a process that writes must signal its
+    own changes directly rather than rely on this counter.
+    """
+    return conn.execute("PRAGMA data_version").fetchone()[0]
+
+
+# --- writes (called directly from any process) -----------------------------------
+
+def record_task(sop_dir, domain, kind, subject, status="waiting", priority=0, source_ref=None):
+    if status not in TASK_STATUSES:
+        raise StateStoreError(f"invalid task status {status!r}; expected one of {sorted(TASK_STATUSES)}")
+    now = _now()
+    with connect(sop_dir) as conn:
+        cur = conn.execute(
+            "INSERT INTO task(domain,kind,subject,status,priority,source_ref,created_at,updated_at)"
+            " VALUES(?,?,?,?,?,?,?,?)",
+            (domain, kind, subject, status, priority, source_ref, now, now),
+        )
+        conn.commit()
+        return cur.lastrowid
+
+
+def set_task_status(sop_dir, task_id, status):
+    if status not in TASK_STATUSES:
+        raise StateStoreError(f"invalid task status {status!r}; expected one of {sorted(TASK_STATUSES)}")
+    with connect(sop_dir) as conn:
+        conn.execute("UPDATE task SET status=?, updated_at=? WHERE id=?", (status, _now(), task_id))
+        conn.commit()
+
+
+def start_run(sop_dir, sop_id, surface, content_hash=None, task_id=None):
+    """Record that a run began. Returns run id. Liveness is the flock's job, not this row."""
+    if surface not in SURFACES:
+        raise StateStoreError(f"invalid surface {surface!r}; expected one of {sorted(SURFACES)}")
+    with connect(sop_dir) as conn:
+        try:
+            cur = conn.execute(
+                "INSERT INTO run(sop_id,content_hash,task_id,surface,started_at) VALUES(?,?,?,?,?)",
+                (sop_id, content_hash, task_id, surface, _now()),
+            )
+        except sqlite3.IntegrityError as exc:
+            # task_id must reference an existing task (FK enforced). Wrap so callers see
+            # one error type; the importer must insert tasks before the runs that cite them.
+            raise StateStoreError(f"start_run: {exc} (task_id={task_id!r} must reference an existing task)") from exc
+        conn.commit()
+        return cur.lastrowid
+
+
+def finish_run(sop_dir, run_id, result, cost_usd=0.0):
+    if result not in RESULT_VALUES:
+        raise StateStoreError(f"invalid result {result!r}; expected one of {sorted(RESULT_VALUES)}")
+    with connect(sop_dir) as conn:
+        conn.execute(
+            "UPDATE run SET result=?, cost_usd=?, ended_at=? WHERE id=?",
+            (result, cost_usd, _now(), run_id),
+        )
+        conn.commit()
+
+
+def record_verdict(sop_dir, thread_id, detector_label=None, oracle_label=None, reply_owed=False, company=None):
+    if oracle_label is not None and oracle_label not in VERDICT_LABELS:
+        raise StateStoreError(f"invalid oracle_label {oracle_label!r}; expected one of {sorted(VERDICT_LABELS)}")
+    with connect(sop_dir) as conn:
+        cur = conn.execute(
+            "INSERT INTO verdict(thread_id,detector_label,oracle_label,reply_owed,company,created_at)"
+            " VALUES(?,?,?,?,?,?)",
+            (thread_id, detector_label, oracle_label, 1 if reply_owed else 0, company, _now()),
+        )
+        conn.commit()
+        return cur.lastrowid
+
+
+# --- reads (the dashboard reader) -------------------------------------------------
+
+def plate(sop_dir):
+    """The 'on your plate' list: waiting tasks, highest priority first, then oldest first."""
+    with connect(sop_dir) as conn:
+        rows = conn.execute(
+            "SELECT * FROM task WHERE status='waiting' ORDER BY priority DESC, created_at ASC, id ASC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def recent_runs(sop_dir, limit=50):
+    with connect(sop_dir) as conn:
+        rows = conn.execute(
+            "SELECT * FROM run ORDER BY started_at DESC, id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [dict(r) for r in rows]
