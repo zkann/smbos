@@ -60,3 +60,60 @@ def test_digest_not_treated_as_sop(tmp_path):
     names = [p.name for p in iter_sops(d)]
     assert "DIGEST.md" not in names and "real.md" in names
     assert find_sop(d, "DIGEST") is None
+
+
+def test_run_marker_running_then_clear(library):
+    # a real running run holds the SOP lock; the marker without the lock reads as stopped
+    lock = lib.acquire_run_lock(library, "weekly-metrics-report")
+    try:
+        m = lib.mark_run_active(library, "weekly-metrics-report", "prepare", "dashboard")
+        runs = lib.active_runs(library)
+        assert len(runs) == 1
+        assert runs[0]["sop"] == "weekly-metrics-report"
+        assert runs[0]["mode"] == "prepare"
+        assert runs[0]["state"] == "running"  # lock held = a live run
+        lib.clear_run_active(m)
+        assert lib.active_runs(library) == []
+    finally:
+        lib.release_run_lock(lock)
+
+
+def test_run_marker_stalled_when_lock_free(library):
+    # marker present but no run holds the lock (crashed/killed): stopped, not running.
+    # A zombie or reused pid would fool os.kill(0); the released flock does not.
+    import json
+    from datetime import datetime, timezone
+    d = library / "active-runs"
+    d.mkdir(exist_ok=True)
+    (d / "x__2147483646.json").write_text(json.dumps(
+        {"sop": "x", "pid": 2147483646,
+         "started": datetime.now(timezone.utc).isoformat(),
+         "mode": "prepare", "source": "dashboard"}), encoding="utf-8")
+    runs = lib.active_runs(library)
+    assert len(runs) == 1 and runs[0]["state"] == "stalled"
+
+
+def test_run_marker_stalled_when_too_old(library):
+    import json, os
+    from datetime import datetime, timezone, timedelta
+    # age backstop: even with the lock held, a run older than the cutoff is stalled
+    lock = lib.acquire_run_lock(library, "y")
+    try:
+        d = library / "active-runs"
+        d.mkdir(exist_ok=True)
+        old = (datetime.now(timezone.utc) - timedelta(seconds=3000)).isoformat()
+        (d / f"y__{os.getpid()}.json").write_text(json.dumps(
+            {"sop": "y", "pid": os.getpid(), "started": old}), encoding="utf-8")
+        assert lib.active_runs(library)[0]["state"] == "stalled"
+    finally:
+        lib.release_run_lock(lock)
+
+
+def test_mark_run_supersedes_same_sop(library):
+    import json, os
+    d = library / "active-runs"
+    d.mkdir(exist_ok=True)
+    (d / "dup__111.json").write_text(json.dumps({"sop": "dup", "pid": 111, "started": "x"}), encoding="utf-8")
+    lib.mark_run_active(library, "dup")  # prunes prior dup__*.json, writes one for this pid
+    files = list(d.glob("dup__*.json"))
+    assert len(files) == 1 and str(os.getpid()) in files[0].name

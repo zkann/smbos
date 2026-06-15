@@ -65,6 +65,14 @@ def test_unknown_sop(library, fake_claude):
     assert "No SOP" in (r.stderr + r.stdout)
 
 
+def test_run_clears_active_marker(library, fake_claude):
+    from smbos_lib import active_runs
+    r = run(["weekly-metrics-report", "--sop-dir", str(library), "--source", "cron"], fake_claude)
+    assert r.returncode == 0, r.stderr
+    # a graceful run leaves no in-flight marker behind (so it won't read as stalled)
+    assert active_runs(library) == []
+
+
 def test_drifted_sop_refused_free(library, fake_claude, tmp_path):
     from smbos_lib import content_fingerprint, read_runs, set_frontmatter_fields, split_frontmatter
     sop = library / "ops" / "weekly-metrics-report.md"

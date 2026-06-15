@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from humanize import humanize_failure, humanize_source, humanize_spec
 from smbos_lib import RUNTIME_DIRS as NON_SOP_DIRS
-from smbos_lib import SKIP_NAMES, is_drifted, parse_frontmatter, split_frontmatter
+from smbos_lib import SKIP_NAMES, active_runs, is_drifted, parse_frontmatter, split_frontmatter
 from smbos_lib import resolve_sop_dir as lib_resolve_sop_dir
 
 
@@ -156,7 +156,8 @@ def build_html(sop_dir, cfg=None):
                         "schedules": schedules(sop_dir),
                         "failures": recent_failures(sop_dir),
                         "work": work_items(sop_dir),
-                        "queued": collect_queued(sop_dir)}).replace("</", "<\\/")
+                        "queued": collect_queued(sop_dir),
+                        "runs": active_runs(sop_dir)}).replace("</", "<\\/")
     html = html.replace("__SOPS_JSON__", data)
     html = html.replace("__CFG_JSON__", cfg_json)
     html = html.replace("__EXTRA_JSON__", extra)

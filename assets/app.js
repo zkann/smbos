@@ -17,7 +17,7 @@
  */
 const GENERATED="__GENERATED__";
 const CFG=JSON.parse(document.getElementById('cfg').textContent||'{"live":false}');
-let EXTRA={pending:[],costs:null,schedules:{},failures:[],work:[],queued:[]};
+let EXTRA={pending:[],costs:null,schedules:{},failures:[],work:[],queued:[],runs:[]};
 try{EXTRA=Object.assign(EXTRA,JSON.parse(document.getElementById('extra').textContent));}catch(e){/* older generator */}
 const dlg=document.getElementById('dlg');
 
@@ -202,6 +202,32 @@ function renderWork(){
       +(w.project?'<span class="wproj">'+esc(w.project)+'</span>':'')
       +'</div><div class="wstages">'+chips+'</div></div>';
   }).join('');
+}
+// Run-lifecycle: what is running right now, and what started but stopped without
+// finishing (the silent-failure class made visible). Idle/done show nothing.
+function renderRuns(){
+  const runs=EXTRA.runs||[];
+  const el=document.getElementById('runs');
+  if(!runs.length){el.style.display='none';el.innerHTML='';return;}
+  const running=runs.filter(r=>r.state==='running');
+  const stalled=runs.filter(r=>r.state==='stalled');
+  el.style.display='block';
+  let html='<h2>Runs</h2><ul>';
+  html+=running.map(r=>'<li><span class="runlive">running now</span> <b>'+esc(sopTitle(r.sop))+'</b>'
+    +(relTime(r.started)?', started '+esc(relTime(r.started)):'')+'</li>').join('');
+  html+=stalled.map(r=>'<li><span class="runstall">stopped without finishing</span> <b>'+esc(sopTitle(r.sop))+'</b>'
+    +(relTime(r.started)?', started '+esc(relTime(r.started)):'')+'. Check the result, or it may have failed.'
+    +(CFG.live?'<button class="pbtn nob runclr" data-f="'+esc(r.file)+'">Dismiss</button>':'')+'</li>').join('');
+  html+='</ul>';
+  if(stalled.length)html+='<div class="panel-note">A run that stops without finishing leaves nothing in "Waiting for you". If this keeps happening, the run is failing; check it in Claude.</div>';
+  el.innerHTML=html;
+  el.querySelectorAll('.runclr').forEach(b=>{b.onclick=async()=>{
+    b.disabled=true;
+    try{await fetch('/api/clear-run',{method:'POST',headers:{'Content-Type':'application/json','X-Token':CFG.token},body:JSON.stringify({file:b.dataset.f})});
+      b.closest('li').remove();
+      if(!el.querySelectorAll('li').length){el.style.display='none';}
+    }catch(e){b.disabled=false;}
+  };});
 }
 function renderPlate(){
   const items=EXTRA.queued||[];
@@ -651,6 +677,6 @@ function startLiveness(){
   },90000);
 }
 summary();
-renderWaiting();renderAttention();renderWork();renderPlate();renderComing();renderMeter();renderNextAction();
+renderWaiting();renderAttention();renderRuns();renderWork();renderPlate();renderComing();renderMeter();renderNextAction();
 render();
 startLiveness();
