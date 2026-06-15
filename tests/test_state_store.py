@@ -48,6 +48,49 @@ def test_record_task_and_plate_ordering(tmp_path):
     assert subjects == ["high priority", "low priority, older", "low priority, newer"]
 
 
+def test_upsert_idempotent_on_source_ref(tmp_path):
+    a = ss.upsert_task(tmp_path, "ops", "review", "first", priority=1, source_ref="acme-1")
+    b = ss.upsert_task(tmp_path, "ops", "review", "updated", priority=5, source_ref="acme-1")
+    assert a == b  # same (domain, source_ref) -> same row, updated in place
+    rows = ss.plate(tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["subject"] == "updated" and rows[0]["priority"] == 5
+
+
+def test_upsert_null_source_always_inserts(tmp_path):
+    ss.upsert_task(tmp_path, "ops", "review", "ad-hoc")
+    ss.upsert_task(tmp_path, "ops", "review", "ad-hoc")
+    assert len(ss.plate(tmp_path)) == 2  # NULL source_ref is never deduped
+
+
+def test_upsert_same_source_ref_different_domain_are_distinct(tmp_path):
+    ss.upsert_task(tmp_path, "ops", "review", "x", source_ref="s1")
+    ss.upsert_task(tmp_path, "billing", "review", "y", source_ref="s1")
+    assert len(ss.plate(tmp_path)) == 2  # uniqueness is per (domain, source_ref)
+
+
+def test_v1_to_v2_migration_adds_unique_index(tmp_path):
+    # A pre-existing v1 DB (task table, user_version=1, no idx_task_source) must upgrade
+    # to v2 on open: proves the migration machinery upgrades a real older DB, not just fresh.
+    raw = sqlite3.connect(str(ss.db_path(tmp_path)))
+    raw.executescript(
+        "CREATE TABLE task (id INTEGER PRIMARY KEY, domain TEXT NOT NULL, kind TEXT NOT NULL,"
+        " subject TEXT NOT NULL, status TEXT NOT NULL, priority INTEGER NOT NULL DEFAULT 0,"
+        " source_ref TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);"
+        " PRAGMA user_version=1;"
+    )
+    raw.commit()
+    raw.close()
+    with ss.connect(tmp_path) as conn:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        idx = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'").fetchall()}
+    assert "idx_task_source" in idx
+    a = ss.upsert_task(tmp_path, "ops", "review", "x", source_ref="s1")
+    b = ss.upsert_task(tmp_path, "ops", "review", "x2", source_ref="s1")
+    assert a == b  # upsert works on the migrated DB
+
+
 def test_plate_excludes_non_waiting(tmp_path):
     tid = ss.record_task(tmp_path, "ops", "review", "started", status="waiting")
     ss.record_task(tmp_path, "ops", "review", "also waiting")
