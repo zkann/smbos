@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.23.0 (2026-06-15)
+
+- The dashboard footer now has a grouped Settings section. Beyond the launch posture (added in 0.22.0), you can set the monthly automation budget (pairs with the spend meter on Today), which terminal the launch buttons open, and a daily-summary time plus a notify toggle. All persist to triggers.json with the file mode preserved. The daily-summary time installs a scheduled entry on this Mac (the first dashboard feature that touches your crontab; it writes a single tagged line, replaces rather than duplicates, and removing the time removes the line).
+
 ## 0.22.0 (2026-06-14)
 
 - The dashboard footer now has a "When I open Claude for a task" control to set how much a launched session asks before acting: ask before everything, ask before running things (the default), or don't ask and just run it. The riskiest choice carries a plain-words caution, the change saves immediately, and it applies to the next launch. Previously this was only settable from the command line.

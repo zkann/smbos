@@ -224,11 +224,9 @@ def launch_permission(sop_dir):
     return DEFAULT_LAUNCH_PERMISSION
 
 
-def set_launch_permission(sop_dir, value):
-    """Persist the launch posture to triggers.json. Returns the stored value."""
-    value = str(value).lower()
-    if value not in LAUNCH_PERMISSION_FLAGS:
-        raise ValueError("posture must be one of: " + ", ".join(LAUNCH_PERMISSION_FLAGS))
+def save_triggers(sop_dir, mutate):
+    """Read-modify-write triggers.json atomically, preserving its file mode
+    (it can hold the digest Slack webhook). `mutate(data)` edits the dict."""
     cfg = sop_dir / "triggers.json"
     try:
         data = json.loads(cfg.read_text(encoding="utf-8")) if cfg.exists() else {}
@@ -236,14 +234,111 @@ def set_launch_permission(sop_dir, value):
             data = {}
     except (OSError, ValueError):
         data = {}
-    data["launch_permission"] = value
+    mutate(data)
     mode = cfg.stat().st_mode if cfg.exists() else None
     tmp = cfg.with_name(cfg.name + ".smbos-tmp")
     tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
     if mode is not None:
-        os.chmod(tmp, mode)  # triggers.json may hold a webhook URL; keep its mode
+        os.chmod(tmp, mode)
     os.replace(tmp, cfg)
+
+
+def set_launch_permission(sop_dir, value):
+    value = str(value).lower()
+    if value not in LAUNCH_PERMISSION_FLAGS:
+        raise ValueError("posture must be one of: " + ", ".join(LAUNCH_PERMISSION_FLAGS))
+    save_triggers(sop_dir, lambda d: d.__setitem__("launch_permission", value))
     return value
+
+
+def set_budget(sop_dir, amount):
+    try:
+        amt = round(float(amount), 2)
+    except (TypeError, ValueError):
+        raise ValueError("budget must be a number")
+    if amt < 0:
+        raise ValueError("budget cannot be negative")
+    save_triggers(sop_dir, lambda d: d.__setitem__("monthly_budget_usd", amt))
+    return amt
+
+
+def set_terminal(sop_dir, value):
+    value = str(value).lower()
+    if value not in TERMINAL_SCRIPTS:
+        raise ValueError("terminal must be one of: " + ", ".join(TERMINAL_SCRIPTS))
+    save_triggers(sop_dir, lambda d: d.__setitem__("terminal", value))
+    return value
+
+
+def set_digest_notify(sop_dir, on):
+    on = bool(on)
+    def m(d):
+        dg = d.get("digest")
+        d["digest"] = ({**dg} if isinstance(dg, dict) else {})
+        d["digest"]["notify"] = on
+    save_triggers(sop_dir, m)
+    return on
+
+
+# ---- digest schedule via a tagged crontab line (best-effort, idempotent) ----
+DIGEST_CRON_TAG = "# smbos-digest"
+
+
+def _read_crontab():
+    try:
+        r = subprocess.run(["crontab", "-l"], capture_output=True, text=True, timeout=10)
+        return r.stdout if r.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        return None  # crontab unavailable
+
+
+def _write_crontab(text):
+    try:
+        r = subprocess.run(["crontab", "-"], input=text, text=True,
+                           capture_output=True, timeout=10)
+        return r.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def digest_schedule(sop_dir):
+    """Current digest time from the tagged crontab line, or None."""
+    cur = _read_crontab()
+    if not cur:
+        return None
+    for line in cur.splitlines():
+        if DIGEST_CRON_TAG in line:
+            parts = line.split()
+            if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+                return {"hour": int(parts[1]), "minute": int(parts[0])}
+    return None
+
+
+def _crontab_without_digest(cur):
+    return "\n".join(l for l in cur.splitlines() if DIGEST_CRON_TAG not in l)
+
+
+def set_digest_schedule(sop_dir, hour, minute):
+    """Install/replace the daily digest cron line. Returns True on success."""
+    hour, minute = int(hour), int(minute)
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise ValueError("bad time")
+    cur = _read_crontab()
+    if cur is None:
+        return False
+    runner = Path(__file__).resolve().parent / "digest.py"
+    line = (f"{minute} {hour} * * * /usr/bin/env python3 {runner} "
+            f"--sop-dir {sop_dir} >> {sop_dir}/trigger.log 2>&1  {DIGEST_CRON_TAG}")
+    body = _crontab_without_digest(cur).rstrip("\n")
+    new = (body + "\n" if body else "") + line + "\n"
+    return _write_crontab(new)
+
+
+def clear_digest_schedule(sop_dir):
+    cur = _read_crontab()
+    if cur is None:
+        return False
+    return _write_crontab(_crontab_without_digest(cur).rstrip("\n") + "\n")
 
 
 def remember_folder_trust(folder):
@@ -376,12 +471,27 @@ class Handler(BaseHTTPRequestHandler):
         if parse_qs(u.query).get("t", [""])[0] != TOKEN:
             return self._send(403, '{"error":"bad or missing token"}')
         proj = "" if LAUNCH_CWD in (str(Path.home()), str(self.sop_dir)) else Path(LAUNCH_CWD).name
-        html = build_html(self.sop_dir, {"live": True, "token": TOKEN, "project": proj,
-                                         "launch_permission": launch_permission(self.sop_dir)})
+        sched = digest_schedule(self.sop_dir)
+        tj, dg, budget = {}, {}, 0.0
+        try:
+            tj = json.loads((self.sop_dir / "triggers.json").read_text(encoding="utf-8"))
+            if isinstance(tj, dict):
+                dg = tj.get("digest") if isinstance(tj.get("digest"), dict) else {}
+                budget = float(tj.get("monthly_budget_usd") or 0)
+        except (OSError, ValueError, TypeError):
+            pass
+        html = build_html(self.sop_dir, {
+            "live": True, "token": TOKEN, "project": proj,
+            "launch_permission": launch_permission(self.sop_dir),
+            "terminal": preferred_terminal(self.sop_dir),
+            "budget": budget,
+            "digest_notify": bool(dg.get("notify", True)),
+            "digest_time": ("%02d:%02d" % (sched["hour"], sched["minute"])) if sched else "",
+        })
         return self._send(200, html, "text/html")
 
     def do_POST(self):
-        if self.path not in ("/api/suggest", "/api/resolve", "/api/run", "/api/queue", "/api/launch", "/api/launch-permission"):
+        if self.path not in ("/api/suggest", "/api/resolve", "/api/run", "/api/queue", "/api/launch", "/api/launch-permission", "/api/settings"):
             return self._send(404, '{"error":"not found"}')
         if self.headers.get("X-Token") != TOKEN:
             return self._send(403, '{"error":"bad or missing token"}')
@@ -415,6 +525,29 @@ class Handler(BaseHTTPRequestHandler):
                 except ValueError as e:
                     return self._send(400, json.dumps({"error": str(e)}))
                 return self._send(200, json.dumps({"ok": True, "launch_permission": val}))
+            if self.path == "/api/settings":
+                key = str(payload.get("key") or "")
+                val = payload.get("value")
+                try:
+                    if key == "budget":
+                        return self._send(200, json.dumps({"ok": True, "budget": set_budget(self.sop_dir, val)}))
+                    if key == "terminal":
+                        return self._send(200, json.dumps({"ok": True, "terminal": set_terminal(self.sop_dir, val)}))
+                    if key == "digest_notify":
+                        return self._send(200, json.dumps({"ok": True, "digest_notify": set_digest_notify(self.sop_dir, val)}))
+                    if key == "digest_time":
+                        if not val:
+                            ok = clear_digest_schedule(self.sop_dir)
+                            return self._send(200, json.dumps({"ok": ok, "digest_time": ""}))
+                        hh, mm = (int(x) for x in str(val).split(":", 1))
+                        ok = set_digest_schedule(self.sop_dir, hh, mm)
+                        if not ok:
+                            return self._send(200, json.dumps({"ok": False,
+                                "error": "Could not update your schedule (no crontab access on this machine)."}))
+                        return self._send(200, json.dumps({"ok": True, "digest_time": "%02d:%02d" % (hh, mm)}))
+                except (ValueError, TypeError) as e:
+                    return self._send(400, json.dumps({"error": str(e)}))
+                return self._send(400, json.dumps({"error": "unknown setting"}))
             if self.path == "/api/queue":
                 sid, project = queue_run(self.sop_dir, payload.get("id", ""),
                                          inputs=str(payload.get("inputs") or "").strip() or None,
