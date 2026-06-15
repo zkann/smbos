@@ -58,6 +58,12 @@ function mdToHtml(md){
   });
   close();return out;
 }
+// The `## Candidates` json block is machine-readable data that drives the
+// per-item Start buttons; keep it out of the human-rendered body so it never
+// shows as raw JSON. The candidates appear as clickable rows instead.
+function stripCandidatesBlock(body){
+  return body.replace(/\n*##\s+Candidates\b[\s\S]*?```json[\s\S]*?```[ \t]*/i,'\n');
+}
 function section(body,name){
   const re=new RegExp('## '+name+'\\r?\\n([\\s\\S]*?)(?=\\r?\\n## |$)');
   const m=body.match(re);return m?m[1].trim():'';
@@ -136,12 +142,17 @@ function renderWaiting(){
     n.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();n.onclick();}};
     n.onclick=()=>{
     const p=items[+n.dataset.i];
+    const srcSop=sopById(p.meta.sop);
     document.getElementById('dtitle').textContent='Waiting for you: '+(sopTitle(p.meta.sop)||p.path);
     document.getElementById('dbody').innerHTML=
       '<div class="dmeta"><span class="badge pending">pending</span>'
       +'<span class="pill">started by '+esc(p.source_plain||'an automated run')+'</span>'
-      +'<span class="pill">'+esc(relTime(p.meta.created)||p.meta.created||'')+'</span></div>'
-      +mdToHtml(p.body);
+      +'<span class="pill">'+esc(relTime(p.meta.created)||p.meta.created||'')+'</span>'
+      +(srcSop?'<a class="sopref" id="viewsrcsop" tabindex="0" role="link">View the procedure</a>':'')+'</div>'
+      +mdToHtml(stripCandidatesBlock(p.body));
+    const v=document.getElementById('viewsrcsop');
+    if(v){v.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();v.onclick();}};
+          v.onclick=()=>openDetail(srcSop);}
     if(!dlg.open)dlg.showModal();
   };});
   el.querySelectorAll('.pbtn[data-d]').forEach(btn=>{btn.onclick=async()=>{
