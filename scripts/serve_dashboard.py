@@ -237,8 +237,11 @@ def set_launch_permission(sop_dir, value):
     except (OSError, ValueError):
         data = {}
     data["launch_permission"] = value
+    mode = cfg.stat().st_mode if cfg.exists() else None
     tmp = cfg.with_name(cfg.name + ".smbos-tmp")
     tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    if mode is not None:
+        os.chmod(tmp, mode)  # triggers.json may hold a webhook URL; keep its mode
     os.replace(tmp, cfg)
     return value
 

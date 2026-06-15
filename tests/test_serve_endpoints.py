@@ -307,3 +307,11 @@ def test_set_launch_permission_endpoint(library):
     assert data["launch_permission"] == "ask" and data["terminal"] == "iterm"
     with pytest.raises(ValueError):
         sv.set_launch_permission(library, "bogus")
+    # a private triggers.json (it can hold a webhook) stays private after the write
+    import os, stat
+    cfg = library / "triggers.json"
+    cfg.write_text(json.dumps({"launch_permission": "trust", "digest": {"slack_webhook_url": "x"}}))
+    os.chmod(cfg, 0o600)
+    sv.set_launch_permission(library, "skip")
+    assert stat.S_IMODE(cfg.stat().st_mode) == 0o600
+    assert json.loads(cfg.read_text())["digest"]["slack_webhook_url"] == "x"
