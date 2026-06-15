@@ -42,6 +42,20 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: python -m pytest tests/ -q
 
+  # The Svelte SPA (frontend/) has its own toolchain; verify it builds. The Python app's
+  # serving tests use a fixture dist, so they don't need this build.
+  build-spa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+
   gitleaks:
     runs-on: ubuntu-latest
     steps:

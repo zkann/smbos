@@ -14,3 +14,5 @@ dashboard-daemon.log
 .dashboard-server.json
 .playwright-mcp/
 .venv/
+frontend/node_modules/
+frontend/dist/
