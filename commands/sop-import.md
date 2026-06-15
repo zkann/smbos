@@ -18,6 +18,10 @@ So before drafting and before saving, **sweep for what already exists and wire i
 
 When in doubt, the SOP is a thin orchestrator over the canonical corpus, not a second copy of it.
 
+**Make the references reachable at runtime.** Referencing only works if the run can read what it points to:
+- An **interactive** SOP (run in a live session) can read sibling docs and `~/.claude/projects/*/memory/` freely; reference them directly.
+- A **background / prepare-mode** SOP runs in the capability cage, which reads only the SOP library plus the stamped `research_reads`, and denies `~/.claude/**`. So for a caged SOP, add any referenced source doc to `research_reads` (then stamp), and do NOT point it at `~/.claude` memories the cage can't open: either materialize the needed rule into a readable file (e.g. a doc under the library or a `research_reads` path), or mark the SOP `interactive_only` so it never runs caged. A reference the run can't read is the same silent gap as a paraphrase that dropped the rule.
+
 ## Mode 1: Document (file path, URL, or pasted text)
 
 Source can be anything with process knowledge in it: a Notion export, a Google Doc, a checklist, a section of an employee handbook, an old email explaining how something is done.
