@@ -16,6 +16,8 @@ shadcn zinc-dark tokens hand-ported to plain CSS (`assets/style.css` :root), fus
 - Ink: `--foreground #fafafa`, `--muted-fg #a1a1aa`, `--subtle-fg #85858f` (AA-checked at 5.2:1)
 - Primary signal: green `#22c55e` (live dot, current stage, progress, primary buttons with `#052e16` text)
 - Status: draft = amber `#fbbf24`, active = blue `#60a5fa`, trusted = green `#4ade80`, each as soft translucent badges (10-12% tint + 25% border)
+- Badges carry one meaning per color: `pending` (awaiting your approval) is amber like draft; `partial` (a prepared deliverable that came back incomplete) is a quiet neutral chip (`--card-raised` / `--muted-fg`), not amber, because it's a factual caveat rather than an attention state.
+- Risk: red `--red #f87171` is reserved for danger, not status. It marks the lost-connection banner and the "skip approval" permission warning (`.setwarn`). Amber stays caution/draft; red stays "this removes a safeguard." Don't reuse red for a benign state.
 - Secondary surfaces: `--chip-bg #18181b` (chips, tab rail), `--inset #0c0c0f` (sub-panels inside the dialog), `--border-strong #3f3f46` (hover borders, disabled dashes), `--primary-hover #1eb554`.
 - Rules: dark surfaces gain elevation by lightness steps, not shadows; status colors always ship with text labels; zero counts render neutral, never tinted; every text/surface pair stays WCAG AA (verified in the 0.18.0 PR). No hex literals outside `:root`.
 - Monospace (`ui-monospace`) marks the command-center DNA: panel labels (11px uppercase, .14em tracking), figures (counts, dollars), badges stay sans.
@@ -33,6 +35,7 @@ shadcn zinc-dark tokens hand-ported to plain CSS (`assets/style.css` :root), fus
 
 - Buttons: primary = solid `--primary` green with dark text (shadcn recipe); secondary = 1px `--input` outline, transparent. Minimum 30px tall on desktop, 44px on touch (`pointer:coarse`). Focus = 2px `--ring` outline, offset 2px.
 - Disabled run buttons stay fully legible (dashed outline, muted text), never opacity-faded into the background.
+- Form controls (the footer Settings group): native `select`, `input[type=number]`, and `input[type=time]` share one recipe, transparent background, 1px `--input` border, 6px radius, the page system font (selects are explicitly in the `font:inherit` rule so they don't fall back to the browser default). The checkbox keeps native chrome tinted by `accent-color:var(--primary)`. Every control, including `select` and the Settings `<summary>` disclosure, gets the same 2px `--ring` focus outline as buttons, and meets the 44px touch target under `pointer:coarse`. Control sizing lives in style.css, no inline width/display on the rendered elements. Labels are always visible text, never placeholder-as-label.
 - Motion is minimal (120ms border/hover transitions) and fully disabled under `prefers-reduced-motion`.
 
 ## Source structure

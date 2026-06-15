@@ -116,7 +116,7 @@ function renderWaiting(){
   el.innerHTML='<h2>Waiting for you ('+items.length+')</h2><ul>'
     +items.map((p,i)=>'<li><span class="pitem" data-i="'+i+'" tabindex="0" role="button">'+esc(sopTitle(p.meta.sop)||p.path)+'</span>'
       +(p.meta.deliverable?': '+esc(p.meta.deliverable):' prepared work')
-      +(p.meta.partial==='true'?' <span class="badge pending">partial</span>':'')
+      +(p.meta.partial==='true'?' <span class="badge partial">partial</span>':'')
       +', from '+esc(p.source_plain||'an automated run')
       +(relTime(p.meta.created)?', '+relTime(p.meta.created):'')
       +(CFG.live?'<button class="pbtn okb" data-i="'+i+'" data-d="approve">Approve</button>'
@@ -536,7 +536,7 @@ function renderSettings(){
     +'<span class="setdesc'+(cur==='skip'?' setwarn':'')+'" id="permdesc">'+esc(permdesc)+'</span>'
     +'<span class="sstatus" id="permstatus"></span></div>'
     +'<div class="setrow"><label>Monthly automation budget $'
-    +'<input id="budgetin" type="number" min="0" step="1" value="'+esc(String(budget))+'" style="width:80px"></label>'
+    +'<input id="budgetin" type="number" min="0" step="1" value="'+esc(String(budget))+'"></label>'
     +'<span class="setdesc">Caps what background runs may spend against your plan\u2019s allowance. The meter on Today tracks usage against it.</span>'
     +'<span class="sstatus" id="budgetstatus"></span></div>'
     +'<div class="setrow"><label>Open Claude in'

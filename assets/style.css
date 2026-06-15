@@ -24,8 +24,9 @@
   body{margin:0;background:var(--background);color:var(--foreground);
     font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
   ::selection{background:rgba(34,197,94,.3)}
-  button,a,input,textarea{font:inherit}
-  button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
+  button,a,input,select,textarea{font:inherit}
+  button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,
+  textarea:focus-visible,summary:focus-visible,
   [tabindex]:focus-visible,[role=button]:focus-visible{
     outline:2px solid var(--ring);outline-offset:2px}
 
@@ -124,6 +125,8 @@
   .badge.trusted{background:var(--green-soft);color:var(--green);border-color:var(--green-border)}
   .badge.archived{background:var(--archived-bg);color:var(--subtle-fg);border-color:var(--border)}
   .badge.pending{background:var(--amber-soft);color:var(--amber);border-color:var(--amber-border)}
+  /* partial = a factual caveat (prepared work is incomplete), not an attention state; rendered quiet, distinct from amber pending/draft */
+  .badge.partial{background:var(--card-raised);color:var(--muted-fg);border-color:var(--border-strong)}
 
   .card p{margin:8px 0 0;color:var(--muted-fg);font-size:13.5px;min-height:20px}
   .card .stats{margin-top:12px;display:flex;gap:14px;font-size:13px;color:var(--subtle-fg);flex-wrap:wrap}
@@ -196,9 +199,10 @@
   .setrow select,.setrow input[type=number],.setrow input[type=time]{
     margin-left:6px;background:transparent;color:var(--foreground);border:1px solid var(--input);
     border-radius:6px;padding:3px 8px;font-size:13.5px}
+  .setrow input[type=number]{width:80px}
   .setrow .pbtn{margin-left:6px;min-height:24px;padding:2px 8px;font-size:12px}
   .setdesc{display:block;margin-top:3px;color:var(--subtle-fg);font-size:13px}
-  .setdesc.setwarn{color:var(--amber)}
+  .setdesc.setwarn{color:var(--red)}
   footer code{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:1px 6px;font-family:var(--mono)}
 
   @media (prefers-reduced-motion: reduce){
@@ -207,4 +211,8 @@
   }
   @media (pointer:coarse){
     .pbtn,.btn-primary,.tab,.dhead button{min-height:44px}
+    .setrow select,.setrow input[type=number],.setrow input[type=time]{min-height:44px}
+    .setrow label.setinline{display:inline-flex;align-items:center;min-height:44px}
+    .setrow input[type=checkbox]{width:20px;height:20px}
+    details.settings>summary{min-height:44px;padding:11px 0}
   }
