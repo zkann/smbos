@@ -1,0 +1,5 @@
+# Runtime deps for the live-mirror dashboard app (scripts/dashboard_app.py).
+# The legacy stdlib daemon (serve_dashboard.py), the MCP server, run_sop, and all
+# other scripts remain dependency-free and run on the macOS system Python 3.9.
+fastapi>=0.115
+uvicorn>=0.30

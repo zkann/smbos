@@ -7,6 +7,8 @@ import hashlib
 import json
 import os
 import re
+import secrets
+import stat
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -303,3 +305,20 @@ def active_runs(sop_dir):
 def append_run(sop_dir, record):
     with (Path(sop_dir) / "runs.jsonl").open("a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
+
+
+def dashboard_token(sop_dir):
+    """Read the dashboard's shared access token, creating it (0600) on first use.
+
+    Lives in <sop_dir>/.dashboard-token so the local dashboard server can gate its
+    endpoints. Shared by whatever serves the dashboard; the file is gitignored.
+    """
+    path = Path(sop_dir) / ".dashboard-token"
+    if path.exists():
+        token = path.read_text(encoding="utf-8").strip()
+        if token:
+            return token
+    token = secrets.token_urlsafe(32)
+    path.write_text(token, encoding="utf-8")
+    path.chmod(stat.S_IRUSR | stat.S_IWUSR)  # 0600: owner-only
+    return token

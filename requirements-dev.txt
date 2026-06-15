@@ -1,0 +1,3 @@
+-r requirements.txt
+httpx>=0.27   # FastAPI TestClient (test-only)
+pytest>=7
