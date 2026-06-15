@@ -1,186 +1,84 @@
 # PRODUCT.md
 
-Jobs to be done for SmbOS, and the experience they imply. Written fresh: this starts from the small-business owner's day, not from the current dashboard. DESIGN.md describes the system we built; this describes the person we built it for and the ideal we should be aiming at. Where the two disagree, this is the target and DESIGN.md is the current state.
+What SmbOS is, who it serves, and the experience it should become. This started as a fresh-eyes vision and was corrected through a hard premise review; where this and DESIGN.md disagree, this is the target and DESIGN.md is the current state.
 
-## Who this is for
+## What SmbOS is
 
-A small-business owner who is also the business's bottleneck. A solo consultant, a three-person agency, a contractor, a shop owner. They do the billable work and run the company at the same time. They cannot afford an operations hire, so operations live in their head: the invoices to send, the leads to chase, the onboarding steps, the renewals, the weekly report nobody else will write.
+SmbOS turns the recurring work of running a small operation into plain-markdown procedures that Claude can run, and gives you one place to see, manage, and act on them.
 
-Two facts drive everything:
+The dashboard is a single app with two co-equal jobs:
 
-1. **Attention is their scarcest resource.** Every minute spent on a dashboard, decoding a status, or babysitting a task is a minute stolen from the work that pays. A tool that adds management overhead loses, even if it automates real work.
-2. **Their baseline emotion is low-grade "what am I forgetting."** The recurring operational stuff is exactly what slips when they are heads-down on a client. The fear is not a single dropped ball; it is not knowing whether one dropped.
+- **Act.** Run the next thing and see what needs you. Approvals, what is in flight, what is coming up, and a way to launch a run without retyping it.
+- **Manage and understand.** A visual home for your operation: see your procedures organized, edit and harden them, set schedules and reminders, and tune how much each one runs on its own.
 
-So the product is not competing with other software. It is competing with the owner's own overloaded memory and the quiet anxiety that comes with it.
+These are two zones of one app, not two products. You go there to set things up and to do the next thing, the same way you would with any operations tool. An earlier version of this doc treated the dashboard as a pure action surface and hid the procedure library; that was wrong. For the people who actually use this, seeing and managing the procedures is a primary reason to open it, so the library is first-class.
 
-## The core job
+## Who it serves
 
-> "Run my business's recurring operations the way I would, without it all depending on me being available."
+- **Primary user, now: a technical operator** who already runs recurring work through Claude Code and wants a visual console over it instead of re-deriving each task by hand. This person reads and edits markdown comfortably, lives close to the terminal, and wants the tool to make their own operations legible and repeatable. The product earns its place when this person stops doing the work manually and runs it through SmbOS instead.
+- **Eventual market: non-technical small-business owners.** The aspiration is that the same engine, with enough polish and enough push, serves an owner who would never open a terminal. That is the broader-market direction, and it shapes long-term choices, but it is the destination, not today's user. Designing only for that owner risks building for someone we cannot yet watch. Build for the real user first; let the owner version fall out of a tool that already works.
 
-The closest human analogy is hiring a capable operations manager. You show them how things are done here. They watch the calendar and handle the routine. They bring you only what needs your judgment. They ask before doing anything risky. They earn more rope as they prove themselves. They report back so you stay aware without staying involved.
+The mental model that travels well across both: an operations manager you train, who earns more autonomy over time. Internally it is an "operating system for your business"; that phrase is the architecture, not the pitch.
 
-That analogy, "an ops manager you train, who earns autonomy over time," is a sharper north star than "an operating system for your business." An OS is the architecture. An ops manager is the felt relationship, and it tells us how the product should behave: what it shows, when it interrupts, how it asks permission, how it grows.
+## Invocation: dashboard now, push later
 
-## The jobs, decomposed
+The hardest part of any tool like this is getting a task to actually run with less effort than just doing it yourself. Two stages:
 
-Each is stated in the owner's words, with the circumstance that triggers it and what makes them keep or drop the tool.
+- **Now: the dashboard is the launcher.** Until push exists, you start runs from the dashboard, so "run this" has to genuinely execute and return a result, not bounce you back to doing it by hand. If the action zone is a button that dumps you back into manual work, the whole merge fails quietly.
+- **Later: push takes over invocation.** A daily brief and timely nudges surface what needs you so you do not have to remember to open anything. The dashboard becomes the place you land and manage, not the thing you must check.
 
-**1. Delegate the doing.** "Get this done the way I'd do it, without me doing every step." The owner has a way they invoice, onboard, follow up. They want that way preserved and executed, by someone other than them, consistently. The unique promise here is execution, not tracking: the thing actually gets done, in their style. Drop trigger: it does the task generically, not their way.
+## The two zones, concretely
 
-**2. Catch what would slip.** "Make sure nothing falls through the cracks." Renewals, follow-ups, month-end invoicing, the report. The job is vigilance the owner no longer has to supply. Emotionally this is the big one: it converts background dread into "it is handled." Drop trigger: something important slips anyway, or the tool nags about trivia.
+### Act
 
-**3. Protect my attention.** "Tell me the one thing only I can do, and handle the rest." The owner wants to glance, act on the short list that genuinely needs them, and close the tool reassured. The product's success is measured by how *little* lands on the owner, not how much it shows. Drop trigger: it surfaces everything and makes them triage.
+- One plain-language line at the top: what state things are in and whether anything needs you.
+- The things needing you, finite and trending toward empty as more runs are trusted. Each carries a clear action, including run-from-here while the dashboard is still the launcher.
+- What is handling or handled, as calm reassurance. What is coming up, the obligations on the horizon.
+- Moments where a procedure has earned more autonomy and is offered it.
 
-**4. Let me hand off gradually, on my terms.** "Let it do more on its own as I learn to trust it." Nobody gives a new hire the keys on day one. The owner wants to start supervised, then let the tool prepare work for sign-off, then let it run unattended, capability by capability, with themselves holding the dial. Drop trigger: it acts more autonomously than they granted, or it never earns more and stays manual.
+### Manage and understand
 
-**5. Capture how I work, once.** "When I figure something out, remember it so I never re-figure it." The owner solves "how do we handle a refund / a difficult client / a rush order" once. They want that to become reusable without a documentation project. Drop trigger: capturing knowledge is its own chore.
+- The procedure library, first-class: every procedure, organized, searchable, with its status and history legible at a glance.
+- Edit and harden procedures, resolve their personalization slots, see drift.
+- Per-procedure autonomy and schedule settings live here.
+- Global settings: budgets, terminal, the daily brief, notifications.
+- Room to grow: over time this is where non-procedure operating knowledge lives too (coding practices and other reference docs), so the dashboard becomes the operations hub, not only an SOP runner.
 
-**6. Improve as the business changes.** "Update how we do things when things change." Payment terms move to net-15, a new tool replaces an old one, a policy shifts. The procedures should absorb that from a passing comment, not a rewrite. Drop trigger: keeping it current is manual and falls behind reality.
+## The autonomy and trust model
 
-**7. Never embarrass me or cost me.** "Don't let it send something half-baked to a client, overspend, or publish something wrong." The flip side of delegation. One bad autonomous action ends trust permanently. Safety is existential, not a feature. Drop trigger: a single runaway action, or even the credible fear of one.
+Replace an auto-granted status ladder with a dial the operator controls, per procedure:
 
-**8. Reassure me it's worth it and under control.** "Show me the business ran, and that this pays for itself." Not a finance dashboard. A calm confirmation that the recurring operations happened, plus an honest sense of time saved against cost. Drop trigger: the value is invisible, so renewal feels optional.
-
-## The owner's real rhythm
-
-The owner does not experience their business as a library of procedures. They experience it as obligations in time and relationships with state:
-
-- **Daily.** A morning scan (anything on fire, anything I owe today), client work, maybe an invoice or two, an end-of-day glance.
-- **Weekly.** Follow-ups (did they pay, did the lead reply), a weekly report or check-in, planning, recurring marketing.
-- **Monthly.** The invoicing cycle, a financial look, renewal and subscription checks, reporting to a partner or lender.
-- **Event-triggered.** New client signs, onboarding. Project ends, wrap-up plus final invoice plus ask for a review. Lead arrives, qualify and chase. Something breaks, fix it.
-
-In every case the owner thinks in terms of an outcome ("Acme needs to get paid"), a who ("the new client needs onboarding"), and a when ("follow up Thursday"). The procedure is the engine that produces the outcome. It is plumbing. The owner cares about the water.
-
-## The reframe
-
-This is the part the current product gets backwards, and the reason reorganizing panels has not felt like enough.
-
-**Today the dashboard is organized around the system's machinery:** procedures and their run states, six panels named for internal stages. That exposes the engine. The owner has to translate "I need to get paid by Acme" into "find the invoice procedure, check its status, run it." The product asks the owner to think in its ontology.
-
-**The ideal organizes around the owner's work, obligations, and their relationship with the assistant.** The procedure becomes mostly invisible, the engine under a result the owner actually wants. Three principles fall out:
-
-- **Show outcomes, not machinery.** "Acme's invoice is ready to send," not "send-invoice (active) prepared an output." A procedure status is an implementation detail; surface it only in the training area.
-- **Success is how little needs the owner.** The primary surface is an inbox of things needing the owner that should trend toward empty. A short or empty "your move" list is the product working, not the product being idle.
-- **Be a colleague, not a console.** The tone, cadence, and permission model should read like notes from a trusted ops person, never a control panel of automation jobs.
-
-## The ideal experience
-
-### Shape: three surfaces, one relationship
-
-The product already spans more than a dashboard. The ideal uses each surface for what it is best at:
-
-- **Conversation (Claude Code).** Where work gets done, decided, and captured. The owner talks to the assistant: "send Acme's invoice," "what's overdue," "set up the new client," "remember how we just did that." This is the doing surface.
-- **The Brief (the dashboard).** The ambient, glanceable state of operations plus the asynchronous inbox of what needs the owner. This is the staying-aware surface. It does not try to replicate the conversation; it is what the ops manager leaves on your desk.
-- **The proactive push (digest and just-in-time nudges).** How the product stays alive in a heads-down owner's day. A short daily brief, and a timely ping only when something genuinely needs them. Attention-first: the bar for interrupting is high, and most things wait for the next brief.
-
-A "your move" item should be resolvable straight from the Brief for the simple cases (one tap to approve or send), or hand off into a focused conversation for the cases that need discussion.
-
-### The Brief, concretely
-
-It reads like a standing note from a competent colleague, in this order, with each section appearing only when it has something to say:
-
-```
-SmbOS / Tuesday morning
-
-  All clear. I handled 3 things since yesterday, nothing needs you.
-  Acme's invoice goes out tomorrow.
-
-  YOUR MOVE
-  (empty most days; the only part that should ever feel urgent)
-
-  HANDLING / HANDLED
-  ✓ Sent the September invoice to Acme            yesterday
-  ✓ Followed up with 2 leads                       yesterday
-  ⟳ Preparing your weekly report                   ready ~3pm
-
-  ON THE HORIZON
-  Tomorrow   Invoice run (4 clients)
-  Friday     Weekly report
-  Next week  2 client renewals come due
-
-  READY FOR MORE
-  I've prepared the invoice 3 times and you approved each one
-  unchanged. Want me to send it on my own from now on?  [Yes] [Not yet]
-
-  This month: ran 31 tasks, saved you ~6 hours, cost ~$12 of $20.
-```
-
-When something does need the owner, "your move" carries it in plain outcome language with one or two clear actions:
-
-```
-  YOUR MOVE (2)
-  • Acme's invoice ($4,200) is drafted and ready to send.
-       [Send it]   [Change something]   [Not now]
-  • The Bright Co proposal is stuck: it needs the scope you
-    mentioned. [Give it the scope]   [I'll handle this later]
-```
-
-What each zone serves:
-
-- **The one-line state** answers "am I okay" in two seconds. It is the whole product for the owner who only has two seconds.
-- **Your move** is job 3 (protect attention). Finite, plain, actionable, trending empty.
-- **Handling / handled** is jobs 2 and 8 (nothing slips, reassurance). Low visual weight, ambient. The receipts that let the owner relax.
-- **On the horizon** is job 2 again, forward-looking: the obligations in time, the heartbeat of the business, proof nothing is unscheduled.
-- **Ready for more** is job 4 (gradual hand-off): the trust-grant moments, surfaced only when earned.
-- **The value line** is job 8: honest worth against cost, framed as time saved, not just dollars spent.
-
-The procedure library and settings live one layer back. They are the training area, visited occasionally to teach or adjust, not the daily surface.
-
-### The autonomy and trust model, redesigned
-
-The current draft / active / trusted ladder is the right instinct (gradual delegation) wired the wrong way (status the system grants automatically, with autonomy meaning different things in different places). Replace it with a dial the owner controls, per capability:
-
-- **With me.** Runs only when we do it together, live. The default for anything new or sensitive.
-- **Prepare and ask.** The assistant does the prep on its own inside the safety boundary (it can research and draft, it cannot send, publish, or spend), and the result waits for the owner's one-tap approval before anything leaves.
-- **On its own.** The assistant runs it unattended on its schedule or trigger and reports back after. Only for what the owner has blessed.
+- **With me.** Runs only when you do it together, live. The default for anything new or sensitive.
+- **Prepare and ask.** It does the prep on its own inside the safety boundary (it can research and draft, it cannot send, publish, or spend), and the result waits for your one-tap approval before anything leaves.
+- **On its own.** It runs unattended on its schedule or trigger and reports back after. Only for what you have blessed.
 
 Two rules make this trustworthy:
 
-1. **The assistant recommends; the owner grants.** After several clean runs the assistant proposes moving up a level ("I've prepared this three times and you approved each unchanged, want me to send it on my own?"). The owner decides. That moment of granting trust is deliberate, owner-controlled, and reversible at any time. It is the emotional core of job 4, and it should never happen by silent auto-promotion.
-2. **Safety is orthogonal to autonomy.** The capability boundary (what the assistant is allowed to touch at all: never spends without a checkpoint, never emails a client without sign-off, never deletes) is separate from how closely the owner watches. Even "on its own" honors the hard boundaries. Separating "what it can do" from "how much I watch" removes the contradiction in the current model, where a brand-new draft could already be prepared autonomously while the ladder implied only trusted things run alone.
+1. **You grant; the tool earns the recommendation.** After several clean runs it proposes moving up a level; you decide, and you can move it back anytime. That moment of granting trust is deliberate and reversible, never a silent promotion.
+2. **Safety is separate from autonomy.** The capability boundary (never spend, never message a client, never delete without a checkpoint) holds at every autonomy level. "How much it does on its own" and "what it is allowed to touch at all" are different dials.
 
-This directly serves job 7: the owner can grant real autonomy without ever fearing a runaway action, because the dangerous actions are gated independently of the autonomy level.
+The dial lives in the Manage zone; the grant-moments surface in the Act zone.
 
-### Onboarding, reframed
+## Principles
 
-The fastest way to lose this owner is to open with "now configure your procedures." They will not. The library should grow from real work:
+1. **Show outcomes, and let me manage the machinery.** Lead with results and what needs you, and give a first-class place to see and edit the procedures behind them. Do not hide the machinery from someone who wants to manage it.
+2. **The launcher must actually run.** While the dashboard is the way work starts, running from it has to beat doing it by hand.
+3. **Success is how little needs you.** The action surface should trend toward empty as trust grows.
+4. **Safety is separate from autonomy, and never optional.** Hard boundaries hold at every level.
+5. **You grant trust; the tool earns the recommendation.** No silent promotion to autonomy.
+6. **Calm by default.** The tool exists to reduce the sense of things slipping; it must never manufacture anxiety. Plain words, no jargon, the normal state reassuring.
+7. **Capture by doing.** Procedures and setup come from real work, not a configuration project.
 
-- The first time the owner does a real task with the assistant ("help me invoice Acme"), the assistant offers afterward: "Want me to remember how we did this, so I can handle it next time?" A procedure is born from actual work, personalized from the first run.
-- The empty state is an invitation to do one real thing together, not a setup checklist. Onboarding is the first task, not a project.
-- A starter pack can seed ideas, but framed as "examples I can learn if you want them," never as the owner's own library with phantom progress.
+## Build sequence
 
-This serves job 5 (capture by doing) and removes the setup tax that kills adoption.
-
-### Voice and feel
-
-The product's job is to lower anxiety, so it must never manufacture any. Plain outcomes in the owner's language. No internal jargon, no raw errors, no wall of caution color for what is simply the normal starting state. Failures read as what happened plus the one fix. Wins are acknowledged so the owner feels the business is handled. It should sound like a calm, competent colleague writing you a short note, because that is the relationship we are selling.
-
-## Design principles (the distilled rules)
-
-1. **Protect attention.** Measure success by how little reaches the owner. Default to not interrupting.
-2. **Show outcomes, not machinery.** The owner sees results and obligations; the procedure and its status stay backstage.
-3. **Never add anxiety.** Calm by default. The normal state is reassuring, not alarming.
-4. **Safety is separate from autonomy, and never optional.** Hard boundaries hold at every autonomy level.
-5. **The owner grants trust; the assistant earns the recommendation.** No silent auto-promotion to autonomy.
-6. **Capture by doing, not by configuring.** Knowledge and setup come from real work.
-7. **Be a colleague, not a console.** Cadence and tone of a trusted ops manager.
-
-## Where today's product stands against this
-
-Not a re-litigation, just the honest delta, so the gap is explicit:
-
-- The dashboard is organized by the system's stages (six co-equal panels) rather than the owner's outcomes and obligations. Target: an inbox of "your move" plus a calm activity-and-horizon feed, framed in outcomes.
-- Trust is an auto-granted status with inconsistent meaning. Target: an owner-held autonomy dial with safety gated separately, and trust granted on the assistant's recommendation.
-- Onboarding implies setup and can show phantom progress. Target: learn by doing the first real task.
-- The proactive surface (digest, nudges) is treated as an option. Target: it is primary, because a heads-down owner will not habitually open a dashboard.
-- Cost shows as spend. Target: value (time saved) against a calm budget guardrail.
+Go deep on one before wide on all. The first build is a thin vertical slice: one real recurring task that works end to end across both zones, you can run it from the Act zone and edit, schedule, and tune it in the Manage zone, and running it through SmbOS is genuinely better than doing it manually. Once one task clears that bar, replicate the pattern. This keeps the run-loop real before UI is scaled around it.
 
 ## Open decisions
 
-These are genuine forks where I took a position; they are worth confirming before building toward them.
+1. **Editing in-app vs visualize-only.** Do procedures get edited inside the dashboard, or does the dashboard visualize and manage while editing stays in markdown and Claude? Affects how much of an editor the Manage zone needs.
+2. **How soon non-procedure docs.** Is the broader operations-knowledge hub (coding practices and other reference docs) a near-term need or a later expansion? Changes whether this is an SOP tool or a knowledge hub from the start.
+3. **First slice.** Which single recurring task is the thin vertical slice that proves the merged loop.
 
-1. **Primary view: obligation/work-centric, not procedure-centric.** My recommendation, because the owner thinks in outcomes. The cost is a bigger departure from today's library-first dashboard.
-2. **Trust: assistant recommends, owner grants.** My recommendation over auto-promotion, because control is the emotional core of delegation.
-3. **Invest in the proactive surface as primary.** My recommendation, because adoption depends on the product reaching the owner where they already are.
-4. **Positioning: "an ops manager you train" as the felt model,** with "operating system" kept as the architecture story, not the owner-facing pitch.
+## What changed from the first draft
+
+The first version of this doc centered a non-technical small-business owner and an action-only "brief" that hid the procedure library. A premise review corrected the center: the real user today is a technical operator, the dashboard's job is a merge of action and management (with the library first-class), invocation is dashboard-now and push-later, and the non-technical owner is the eventual market rather than the current user. The autonomy and trust model and the calm-by-default principles carried over intact.
