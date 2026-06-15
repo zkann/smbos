@@ -58,17 +58,19 @@ def test_index_serves_spa_with_injected_token(tmp_path):
 
 
 def test_assets_served_after_a_late_build(tmp_path):
-    # app started before the SPA is built: /assets mounts anyway and serves once files appear,
-    # no restart needed (matches the index route re-reading index.html per request)
+    # Codex's scenario: the server started BEFORE the SPA was built (no dist/assets yet).
+    # create_app must not raise, and once a later `npm run build` produces the bundle it is
+    # served with no restart (matches the index route, which re-reads index.html per request).
     dist = tmp_path / "dist"
-    dist.mkdir()  # exists, but no assets/ yet
-    app = dashboard_app.create_app(tmp_path, dist_dir=dist)
+    dist.mkdir()  # no assets/ yet at app construction
+    app = dashboard_app.create_app(tmp_path, dist_dir=dist)  # must not raise (check_dir=False)
+    # ... the build then runs, producing the bundle ...
+    (dist / "assets").mkdir()
+    (dist / "assets" / "index.js").write_text("late", encoding="utf-8")
     with TestClient(app, base_url="http://localhost") as client:
-        assert client.get("/assets/index.js").status_code == 404  # not built yet, no crash
-        (dist / "assets").mkdir()
-        (dist / "assets" / "index.js").write_text("late", encoding="utf-8")
-        late = client.get("/assets/index.js")
-        assert late.status_code == 200 and "late" in late.text  # served without a restart
+        r = client.get("/assets/index.js")
+        assert r.status_code == 200 and "late" in r.text  # served without restarting the app
+        assert client.get("/assets/missing.js").status_code == 404  # missing file -> clean 404
 
 
 def test_index_500_when_no_head_anchor(tmp_path):
