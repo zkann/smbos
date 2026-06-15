@@ -10,6 +10,7 @@ import re
 import secrets
 import stat
 import sys
+import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -324,7 +325,15 @@ def dashboard_token(sop_dir):
     try:
         fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, stat.S_IRUSR | stat.S_IWUSR)
     except FileExistsError:
-        return _read_token(path) or token  # another process won the create race
+        # Another process won the create race. The file exists but is briefly EMPTY until the
+        # winner writes, so poll for the written token rather than minting our own (which would
+        # re-introduce divergent tokens, the exact bug O_EXCL is meant to prevent).
+        for _ in range(100):  # ~1s ceiling; the winner writes within milliseconds
+            existing = _read_token(path)
+            if existing:
+                return existing
+            time.sleep(0.01)
+        return _read_token(path) or token  # winner created but never wrote (e.g. crashed mid-create)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(token)
     return token
