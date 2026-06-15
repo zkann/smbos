@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.24.0 (2026-06-15)
+
+- The live dashboard can run as an always-on background service with a URL that never changes. `serve_dashboard.py <sop-dir> install` registers a macOS LaunchAgent that starts at login, restarts itself if it stops, and auto-restarts when the plugin updates, bound to a fixed port (8765 by default, configurable) with a token persisted 0600. Bookmark the URL once and it keeps working across sessions, reboots, and updates. `url` prints it, `rotate` mints a new token (invalidating the old URL), `uninstall` removes the service. A manual launch reuses the running one (found via the deterministic URL or a recorded actual port) instead of starting a second, and clears its record on clean shutdown. macOS only for the service; the per-session server is unchanged elsewhere.
+
 ## 0.23.0 (2026-06-15)
 
 - The dashboard footer now has a grouped Settings section. Beyond the launch posture (added in 0.22.0), you can set the monthly automation budget (pairs with the spend meter on Today), which terminal the launch buttons open, and a daily-summary time plus a notify toggle. All persist to triggers.json with the file mode preserved. The daily-summary time installs a scheduled entry on this Mac (the first dashboard feature that touches your crontab; it writes a single tagged line, replaces rather than duplicates, and removing the time removes the line).
