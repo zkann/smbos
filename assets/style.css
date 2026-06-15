@@ -209,4 +209,6 @@
   }
   @media (pointer:coarse){
     .pbtn,.btn-primary,.tab,.dhead button{min-height:44px}
+    .setrow select,.setrow input[type=number],.setrow input[type=time]{min-height:44px}
+    .setrow input[type=checkbox]{width:20px;height:20px}
   }
