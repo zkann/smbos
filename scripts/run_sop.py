@@ -100,7 +100,7 @@ def prepare_cmd_flags(settings):
 # both modes; drift between the two safety contracts is a bug class we
 # deliberately closed (eng review issue 4A).
 def build_prompt(mode, args, sop_path, park_clause, inputs_clause, payload_clause,
-                 missing_inputs_clause, deliverable=None):
+                 missing_inputs_clause, deliverable=None, candidates_clause=""):
     shared = (
         "- Follow the SOP exactly; its 'My way' section beats your defaults.\n"
         f"{inputs_clause}{payload_clause}{missing_inputs_clause}"
@@ -116,6 +116,7 @@ def build_prompt(mode, args, sop_path, park_clause, inputs_clause, payload_claus
             "actions are unavailable to you; do not look for workarounds.\n"
             f"- Your ONLY output is the parked artifact. Always {park_clause}. "
             f"The artifact is: {deliverable}.\n"
+            + candidates_clause +
             "- If the honest result is empty (nothing found, nothing to do), park the artifact "
             "saying exactly that and why; an empty result is a result.\n"
             "- If you could not finish (a needed page was unreachable, information was missing), "
@@ -272,9 +273,16 @@ def main():
         + ")")
     if args.prepare:
         deliverable = meta.get("deliverable", "the prepared work, ready to review")
+        candidates_clause = (
+            "- This SOP's deliverable is a SET of items. In the parked file add a section "
+            "`## Candidates` containing a fenced ```json array of objects "
+            '{"title": short label, "url": link or "", "note": one line}, one per item, in '
+            "ranked order, alongside the human-readable summary. This lets the owner act on "
+            "each item with one click.\n"
+            if meta.get("deliverable_kind") == "list" else "")
         prompt = build_prompt("prepare", args, sop_path, park_clause,
                               inputs_clause, payload_clause, missing_inputs_clause,
-                              deliverable=deliverable)
+                              deliverable=deliverable, candidates_clause=candidates_clause)
         settings, stamped = prepare_settings(sop_dir, meta, body)
         scratch_ctx = tempfile.TemporaryDirectory(prefix="smbos-prepare-")
         scratch = scratch_ctx.name

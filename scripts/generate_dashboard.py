@@ -8,6 +8,7 @@ For the interactive live mode, see serve_dashboard.py.
 """
 import json
 import os
+import re
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -40,6 +41,37 @@ def collect(sop_dir):
     return files
 
 
+def parse_candidates(content):
+    """A parked result's `## Candidates` fenced-json block, as a list of
+    {title,url,note}. Empty list if the block is absent or malformed; never raises.
+    Lets a one-to-many SOP expose per-item actions in the dashboard."""
+    m = re.search(r"^##\s+Candidates\s*$.*?```json\s*(.*?)```", content, re.S | re.M)
+    if not m:
+        return []
+    try:
+        data = json.loads(m.group(1))
+    except (ValueError, TypeError):
+        return []
+    out = []
+    if isinstance(data, list):
+        for d in data:
+            if isinstance(d, dict):
+                out.append({"title": str(d.get("title") or d.get("url") or "Item")[:140],
+                            "url": str(d.get("url") or "")[:500],
+                            "note": str(d.get("note") or "")[:300]})
+    return out
+
+
+def sop_next(sop_dir, sop_id):
+    """The first `next:` SOP id declared by sop_id, or None."""
+    if not sop_id:
+        return None
+    for p in sop_dir.rglob(f"{sop_id}.md"):
+        nxt = (parse_frontmatter(p.read_text(encoding="utf-8")).get("next") or "").split(",")[0].strip()
+        return nxt or None
+    return None
+
+
 def collect_pending(sop_dir):
     items = []
     pdir = sop_dir / "pending"
@@ -53,8 +85,13 @@ def collect_pending(sop_dir):
             for line in content[:600].splitlines():
                 if line.startswith("trigger_source:"):
                     src = line.partition(":")[2].strip()
+            # one-to-many: a result with a Candidates block and a downstream SOP
+            # gets per-item actions; everything else renders exactly as before.
+            cands = parse_candidates(content)
+            nxt = sop_next(sop_dir, parse_frontmatter(content).get("sop")) if cands else None
             items.append({"path": p.name, "content": content,
-                          "source_plain": humanize_source(src) if src else "an automated run"})
+                          "source_plain": humanize_source(src) if src else "an automated run",
+                          "candidates": cands, "next": nxt})
     return items
 
 

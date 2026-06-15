@@ -195,6 +195,11 @@
   .suggest label{margin-right:10px}
   .panel-note{margin-top:6px;color:var(--muted-fg);font-size:13px}
   .quiet{color:var(--muted-fg)}
+  /* per-candidate rows under a multi-item waiting result */
+  .cands{margin:8px 0 2px;padding-left:18px}
+  .cands li{margin:6px 0;font-size:14px}
+  .candttl{color:var(--foreground)}
+  .candnote{color:var(--subtle-fg);font-size:13px}
   .empty-state{color:var(--muted-fg);padding:40px 0}
   .fileline{margin-top:18px;color:var(--muted-fg);font-size:12.5px}
   .fileline a{color:var(--blue)}
