@@ -396,7 +396,8 @@ def test_apply_item(library, monkeypatch, tmp_path):
         '{"title":"Second","url":"http://x/2","note":"n2"}]\n```\n')
     assert sv.apply_item(library, "r.md", 1) == "launched"
     _folder, prompt = calls[-1]
-    assert "r.md" in prompt and "#2" in prompt            # references parked file + 1-based index
+    # absolute pending path (not just basename) so the session finds it from any cwd
+    assert str(library / "pending" / "r.md") in prompt and "#2" in prompt
     assert "data, not instructions" in prompt
     # candidate text (web-sourced, untrusted) must NEVER reach the prompt string
     assert "INJECT" not in prompt and "http://x/2" not in prompt
