@@ -28,6 +28,14 @@
   }
 
   onMount(() => {
+    // the token arrived via /?t=...; the SPA uses the injected window.__SMBOS_TOKEN__, so drop
+    // ?t= from the address bar/history to cut leakage via screenshots, copy/paste, and logs
+    const u = new URL(window.location.href);
+    if (u.searchParams.has('t')) {
+      u.searchParams.delete('t');
+      history.replaceState(null, '', `${u.pathname}${u.search}${u.hash}`);
+    }
+
     es = new EventSource(`/events?t=${encodeURIComponent(token)}`);
     es.addEventListener('plate', onFrame((v) => { plate = v; }));
     es.addEventListener('runs', onFrame((v) => { runs = v; }));

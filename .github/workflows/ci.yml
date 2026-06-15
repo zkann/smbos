@@ -46,8 +46,12 @@ jobs:
   # serving tests use a fixture dist, so they don't need this build.
   build-spa:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read   # least-privilege; this job only builds, never writes
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false   # npm scripts don't need git creds in config
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "20"
