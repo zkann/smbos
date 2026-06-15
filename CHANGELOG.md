@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.22.0 (2026-06-14)
+
+- The dashboard footer now has a "When I open Claude for a task" control to set how much a launched session asks before acting: ask before everything, ask before running things (the default), or don't ask and just run it. The riskiest choice carries a plain-words caution, the change saves immediately, and it applies to the next launch. Previously this was only settable from the command line.
+
 ## 0.21.0 (2026-06-14)
 
 - SOPs can declare a canonical `folder:` (e.g. `folder: ~/clients/acme`). Queued tasks and launches for that SOP route there regardless of where the dashboard was opened, instead of inheriting the dashboard's launch folder. Fixes project-pinned SOPs getting tagged for whatever folder happened to be open; an explicit "any folder" queue choice still wins, and SOPs without the field keep the launch-folder behavior.
