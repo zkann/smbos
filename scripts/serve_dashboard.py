@@ -166,6 +166,7 @@ def _plist_xml(sop_dir):
         '<plist version="1.0"><dict>\n'
         '  <key>Label</key><string>{label}</string>\n'
         '  <key>ProgramArguments</key><array>\n{sa}  </array>\n'
+        '  <key>WorkingDirectory</key><string>{wd}</string>\n'
         '  <key>RunAtLoad</key><true/>\n'
         '  <key>KeepAlive</key><true/>\n'
         '  <key>ThrottleInterval</key><integer>5</integer>\n'
@@ -173,7 +174,7 @@ def _plist_xml(sop_dir):
         '  <key>StandardOutPath</key><string>{log}</string>\n'
         '  <key>StandardErrorPath</key><string>{log}</string>\n'
         '</dict></plist>\n'
-    ).format(label=AGENT_LABEL, sa=sa, sw=sw, log=esc(log))
+    ).format(label=AGENT_LABEL, sa=sa, sw=sw, log=esc(log), wd=esc(str(sop_dir)))
 
 
 def install_agent(sop_dir):
@@ -750,8 +751,10 @@ COMMANDS = {"install", "uninstall", "url", "rotate", "stop"}
 
 def serve(sop_dir, daemon=False):
     """Bind the fixed port and serve. daemon=True (launchd) never reuse-exits."""
-    global TOKEN
+    global TOKEN, LAUNCH_CWD
     TOKEN = get_or_create_token(sop_dir)
+    if daemon:
+        LAUNCH_CWD = str(sop_dir)  # launchd has no meaningful cwd; route run-anywhere
     if not daemon:
         running = live_server_url(sop_dir)
         if running:
@@ -788,7 +791,7 @@ def main():
     # pull out flags and a command token from anywhere; the rest is the sop dir
     cmd = next((a for a in args if a in COMMANDS), None)
     positional = [a for a in args if a not in COMMANDS and not a.startswith("--")]
-    sop_dir = Path(positional[0]).expanduser() if positional else resolve_sop_dir()
+    sop_dir = Path(positional[0]).expanduser().resolve() if positional else resolve_sop_dir()
 
     if cmd == "url":
         print(stable_url(sop_dir)); return

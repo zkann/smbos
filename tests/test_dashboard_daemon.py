@@ -85,3 +85,37 @@ def test_clear_own_record_respects_pid(tmp_path):
     rec.write_text(json.dumps({"port": 1, "token": "x", "pid": 999999}))  # someone else's
     sv.clear_own_server_record(tmp_path)
     assert rec.exists()  # left alone
+
+
+def test_plist_has_working_directory_and_resolves(tmp_path):
+    import plistlib
+    d = plistlib.loads(sv._plist_xml(tmp_path).encode())
+    assert d["WorkingDirectory"] == str(tmp_path)  # launchd cwd is sane, not /
+
+
+def test_daemon_serve_routes_run_anywhere(tmp_path, monkeypatch):
+    # in daemon mode LAUNCH_CWD becomes the library so routing is run-anywhere,
+    # regardless of launchd's actual cwd
+    monkeypatch.setattr(sv, "LAUNCH_CWD", "/")  # simulate launchd cwd
+    monkeypatch.setattr(sv, "get_or_create_token", lambda d: "t")
+    # stub the serve loop so we only exercise the setup
+    class FakeSrv:
+        def serve_forever(self): raise KeyboardInterrupt
+    monkeypatch.setattr(sv, "ThreadingHTTPServer", lambda *a, **k: FakeSrv())
+    monkeypatch.setattr(sv, "write_server_record", lambda *a: None)
+    sv.serve(tmp_path, daemon=True)
+    assert sv.LAUNCH_CWD == str(tmp_path)  # not "/"
+
+
+def test_install_resolves_relative_path(tmp_path, monkeypatch):
+    # main() must resolve a relative SOP path before the plist embeds it
+    import os
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "sops").mkdir()
+    written = {}
+    monkeypatch.setattr(sv, "plist_path", lambda: tmp_path / "p.plist")
+    monkeypatch.setattr(sv, "install_agent",
+                        lambda d: written.__setitem__("dir", d) or (True, "loaded"))
+    monkeypatch.setattr(sv.sys, "argv", ["serve_dashboard.py", "sops", "install"])
+    sv.main()
+    assert written["dir"].is_absolute() and written["dir"] == (tmp_path / "sops")
