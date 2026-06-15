@@ -113,3 +113,26 @@ def test_collect_marks_unrecorded_changes(library):
     assert gd.collect(library)[0]["drift"] is True
     html = gd.build_html(library)
     assert '"drift": true' in html
+
+
+def test_parse_candidates_and_collect():
+    from generate_dashboard import parse_candidates
+    c = parse_candidates('intro\n## Candidates\n```json\n[{"title":"A","url":"u","note":"n"}]\n```\nrest')
+    assert len(c) == 1 and c[0]["title"] == "A" and c[0]["url"] == "u"
+    assert parse_candidates("no candidates block") == []
+    assert parse_candidates("## Candidates\n```json\n{bad json]\n```") == []  # malformed -> empty
+
+
+def test_collect_pending_attaches_candidates_and_next(library):
+    from conftest import make_sop
+    from generate_dashboard import collect_pending
+    make_sop(library, id="src", status="active", extra="next: nxt\n")
+    make_sop(library, id="nxt", status="draft")
+    pend = library / "pending"
+    pend.mkdir(exist_ok=True)
+    (pend / "a.md").write_text('---\nsop: src\nstatus: pending\n---\n'
+                               '## Candidates\n```json\n[{"title":"A"}]\n```\n')
+    (pend / "b.md").write_text('---\nsop: src\nstatus: pending\n---\njust prose, no list\n')
+    items = {i["path"]: i for i in collect_pending(library)}
+    assert items["a.md"]["candidates"] and items["a.md"]["next"] == "nxt"
+    assert items["b.md"]["candidates"] == [] and items["b.md"]["next"] is None  # backward compat

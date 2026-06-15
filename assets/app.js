@@ -122,6 +122,12 @@ function renderWaiting(){
       +(CFG.live?'<button class="pbtn okb" data-i="'+i+'" data-d="approve">Approve</button>'
                 +'<button class="pbtn nob" data-i="'+i+'" data-d="discard">Discard</button>'
                 +'<span class="pstatus" data-i="'+i+'"></span>':'')
+      +(CFG.live&&p.candidates&&p.candidates.length&&p.next
+        ? '<ul class="cands">'+p.candidates.map((c,ci)=>'<li><span class="candttl">'+esc(c.title)+'</span>'
+            +(c.note?' <span class="candnote">'+esc(c.note)+'</span>':'')
+            +'<button class="pbtn okb candstart" data-i="'+i+'" data-ci="'+ci+'">Start in Claude</button>'
+            +'<span class="sstatus candst" data-i="'+i+'" data-ci="'+ci+'"></span></li>').join('')+'</ul>'
+        : '')
       +'</li>').join('')
     +'</ul><div class="panel-note">'
     +(CFG.live?'Approve records your decision; the action itself happens in your next Claude session. Discard cancels it.'
@@ -138,7 +144,7 @@ function renderWaiting(){
       +mdToHtml(p.body);
     if(!dlg.open)dlg.showModal();
   };});
-  el.querySelectorAll('.pbtn').forEach(btn=>{btn.onclick=async()=>{
+  el.querySelectorAll('.pbtn[data-d]').forEach(btn=>{btn.onclick=async()=>{
     const p=items[+btn.dataset.i];
     const st=el.querySelector('.pstatus[data-i="'+btn.dataset.i+'"]');
     let reason='';
@@ -169,6 +175,18 @@ function renderWaiting(){
         el.querySelectorAll('.pbtn[data-i="'+btn.dataset.i+'"]').forEach(b=>b.disabled=false);}
     }catch(e){st.textContent='Could not reach the dashboard.';
       el.querySelectorAll('.pbtn[data-i="'+btn.dataset.i+'"]').forEach(b=>b.disabled=false);}
+  };});
+  // per-candidate one-click action: launch the source SOP's next: SOP on this item
+  el.querySelectorAll('.candstart').forEach(b=>{b.onclick=async()=>{
+    const p=items[+b.dataset.i];
+    const st=el.querySelector('.candst[data-i="'+b.dataset.i+'"][data-ci="'+b.dataset.ci+'"]');
+    b.disabled=true;if(st){st.className='sstatus';st.textContent='Opening…';}
+    try{
+      const r=await fetch('/api/apply-item',{method:'POST',headers:{'Content-Type':'application/json','X-Token':CFG.token},
+        body:JSON.stringify({file:p.path,index:+b.dataset.ci})});
+      if(r.ok){if(st)st.textContent='Opened a Claude window for you.';}
+      else{const e=await r.json().catch(()=>({}));if(st){st.className='sstatus err';st.textContent=e.error||('Could not start ('+r.status+').');}b.disabled=false;}
+    }catch(e){if(st){st.className='sstatus err';st.textContent='Could not reach the dashboard.';}b.disabled=false;}
   };});
 }
 function renderAttention(){
