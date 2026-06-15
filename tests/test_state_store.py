@@ -6,6 +6,7 @@ detection (the data_version signal the dashboard reader polls), and concurrent w
 from separate connections (the module's headline property)."""
 import sqlite3
 import threading
+import time
 
 import pytest
 
@@ -132,3 +133,63 @@ def test_concurrent_writers_from_separate_connections(tmp_path):
     assert not errors, f"concurrent writers raised: {errors}"
     with ss.connect(tmp_path) as conn:
         assert conn.execute("SELECT COUNT(*) FROM task").fetchone()[0] == 20
+
+
+def test_busy_timeout_makes_second_writer_wait(tmp_path):
+    # The actual busy_timeout guarantee: a second writer WAITS for a held write lock and
+    # then succeeds, rather than immediately raising "database is locked". With
+    # busy_timeout=0 this would raise, so this test guards the PRAGMA, not just WAL.
+    ss.record_task(tmp_path, "ops", "review", "seed")  # create + migrate first
+    result = {}
+
+    def waiter():
+        try:
+            ss.record_task(tmp_path, "ops", "review", "after-wait")
+            result["ok"] = True
+        except Exception as exc:  # noqa: BLE001
+            result["err"] = exc
+
+    with ss.connect(tmp_path) as holder:
+        holder.execute("BEGIN IMMEDIATE")  # hold the single WAL write lock
+        t = threading.Thread(target=waiter)
+        t.start()
+        time.sleep(0.3)  # waiter is now blocked, waiting on busy_timeout (5s)
+        holder.execute("COMMIT")  # release; waiter should now proceed
+        t.join(timeout=10)
+
+    assert result.get("ok") is True, f"second writer did not wait+succeed: {result.get('err')}"
+    assert any(t_["subject"] == "after-wait" for t_ in ss.plate(tmp_path))
+
+
+def test_start_run_rejects_bogus_task_id(tmp_path):
+    # FK is enforced; a run citing a non-existent task fails fast as StateStoreError
+    # (not a raw sqlite3.IntegrityError), so callers see one error type.
+    with pytest.raises(ss.StateStoreError):
+        ss.start_run(tmp_path, "weekly-report", surface="cc", task_id=99999)
+    # a NULL task_id (unattached run) is allowed
+    assert ss.start_run(tmp_path, "weekly-report", surface="cc") > 0
+
+
+def test_invalid_result_raises(tmp_path):
+    rid = ss.start_run(tmp_path, "weekly-report", surface="cc")
+    with pytest.raises(ss.StateStoreError):
+        ss.finish_run(tmp_path, rid, result="bogus")
+
+
+def test_migration_rollback_is_atomic(tmp_path, monkeypatch):
+    # If a migration fails partway, the whole thing rolls back: no tables, version stays 0.
+    # Locks in the atomic-migration fix (a half-applied schema with a stale version is the
+    # multi-process corruption hazard the version-gate exists to prevent).
+    broken = ss.SCHEMA_STATEMENTS + ("INSERT INTO does_not_exist VALUES (1)",)
+    monkeypatch.setattr(ss, "SCHEMA_STATEMENTS", broken)
+    with pytest.raises(sqlite3.OperationalError):
+        with ss.connect(tmp_path):
+            pass
+    raw = sqlite3.connect(str(ss.db_path(tmp_path)))
+    try:
+        assert raw.execute("PRAGMA user_version").fetchone()[0] == 0
+        tables = {r[0] for r in raw.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    finally:
+        raw.close()
+    assert "task" not in tables  # the earlier CREATEs in the same txn were rolled back

@@ -32,6 +32,7 @@ BUSY_TIMEOUT_MS = 5000
 TASK_STATUSES = {"waiting", "in_flight", "done", "dismissed"}
 VERDICT_LABELS = {"reply_owed", "ack", "reject", "ignore", "advance"}
 SURFACES = {"cc", "api", "cron"}  # where a run was invoked from
+RESULT_VALUES = {"ok", "parked", "error", "refused", "skipped"}  # terminal run results
 
 # Schema as individual statements (not one executescript blob) so _migrate can run them
 # inside a single held transaction. Future migrations MUST add idempotent statements here
@@ -48,7 +49,7 @@ SCHEMA_STATEMENTS = (
         created_at TEXT NOT NULL,   -- ISO-8601 UTC from _now(); callers must not write local/naive times
         updated_at TEXT NOT NULL
     )""",
-    "CREATE INDEX IF NOT EXISTS idx_task_status_priority ON task(status, priority DESC, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_task_status_priority ON task(status, priority DESC, created_at, id)",
     """CREATE TABLE IF NOT EXISTS run (
         id INTEGER PRIMARY KEY,
         sop_id TEXT NOT NULL,
@@ -208,15 +209,22 @@ def start_run(sop_dir, sop_id, surface, content_hash=None, task_id=None):
     if surface not in SURFACES:
         raise StateStoreError(f"invalid surface {surface!r}; expected one of {sorted(SURFACES)}")
     with connect(sop_dir) as conn:
-        cur = conn.execute(
-            "INSERT INTO run(sop_id,content_hash,task_id,surface,started_at) VALUES(?,?,?,?,?)",
-            (sop_id, content_hash, task_id, surface, _now()),
-        )
+        try:
+            cur = conn.execute(
+                "INSERT INTO run(sop_id,content_hash,task_id,surface,started_at) VALUES(?,?,?,?,?)",
+                (sop_id, content_hash, task_id, surface, _now()),
+            )
+        except sqlite3.IntegrityError as exc:
+            # task_id must reference an existing task (FK enforced). Wrap so callers see
+            # one error type; the importer must insert tasks before the runs that cite them.
+            raise StateStoreError(f"start_run: {exc} (task_id={task_id!r} must reference an existing task)") from exc
         conn.commit()
         return cur.lastrowid
 
 
 def finish_run(sop_dir, run_id, result, cost_usd=0.0):
+    if result not in RESULT_VALUES:
+        raise StateStoreError(f"invalid result {result!r}; expected one of {sorted(RESULT_VALUES)}")
     with connect(sop_dir) as conn:
         conn.execute(
             "UPDATE run SET result=?, cost_usd=?, ended_at=? WHERE id=?",
@@ -244,7 +252,7 @@ def plate(sop_dir):
     """The 'on your plate' list: waiting tasks, highest priority first, then oldest first."""
     with connect(sop_dir) as conn:
         rows = conn.execute(
-            "SELECT * FROM task WHERE status='waiting' ORDER BY priority DESC, created_at ASC"
+            "SELECT * FROM task WHERE status='waiting' ORDER BY priority DESC, created_at ASC, id ASC"
         ).fetchall()
         return [dict(r) for r in rows]
 
