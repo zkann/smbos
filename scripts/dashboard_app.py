@@ -34,10 +34,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # allow `python3 scrip
 import smbos_lib as lib
 import state_store as ss
 
+def _positive_env(name, default):
+    """A positive float from env, falling back to `default` for missing/non-numeric/<=0.
+    A non-positive poll or heartbeat would busy-spin the SSE loop and degrade availability."""
+    try:
+        value = float(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return float(default)
+    return value if value > 0 else float(default)
+
+
 DEFAULT_PORT = int(os.environ.get("SMBOS_APP_PORT", "8766"))  # 8765 is the legacy daemon
 LEGACY_PORT = os.environ.get("SMBOS_DASHBOARD_PORT", "8765")  # the legacy daemon's port
-POLL_SECONDS = float(os.environ.get("SMBOS_SSE_POLL", "1.0"))        # data_version poll cadence
-HEARTBEAT_SECONDS = float(os.environ.get("SMBOS_SSE_HEARTBEAT", "10.0"))  # keepalive so the client can detect a dead stream
+POLL_SECONDS = _positive_env("SMBOS_SSE_POLL", "1.0")        # data_version poll cadence
+HEARTBEAT_SECONDS = _positive_env("SMBOS_SSE_HEARTBEAT", "10.0")  # keepalive so the client can detect a dead stream
 
 # During the strangler overlap the legacy dashboard page (served on LEGACY_PORT) may consume
 # this app's stream, which is cross-origin (different port). Allow EXACTLY the legacy loopback

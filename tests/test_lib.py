@@ -1,6 +1,25 @@
+import threading
+
 from conftest import make_sop
 
 import smbos_lib as lib
+
+
+def test_dashboard_token_concurrent_creation_converges(tmp_path):
+    # the create-race fix: many threads racing a fresh dir must all end up with the SAME
+    # token (the winner's), never a fresh one read from the briefly-empty file.
+    results = []
+
+    def grab():
+        results.append(lib.dashboard_token(tmp_path))
+
+    threads = [threading.Thread(target=grab) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(set(results)) == 1  # no divergent tokens
+    assert (tmp_path / ".dashboard-token").read_text(encoding="utf-8").strip() == results[0]
 
 
 def test_iter_sops_skips_runtime_dirs(library):

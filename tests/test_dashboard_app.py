@@ -19,6 +19,17 @@ class _FakeRequest:
         return True
 
 
+def test_positive_env_clamps_non_positive_and_garbage(monkeypatch):
+    # a <=0 or non-numeric poll/heartbeat would busy-spin the SSE loop -> falls back to default
+    for bad in ("0", "-3", "abc", ""):
+        monkeypatch.setenv("X_SSE", bad)
+        assert dashboard_app._positive_env("X_SSE", "1.0") == 1.0
+    monkeypatch.setenv("X_SSE", "0.05")
+    assert dashboard_app._positive_env("X_SSE", "1.0") == 0.05
+    monkeypatch.delenv("X_SSE", raising=False)
+    assert dashboard_app._positive_env("X_SSE", "2.5") == 2.5
+
+
 def test_plate_requires_token(tmp_path):
     app = dashboard_app.create_app(tmp_path)
     with TestClient(app, base_url="http://localhost") as client:
