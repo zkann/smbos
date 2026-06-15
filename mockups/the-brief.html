@@ -293,7 +293,7 @@ function render(){
   h+='<details class="training"'+(expanded?' open':'')+'><summary>How I handle things &middot; tap a task to set how much I do on its own</summary>';
   PROCS.forEach(p=>{
     const cls=p.level==='on-its-own'?'on-its-own':(p.level==='prepare'?'prepare':'');
-    h+='<div class="proc" tabindex="0" role="button" onclick="toggleProc(\''+p.id+'\')">'
+    h+='<div class="proc" tabindex="0" role="button" onclick="toggleProc(\''+p.id+'\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();toggleProc(\''+p.id+'\')}">'
       +'<span class="nm">'+p.name+'</span><span class="lvl '+cls+'">'+LEVELS[p.level].label+'</span></div>';
     if(expanded===p.id) h+=dialHtml(p.level,"setProcLevel('"+p.id+"','LVL')");
   });
