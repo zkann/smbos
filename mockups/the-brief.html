@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SmbOS: The Brief (mockup)</title>
+<link rel="icon" href="data:,">
+<style>
+/* Mockup of the experience proposed in PRODUCT.md. Reuses the DESIGN.md
+   command-center tokens so it reads on-brand. Sample data only. Not wired
+   to anything: actions are simulated to show the idea in motion. */
+:root{
+  color-scheme:dark;
+  --background:#09090b; --card:#0f0f12; --card-raised:#17171b;
+  --foreground:#fafafa; --muted-fg:#a1a1aa; --subtle-fg:#85858f;
+  --border:#27272a; --input:#2b2b30; --ring:#22c55e;
+  --primary:#22c55e; --primary-fg:#052e16; --primary-hover:#1eb554;
+  --green:#4ade80; --green-soft:rgba(34,197,94,.12); --green-border:rgba(34,197,94,.25);
+  --blue:#60a5fa; --blue-soft:rgba(96,165,250,.12); --blue-border:rgba(96,165,250,.25);
+  --amber:#fbbf24; --amber-soft:rgba(251,191,36,.1); --amber-border:rgba(251,191,36,.25);
+  --red:#f87171; --red-soft:rgba(248,113,113,.08); --red-border:rgba(248,113,113,.4);
+  --chip-bg:#18181b; --border-strong:#3f3f46; --radius:12px;
+  --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--background);color:var(--foreground);
+  font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+button{font:inherit;cursor:pointer}
+button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--ring);outline-offset:2px}
+
+/* mockup ribbon */
+.ribbon{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--subtle-fg);background:var(--card);border-bottom:1px solid var(--border);
+  padding:8px 24px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.ribbon .toggle{display:inline-flex;background:var(--chip-bg);border:1px solid var(--border);border-radius:999px;padding:3px}
+.ribbon .toggle button{border:none;background:none;color:var(--muted-fg);font-size:11px;font-family:var(--mono);
+  letter-spacing:.08em;text-transform:uppercase;padding:5px 12px;border-radius:999px}
+.ribbon .toggle button.on{background:var(--card-raised);color:var(--foreground)}
+
+/* the brief, a narrow document, not a wide console */
+.brief{max-width:720px;margin:0 auto;padding:34px 24px 80px}
+.greet{display:flex;align-items:baseline;gap:12px;margin-bottom:18px}
+.greet h1{margin:0;font-size:19px;font-weight:650;letter-spacing:-.01em}
+.greet h1 span{color:var(--subtle-fg);font-weight:400}
+.greet .live{font-size:12px;font-family:var(--mono);color:var(--green);display:inline-flex;align-items:center;gap:6px}
+.greet .live::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--primary);box-shadow:0 0 6px rgba(34,197,94,.9)}
+
+/* the hero: one human sentence */
+.state{font-size:20px;line-height:1.4;font-weight:450;margin:0 0 30px;color:var(--foreground)}
+.state .soft{color:var(--muted-fg)}
+
+.zone{margin-top:26px}
+.zlabel{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:var(--subtle-fg);margin:0 0 12px}
+
+/* YOUR MOVE: the only zone allowed presence */
+.move{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--primary);
+  border-radius:var(--radius);padding:16px 18px;margin-bottom:10px}
+.move.blocked{border-left-color:var(--amber)}
+.move .what{font-size:15.5px;margin:0 0 12px}
+.move .what b{font-weight:600}
+.move .acts{display:flex;gap:8px;flex-wrap:wrap}
+.btn{border:1px solid var(--input);background:transparent;color:var(--foreground);
+  border-radius:8px;padding:7px 14px;font-size:13.5px;font-weight:500;min-height:34px}
+.btn:hover{background:var(--card-raised)}
+.btn.primary{background:var(--primary);color:var(--primary-fg);border-color:transparent;font-weight:600}
+.btn.primary:hover{background:var(--primary-hover)}
+.move .note{margin:10px 0 0;font-size:13px;color:var(--blue)}
+.move.done{border-left-color:var(--green);color:var(--muted-fg)}
+.move.done .what{margin:0}
+.move .resolved{color:var(--green);font-weight:500}
+
+/* calm empty state for YOUR MOVE */
+.allclear{border:1px dashed var(--border);border-radius:var(--radius);padding:16px 18px;color:var(--muted-fg);font-size:14.5px}
+
+/* HANDLING / HANDLED and HORIZON: quiet, ambient */
+.row{display:flex;justify-content:space-between;gap:14px;padding:7px 0;border-top:1px solid var(--border);font-size:14px;color:var(--muted-fg)}
+.row:first-child{border-top:none}
+.row .ic{color:var(--green);margin-right:8px}
+.row .ic.run{color:var(--blue)}
+.row .when{color:var(--subtle-fg);font-size:13px;white-space:nowrap}
+.row .lead{color:var(--subtle-fg);font-family:var(--mono);font-size:12px;text-transform:uppercase;letter-spacing:.08em;min-width:96px;padding-right:12px;display:inline-block}
+
+/* READY FOR MORE: the trust-grant moment */
+.grant{background:var(--green-soft);border:1px solid var(--green-border);border-radius:var(--radius);padding:16px 18px}
+.grant p{margin:0 0 12px;font-size:14.5px}
+.grant .acts{display:flex;gap:8px;flex-wrap:wrap}
+
+/* the autonomy dial */
+.dial{margin-top:14px}
+.dial .seg{display:inline-flex;background:var(--chip-bg);border:1px solid var(--border);border-radius:10px;padding:3px;flex-wrap:wrap}
+.dial .seg button{border:none;background:none;color:var(--muted-fg);font-size:13px;font-weight:500;padding:7px 13px;border-radius:7px}
+.dial .seg button.on{background:var(--card-raised);color:var(--foreground);box-shadow:0 1px 2px rgba(0,0,0,.4)}
+.dial .cap{margin-top:10px;font-size:13.5px;color:var(--muted-fg)}
+.dial .safety{margin-top:8px;font-size:12.5px;color:var(--subtle-fg);display:flex;gap:7px;align-items:flex-start}
+.dial .safety .shield{color:var(--primary)}
+
+/* value footer */
+.value{margin-top:34px;padding-top:16px;border-top:1px solid var(--border);font-size:13.5px;color:var(--subtle-fg)}
+.value b{font-family:var(--mono);color:var(--muted-fg);font-weight:600}
+
+/* training area, tucked away */
+.training{margin-top:22px}
+.training summary{cursor:pointer;font-size:13.5px;color:var(--muted-fg);list-style:revert}
+.training .proc{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--border)}
+.training .proc:first-of-type{border-top:none;margin-top:10px}
+.training .proc .nm{font-size:14px}
+.training .proc .lvl{font-size:12px;font-family:var(--mono);color:var(--subtle-fg);border:1px solid var(--border);border-radius:999px;padding:2px 10px;white-space:nowrap}
+.training .proc .lvl.on-its-own{color:var(--green);border-color:var(--green-border)}
+.training .proc .lvl.prepare{color:var(--blue);border-color:var(--blue-border)}
+.fade{animation:fade .25s ease}
+@keyframes fade{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+<div class="ribbon">
+  <span>Mockup &middot; the proposed experience (PRODUCT.md) &middot; sample data, actions simulated</span>
+  <span class="toggle">
+    <button id="tBusy" class="on" onclick="setDay('busy')">Busy day</button>
+    <button id="tCalm" onclick="setDay('calm')">Calm day</button>
+  </span>
+</div>
+
+<main class="brief" id="brief"></main>
+
+<script>
+const DATA={
+  busy:{
+    state:'<b>1 thing needs you.</b> <span class="soft">I handled 3 things since yesterday, and Acme’s invoice goes out tomorrow.</span>',
+    move:[
+      {id:'m1',kind:'approve',what:'The <b>Acme</b> invoice ($4,200) is drafted and ready to send.',
+       primary:'Send it',secondary:['Change something','Not now']},
+      {id:'m2',kind:'blocked',what:'The <b>Bright Co</b> proposal is stuck: it needs the scope you mentioned on the call.',
+       primary:'Give it the scope',secondary:['I’ll handle this later']}
+    ],
+    handled:[
+      {ic:'✓',lead:'Sent',txt:'September invoice to Northwind',when:'yesterday'},
+      {ic:'✓',lead:'Followed up',txt:'with 2 leads from last week',when:'yesterday'},
+      {ic:'⟳',run:true,lead:'Preparing',txt:'your weekly report',when:'ready ~3pm'}
+    ],
+    horizon:[
+      {when:'Tomorrow',txt:'Invoice run (4 clients)'},
+      {when:'Friday',txt:'Weekly report goes out'},
+      {when:'Next week',txt:'2 client renewals come due'}
+    ],
+    grant:{id:'g1',what:'I’ve prepared the <b>Acme</b> invoice 3 times and you approved each one unchanged. Want me to send it on my own from now on?'},
+    value:'This month: ran <b>31</b> tasks, saved you about <b>6 hours</b>, cost about <b>$12</b> of your <b>$20</b>.'
+  },
+  calm:{
+    state:'<b>All clear.</b> <span class="soft">I handled everything that came up. Nothing needs you right now.</span>',
+    move:[],
+    handled:[
+      {ic:'✓',lead:'Sent',txt:'2 invoices and a payment reminder',when:'today'},
+      {ic:'✓',lead:'Followed up',txt:'with the Bright Co lead',when:'today'},
+      {ic:'✓',lead:'Filed',txt:'the weekly report',when:'this morning'}
+    ],
+    horizon:[
+      {when:'Friday',txt:'Weekly report goes out'},
+      {when:'Next week',txt:'2 client renewals come due'},
+      {when:'Month end',txt:'Invoice run (4 clients)'}
+    ],
+    grant:null,
+    value:'This month: ran <b>31</b> tasks, saved you about <b>6 hours</b>, cost about <b>$12</b> of your <b>$20</b>.'
+  }
+};
+const LEVELS={
+  'with-me':{label:'With me',cap:'Runs only when we do it together, live. Nothing happens on its own.'},
+  'prepare':{label:'Prepare and ask',cap:'I prepare it on my own, then it waits in Your move for your OK before anything goes out.'},
+  'on-its-own':{label:'On its own',cap:'I run it on its schedule and tell you after. It still stops for the safety checks below.'}
+};
+
+let day='busy';
+let state=structuredClone(DATA.busy);
+let granted=false, grantLevel='on-its-own';
+
+function setDay(d){
+  day=d; state=structuredClone(DATA[d]); granted=false; grantLevel='on-its-own';
+  document.getElementById('tBusy').classList.toggle('on',d==='busy');
+  document.getElementById('tCalm').classList.toggle('on',d==='calm');
+  render();
+}
+
+function resolve(id,verb){
+  const it=state.move.find(m=>m.id===id);
+  if(!it)return;
+  it.resolvedAs=verb; render();
+}
+function dismiss(id){ state.move=state.move.filter(m=>m.id!==id); render(); }
+function handoff(id){
+  const it=state.move.find(m=>m.id===id); if(it){it.handoff=true;render();}
+}
+function acceptGrant(){ granted=true; render(); }
+function declineGrant(){ state.grant=null; render(); }
+function setLevel(l){ grantLevel=l; render(); }
+
+function stateLine(){
+  const open=state.move.filter(m=>!m.resolvedAs).length;
+  if(open===0) return '<b>All clear.</b> <span class="soft">Nothing needs you right now. I’ll keep handling the routine and bring you anything that needs a call.</span>';
+  if(open===1 && state.move.length>1) return '<b>1 thing still needs you.</b> <span class="soft">The rest is handled.</span>';
+  return state.state;
+}
+
+function render(){
+  const el=document.getElementById('brief');
+  let h='<div class="greet"><h1>SmbOS <span>/ your operations</span></h1><span class="live">Live</span></div>';
+  h+='<p class="state">'+stateLine()+'</p>';
+
+  // YOUR MOVE
+  h+='<div class="zone"><div class="zlabel">Your move'+(state.move.filter(m=>!m.resolvedAs).length?' ('+state.move.filter(m=>!m.resolvedAs).length+')':'')+'</div>';
+  if(!state.move.length){
+    h+='<div class="allclear">Nothing needs your OK. This is the goal: the better I get, the emptier this stays.</div>';
+  }else{
+    state.move.forEach(m=>{
+      if(m.resolvedAs){
+        const msg=m.resolvedAs==='Send it'?'Sent the Acme invoice. I noted you approved it unchanged.'
+                 :m.resolvedAs==='dismiss'?'Okay, I’ll leave it for now.'
+                 :'Done.';
+        h+='<div class="move done fade"><p class="what"><span class="resolved">✓ '+msg+'</span></p></div>';
+        return;
+      }
+      h+='<div class="move '+(m.kind==='blocked'?'blocked':'')+'"><p class="what">'+m.what+'</p>';
+      if(m.handoff){
+        h+='<p class="note">Opening a focused chat with Claude to sort this out. (In the product, secondary actions hand off to a conversation.)</p>';
+      }
+      h+='<div class="acts">';
+      h+='<button class="btn primary" onclick="resolve(\''+m.id+'\',\''+m.primary+'\')">'+m.primary+'</button>';
+      m.secondary.forEach(s=>{
+        const isDismiss=/not now|later/i.test(s);
+        h+='<button class="btn" onclick="'+(isDismiss?'dismiss(\''+m.id+'\')':'handoff(\''+m.id+'\')')+'">'+s+'</button>';
+      });
+      h+='</div></div>';
+    });
+  }
+  h+='</div>';
+
+  // HANDLING / HANDLED
+  if(state.handled.length){
+    h+='<div class="zone"><div class="zlabel">Handling and handled</div>';
+    state.handled.forEach(r=>{
+      h+='<div class="row"><span><span class="ic'+(r.run?' run':'')+'">'+r.ic+'</span>'
+        +'<span class="lead">'+r.lead+'</span>'+r.txt+'</span><span class="when">'+r.when+'</span></div>';
+    });
+    h+='</div>';
+  }
+
+  // ON THE HORIZON
+  if(state.horizon.length){
+    h+='<div class="zone"><div class="zlabel">On the horizon</div>';
+    state.horizon.forEach(r=>{
+      h+='<div class="row"><span><span class="lead">'+r.when+'</span>'+r.txt+'</span></div>';
+    });
+    h+='</div>';
+  }
+
+  // READY FOR MORE (the trust grant)
+  if(state.grant){
+    h+='<div class="zone"><div class="zlabel">Ready for more</div><div class="grant fade">';
+    if(!granted){
+      h+='<p>'+state.grant.what+'</p><div class="acts">'
+        +'<button class="btn primary" onclick="acceptGrant()">Yes, send it on your own</button>'
+        +'<button class="btn" onclick="declineGrant()">Not yet</button></div>';
+    }else{
+      h+='<p class="resolved" style="font-weight:600;margin-bottom:6px">✓ Done. I’ll handle the Acme invoice on my own from now on.</p>'
+        +'<p style="margin:0;color:var(--muted-fg);font-size:14px">You can change this anytime. Here is the dial:</p>';
+      h+='<div class="dial"><div class="seg">';
+      Object.keys(LEVELS).forEach(k=>{
+        h+='<button class="'+(k===grantLevel?'on':'')+'" onclick="setLevel(\''+k+'\')">'+LEVELS[k].label+'</button>';
+      });
+      h+='</div><div class="cap">'+LEVELS[grantLevel].cap+'</div>'
+        +'<div class="safety"><span class="shield">◉</span><span>Whatever the setting, I never send to a client, spend money, or delete anything without checking with you first. Autonomy and safety are separate dials.</span></div></div>';
+    }
+    h+='</div></div>';
+  }
+
+  // VALUE
+  h+='<div class="value">'+state.value+'</div>';
+
+  // TRAINING AREA (tucked away)
+  h+='<details class="training"><summary>How I handle things ('+(day==='busy'?'8':'8')+' procedures)</summary>'
+    +'<div class="proc"><span class="nm">Send an invoice</span><span class="lvl '+(granted?'on-its-own':'prepare')+'">'+(granted?'On its own':'Prepare and ask')+'</span></div>'
+    +'<div class="proc"><span class="nm">Follow up with a lead</span><span class="lvl prepare">Prepare and ask</span></div>'
+    +'<div class="proc"><span class="nm">Onboard a new client</span><span class="lvl">With me</span></div>'
+    +'<div class="proc"><span class="nm">Weekly metrics report</span><span class="lvl on-its-own">On its own</span></div>'
+    +'<div class="proc"><span class="nm">Ask a customer for a review</span><span class="lvl">With me</span></div>'
+    +'</details>';
+
+  el.innerHTML=h;
+}
+render();
+</script>
+</body>
+</html>
