@@ -1,0 +1,7 @@
+# Runtime deps for the live-mirror dashboard app (scripts/dashboard_app.py).
+# The legacy stdlib daemon (serve_dashboard.py), the MCP server, run_sop, the importer,
+# and smbos_lib remain dependency-free and run on the macOS system Python 3.9.
+# Upper bounds guard against a future breaking minor on a stranger's machine; revisit /
+# add a committed lockfile (pip freeze) when distribution-to-others becomes a goal.
+fastapi>=0.115,<1.0
+uvicorn>=0.30,<1.0

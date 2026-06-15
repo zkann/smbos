@@ -13,3 +13,4 @@ state.db-shm
 dashboard-daemon.log
 .dashboard-server.json
 .playwright-mcp/
+.venv/

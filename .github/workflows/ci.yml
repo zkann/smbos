@@ -25,6 +25,23 @@ jobs:
         run: |
           python -c "import json; json.load(open('.claude-plugin/plugin.json')); json.load(open('.claude-plugin/marketplace.json'))"
 
+  # The dashboard app (scripts/dashboard_app.py) has runtime deps (fastapi/uvicorn) and is
+  # tested under them here. The stdlib `test` job above skips the app tests (importorskip),
+  # so the dependency-free parts stay verified on the macOS system python (3.9).
+  test-app:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 3.9 backs the module's "Python 3.9+" claim (the macOS system python); 3.12 = venv target
+        python-version: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest tests/ -q
+
   gitleaks:
     runs-on: ubuntu-latest
     steps:
