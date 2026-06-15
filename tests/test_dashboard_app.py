@@ -57,6 +57,20 @@ def test_index_serves_spa_with_injected_token(tmp_path):
         assert asset.status_code == 200 and "spa" in asset.text  # bundle served (no secrets)
 
 
+def test_assets_served_after_a_late_build(tmp_path):
+    # app started before the SPA is built: /assets mounts anyway and serves once files appear,
+    # no restart needed (matches the index route re-reading index.html per request)
+    dist = tmp_path / "dist"
+    dist.mkdir()  # exists, but no assets/ yet
+    app = dashboard_app.create_app(tmp_path, dist_dir=dist)
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.get("/assets/index.js").status_code == 404  # not built yet, no crash
+        (dist / "assets").mkdir()
+        (dist / "assets" / "index.js").write_text("late", encoding="utf-8")
+        late = client.get("/assets/index.js")
+        assert late.status_code == 200 and "late" in late.text  # served without a restart
+
+
 def test_index_500_when_no_head_anchor(tmp_path):
     # a built-but-anchorless page must fail loud, not serve a tokenless (blank) dashboard
     dist = tmp_path / "dist"

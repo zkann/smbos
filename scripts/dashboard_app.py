@@ -180,9 +180,9 @@ def create_app(sop_dir, dist_dir=None):
                         headers={"Referrer-Policy": "no-referrer", "Cache-Control": "no-store"})
 
     # The SPA's hashed JS/CSS bundle (no secrets; the token lives only in the injected HTML).
-    assets_dir = dist_dir / "assets"
-    if assets_dir.is_dir():
-        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+    # Mount unconditionally with check_dir=False so a build that happens AFTER the server starts
+    # is served without a restart, matching the index route, which re-reads index.html per request.
+    app.mount("/assets", StaticFiles(directory=str(dist_dir / "assets"), check_dir=False), name="assets")
 
     return app
 
