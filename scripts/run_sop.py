@@ -313,8 +313,8 @@ def main():
         is_error = proc.returncode != 0
         summary = (proc.stdout or proc.stderr or "")[:300]
 
+    clear_run_active(marker)  # clear before releasing the lock so a finishing run never reads as stalled
     release_run_lock(lock)
-    clear_run_active(marker)
     parked = pending_file.exists()
     if args.prepare and not parked and not is_error:
         # the artifact IS the contract; producing none is a failure, harness-checked

@@ -63,17 +63,24 @@ def test_digest_not_treated_as_sop(tmp_path):
 
 
 def test_run_marker_running_then_clear(library):
-    m = lib.mark_run_active(library, "weekly-metrics-report", "prepare", "dashboard")
-    runs = lib.active_runs(library)
-    assert len(runs) == 1
-    assert runs[0]["sop"] == "weekly-metrics-report"
-    assert runs[0]["mode"] == "prepare"
-    assert runs[0]["state"] == "running"  # this test process's pid is alive and fresh
-    lib.clear_run_active(m)
-    assert lib.active_runs(library) == []
+    # a real running run holds the SOP lock; the marker without the lock reads as stopped
+    lock = lib.acquire_run_lock(library, "weekly-metrics-report")
+    try:
+        m = lib.mark_run_active(library, "weekly-metrics-report", "prepare", "dashboard")
+        runs = lib.active_runs(library)
+        assert len(runs) == 1
+        assert runs[0]["sop"] == "weekly-metrics-report"
+        assert runs[0]["mode"] == "prepare"
+        assert runs[0]["state"] == "running"  # lock held = a live run
+        lib.clear_run_active(m)
+        assert lib.active_runs(library) == []
+    finally:
+        lib.release_run_lock(lock)
 
 
-def test_run_marker_stalled_when_pid_dead(library):
+def test_run_marker_stalled_when_lock_free(library):
+    # marker present but no run holds the lock (crashed/killed): stopped, not running.
+    # A zombie or reused pid would fool os.kill(0); the released flock does not.
     import json
     from datetime import datetime, timezone
     d = library / "active-runs"
@@ -89,13 +96,17 @@ def test_run_marker_stalled_when_pid_dead(library):
 def test_run_marker_stalled_when_too_old(library):
     import json, os
     from datetime import datetime, timezone, timedelta
-    d = library / "active-runs"
-    d.mkdir(exist_ok=True)
-    old = (datetime.now(timezone.utc) - timedelta(seconds=3000)).isoformat()
-    (d / f"y__{os.getpid()}.json").write_text(json.dumps(
-        {"sop": "y", "pid": os.getpid(), "started": old}), encoding="utf-8")
-    # too old to be a legitimate live run even though the pid is alive
-    assert lib.active_runs(library)[0]["state"] == "stalled"
+    # age backstop: even with the lock held, a run older than the cutoff is stalled
+    lock = lib.acquire_run_lock(library, "y")
+    try:
+        d = library / "active-runs"
+        d.mkdir(exist_ok=True)
+        old = (datetime.now(timezone.utc) - timedelta(seconds=3000)).isoformat()
+        (d / f"y__{os.getpid()}.json").write_text(json.dumps(
+            {"sop": "y", "pid": os.getpid(), "started": old}), encoding="utf-8")
+        assert lib.active_runs(library)[0]["state"] == "stalled"
+    finally:
+        lib.release_run_lock(lock)
 
 
 def test_mark_run_supersedes_same_sop(library):

@@ -225,10 +225,13 @@ def run_lock_held(sop_dir, sop_id):
 # The flock says "a run is live" only while the holder is alive: a crashed or
 # killed run releases its lock, leaving no trace (the silent-failure class).
 # A marker file written at run start and cleared at every graceful exit makes
-# all three states visible: marker + live pid = running; marker + dead pid (or
-# too old to be legitimate) = stopped without finishing; no marker = idle/done.
-# A hard kill leaves the marker behind on purpose, which is how the death shows.
-_RUN_STALE_AFTER_S = 1200  # past the 900s subprocess timeout + overhead; also defeats pid reuse
+# all three states visible. Liveness is judged by the run lock, not the pid:
+# the kernel releases the flock the instant the holder exits, whereas os.kill(0)
+# still succeeds for zombies and reused pids. So: marker + lock held = running;
+# marker + lock free (or too old to be a legitimate live run) = stopped without
+# finishing; no marker = idle/done. A hard kill leaves the marker behind on
+# purpose, releases the lock, and so reads as stopped, which is how the death shows.
+_RUN_STALE_AFTER_S = 1200  # backstop past the 900s subprocess timeout + overhead
 
 
 def _active_dir(sop_dir):
@@ -262,18 +265,6 @@ def clear_run_active(marker):
         pass
 
 
-def _pid_alive(pid):
-    try:
-        os.kill(int(pid), 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True  # exists, owned by another user
-    except (ValueError, TypeError, OverflowError):
-        return False
-
-
 def active_runs(sop_dir):
     """Read-only: in-flight run markers, classified. Returns a list of
     {sop, file, started, mode, source, state} where state is 'running' or
@@ -292,7 +283,9 @@ def active_runs(sop_dir):
             age = (now - datetime.fromisoformat(m.get("started"))).total_seconds()
         except (ValueError, TypeError):
             age = _RUN_STALE_AFTER_S + 1
-        running = age <= _RUN_STALE_AFTER_S and _pid_alive(m.get("pid"))
+        # The held flock is authoritative: it is released the moment the runner
+        # exits, so a zombie / reused pid can't masquerade as running.
+        running = age <= _RUN_STALE_AFTER_S and run_lock_held(sop_dir, m.get("sop", ""))
         out.append({"sop": m.get("sop", p.stem), "file": p.name,
                     "started": m.get("started"), "mode": m.get("mode", ""),
                     "source": m.get("source", ""),
