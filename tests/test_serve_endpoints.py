@@ -342,7 +342,7 @@ def test_settings_writers(library):
     assert stat.S_IMODE(cfg.stat().st_mode) == 0o600
 
 
-def test_digest_schedule_crontab(library, monkeypatch):
+def test_digest_schedule_crontab(library, monkeypatch, tmp_path):
     calls = {"written": None}
     monkeypatch.setattr(sv, "_read_crontab", lambda: "0 9 * * * something-else\n")
     monkeypatch.setattr(sv, "_write_crontab", lambda text: calls.__setitem__("written", text) or True)
@@ -365,3 +365,14 @@ def test_digest_schedule_crontab(library, monkeypatch):
         sv.set_digest_schedule(library, 99, 0)
     monkeypatch.setattr(sv, "_read_crontab", lambda: None)
     assert sv.set_digest_schedule(library, 7, 0) is False
+    # a sop dir with spaces must be shell-quoted in the cron line, and still
+    # parse back (minute/hour lead the line, unaffected by later quoting)
+    spaced = tmp_path / "Business SOPs"
+    spaced.mkdir()
+    monkeypatch.setattr(sv, "_read_crontab", lambda: "")
+    monkeypatch.setattr(sv, "_write_crontab", lambda text: calls.__setitem__("written", text) or True)
+    assert sv.set_digest_schedule(spaced, 6, 30) is True
+    assert "'" + str(spaced) + "'" in calls["written"] or '"' + str(spaced) in calls["written"] \
+        or str(spaced).replace(" ", "\\ ") in calls["written"]
+    monkeypatch.setattr(sv, "_read_crontab", lambda: calls["written"])
+    assert sv.digest_schedule(spaced) == {"hour": 6, "minute": 30}

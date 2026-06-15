@@ -327,8 +327,11 @@ def set_digest_schedule(sop_dir, hour, minute):
     if cur is None:
         return False
     runner = Path(__file__).resolve().parent / "digest.py"
-    line = (f"{minute} {hour} * * * /usr/bin/env python3 {runner} "
-            f"--sop-dir {sop_dir} >> {sop_dir}/trigger.log 2>&1  {DIGEST_CRON_TAG}")
+    rq = shlex.quote(str(runner))
+    sq = shlex.quote(str(sop_dir))
+    logq = shlex.quote(str(Path(sop_dir) / "trigger.log"))
+    line = (f"{minute} {hour} * * * /usr/bin/env python3 {rq} "
+            f"--sop-dir {sq} >> {logq} 2>&1  {DIGEST_CRON_TAG}")
     body = _crontab_without_digest(cur).rstrip("\n")
     new = (body + "\n" if body else "") + line + "\n"
     return _write_crontab(new)
