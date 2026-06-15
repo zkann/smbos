@@ -115,7 +115,7 @@ function renderWaiting(){
   el.className='panel';
   el.innerHTML='<h2>Waiting for you ('+items.length+')</h2><ul>'
     +items.map((p,i)=>'<li><span class="pitem" data-i="'+i+'" tabindex="0" role="button">'+esc(sopTitle(p.meta.sop)||p.path)+'</span>'
-      +(p.meta.deliverable?' — '+esc(p.meta.deliverable):' prepared work')
+      +(p.meta.deliverable?': '+esc(p.meta.deliverable):' prepared work')
       +(p.meta.partial==='true'?' <span class="badge pending">partial</span>':'')
       +', from '+esc(p.source_plain||'an automated run')
       +(relTime(p.meta.created)?', '+relTime(p.meta.created):'')
@@ -502,6 +502,38 @@ function summary(){
   document.getElementById('modeNote').textContent=CFG.live
     ?(CFG.project?' Tasks you put on your plate default to the '+CFG.project+' folder.':' Tasks you put on your plate run in any folder.')
     :' This page is a snapshot; ask Claude for your dashboard to get a fresh one.';
+  renderLaunchPerm();
+}
+const PERM_OPTIONS=[
+  ['ask','Ask me before everything','Claude checks with you before every action.'],
+  ['trust','Ask before running things','Claude applies edits on its own but checks before running commands or fetching the web. The safe default.'],
+  ['skip','Don’t ask, just run it','No prompts at all. Fast, but the only thing watching is you. Best only when you’re sitting with it.']
+];
+function renderLaunchPerm(){
+  const el=document.getElementById('launchperm');
+  if(!el)return;
+  if(!CFG.live){el.innerHTML='';return;}
+  const cur=CFG.launch_permission||'trust';
+  const desc=(PERM_OPTIONS.find(o=>o[0]===cur)||PERM_OPTIONS[1])[2];
+  el.innerHTML='<label class="permlabel">When I open Claude for a task: '
+    +'<select id="permsel">'+PERM_OPTIONS.map(o=>'<option value="'+o[0]+'"'+(o[0]===cur?' selected':'')+'>'+esc(o[1])+'</option>').join('')+'</select></label>'
+    +'<span class="permdesc'+(cur==='skip'?' permwarn':'')+'" id="permdesc">'+esc(desc)+'</span>'
+    +'<span class="sstatus" id="permstatus"></span>';
+  document.getElementById('permsel').onchange=async function(){
+    const v=this.value;const st=document.getElementById('permstatus');
+    st.className='sstatus';st.textContent='Saving…';
+    try{
+      const r=await fetch('/api/launch-permission',{method:'POST',
+        headers:{'Content-Type':'application/json','X-Token':CFG.token},
+        body:JSON.stringify({value:v})});
+      if(r.ok){CFG.launch_permission=v;
+        const d=document.getElementById('permdesc');
+        d.textContent=(PERM_OPTIONS.find(o=>o[0]===v)||PERM_OPTIONS[1])[2];
+        d.className='permdesc'+(v==='skip'?' permwarn':'');
+        st.textContent='Saved. Applies the next time you open Claude from here.';}
+      else{st.className='sstatus err';st.textContent='Could not save.';}
+    }catch(e){st.className='sstatus err';st.textContent='Could not reach the dashboard.';}
+  };
 }
 document.querySelectorAll('.tab').forEach(b=>{b.onclick=()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===b));

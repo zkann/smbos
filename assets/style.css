@@ -187,6 +187,11 @@
     margin:0 4px 4px 0;display:inline-block;font-size:13px;color:var(--muted-fg)}
 
   footer{margin:30px 32px;max-width:1180px;border-top:1px solid var(--border);padding-top:16px;color:var(--subtle-fg);font-size:13.5px}
+  .permlabel{display:inline-block;margin-top:8px;color:var(--muted-fg);font-size:13.5px}
+  #permsel{margin-left:6px;background:transparent;color:var(--foreground);border:1px solid var(--input);
+    border-radius:6px;padding:3px 8px;font-size:13.5px}
+  .permdesc{display:block;margin-top:4px;color:var(--subtle-fg);font-size:13px}
+  .permdesc.permwarn{color:var(--amber)}
   footer code{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:1px 6px;font-family:var(--mono)}
 
   @media (prefers-reduced-motion: reduce){

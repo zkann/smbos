@@ -293,3 +293,25 @@ def test_queue_response_reports_declared_folder(library, monkeypatch, tmp_path):
     assert sid == "client-report" and project == str(proj)
     # the message the owner sees must name the real destination, not the launch folder
     assert Path(project).name == "acme"
+
+
+def test_set_launch_permission_endpoint(library):
+    assert sv.set_launch_permission(library, "skip") == "skip"
+    import json
+    assert json.loads((library / "triggers.json").read_text())["launch_permission"] == "skip"
+    assert sv.launch_permission(library) == "skip"  # round-trips through the reader
+    # switching back, and preserving other keys
+    (library / "triggers.json").write_text(json.dumps({"launch_permission": "skip", "terminal": "iterm"}))
+    sv.set_launch_permission(library, "ask")
+    data = json.loads((library / "triggers.json").read_text())
+    assert data["launch_permission"] == "ask" and data["terminal"] == "iterm"
+    with pytest.raises(ValueError):
+        sv.set_launch_permission(library, "bogus")
+    # a private triggers.json (it can hold a webhook) stays private after the write
+    import os, stat
+    cfg = library / "triggers.json"
+    cfg.write_text(json.dumps({"launch_permission": "trust", "digest": {"slack_webhook_url": "x"}}))
+    os.chmod(cfg, 0o600)
+    sv.set_launch_permission(library, "skip")
+    assert stat.S_IMODE(cfg.stat().st_mode) == 0o600
+    assert json.loads(cfg.read_text())["digest"]["slack_webhook_url"] == "x"

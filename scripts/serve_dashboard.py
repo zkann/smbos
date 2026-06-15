@@ -224,6 +224,28 @@ def launch_permission(sop_dir):
     return DEFAULT_LAUNCH_PERMISSION
 
 
+def set_launch_permission(sop_dir, value):
+    """Persist the launch posture to triggers.json. Returns the stored value."""
+    value = str(value).lower()
+    if value not in LAUNCH_PERMISSION_FLAGS:
+        raise ValueError("posture must be one of: " + ", ".join(LAUNCH_PERMISSION_FLAGS))
+    cfg = sop_dir / "triggers.json"
+    try:
+        data = json.loads(cfg.read_text(encoding="utf-8")) if cfg.exists() else {}
+        if not isinstance(data, dict):
+            data = {}
+    except (OSError, ValueError):
+        data = {}
+    data["launch_permission"] = value
+    mode = cfg.stat().st_mode if cfg.exists() else None
+    tmp = cfg.with_name(cfg.name + ".smbos-tmp")
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    if mode is not None:
+        os.chmod(tmp, mode)  # triggers.json may hold a webhook URL; keep its mode
+    os.replace(tmp, cfg)
+    return value
+
+
 def remember_folder_trust(folder):
     """Persist workspace trust for `folder`, the same record the trust dialog
     writes when you click "trust". Skips home and the filesystem root (too broad
@@ -354,11 +376,12 @@ class Handler(BaseHTTPRequestHandler):
         if parse_qs(u.query).get("t", [""])[0] != TOKEN:
             return self._send(403, '{"error":"bad or missing token"}')
         proj = "" if LAUNCH_CWD in (str(Path.home()), str(self.sop_dir)) else Path(LAUNCH_CWD).name
-        html = build_html(self.sop_dir, {"live": True, "token": TOKEN, "project": proj})
+        html = build_html(self.sop_dir, {"live": True, "token": TOKEN, "project": proj,
+                                         "launch_permission": launch_permission(self.sop_dir)})
         return self._send(200, html, "text/html")
 
     def do_POST(self):
-        if self.path not in ("/api/suggest", "/api/resolve", "/api/run", "/api/queue", "/api/launch"):
+        if self.path not in ("/api/suggest", "/api/resolve", "/api/run", "/api/queue", "/api/launch", "/api/launch-permission"):
             return self._send(404, '{"error":"not found"}')
         if self.headers.get("X-Token") != TOKEN:
             return self._send(403, '{"error":"bad or missing token"}')
@@ -386,6 +409,12 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/api/launch":
                 msg = launch(self.sop_dir, payload)
                 return self._send(200, json.dumps({"ok": True, "did": msg}))
+            if self.path == "/api/launch-permission":
+                try:
+                    val = set_launch_permission(self.sop_dir, payload.get("value", ""))
+                except ValueError as e:
+                    return self._send(400, json.dumps({"error": str(e)}))
+                return self._send(200, json.dumps({"ok": True, "launch_permission": val}))
             if self.path == "/api/queue":
                 sid, project = queue_run(self.sop_dir, payload.get("id", ""),
                                          inputs=str(payload.get("inputs") or "").strip() or None,
