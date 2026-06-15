@@ -222,6 +222,7 @@ def main():
     base = {"ts": now.isoformat(), "sop": args.sop_id, "source": args.source, "model": args.model}
 
     # Gate matrix:                triggered   prepare
+    #   interactive_only          refuse      refuse   (not even --force; see below)
     #   draft status              refuse      SKIP (prep is safe in the cage)
     #   [personalize:] slots      n/a         refuse free
     #   unrecorded changes        refuse      refuse
@@ -229,6 +230,20 @@ def main():
     #   monthly budget            skip        skip
     #   already running (lock)    refuse      refuse
     # --force bypasses all (triggered only); --prepare+--force is an error.
+
+    # interactive_only: the SOP depends on a connector that only exists in a
+    # live session (a claude.ai Gmail/Calendar connector, a browser-auth tool).
+    # This runner is the unattended path, so there is no valid headless run.
+    # Refuse unconditionally, before any other gate, with plain words. --force
+    # cannot help: it overrides policy, not the absence of the connector.
+    _interactive = (frontmatter_field(sop_path, "interactive_only") or "").strip().lower()
+    if _interactive in ("true", "yes", "1"):
+        log_run(sop_dir, {**base, "result": "refused", "cost_usd": 0,
+                          "note": "interactive_only: needs a live session connector, no headless run"})
+        sys.exit(f"Needs you in the session: '{args.sop_id}' uses a connector (like your email "
+                 "or calendar) that only works while you're here, so it can't run on its own. "
+                 "Open it with Claude and say one of its trigger phrases.")
+
     status = frontmatter_field(sop_path, "status") or "draft"
     if status not in ("active", "trusted") and not args.force and not args.prepare:
         log_run(sop_dir, {**base, "result": "refused", "cost_usd": 0,
