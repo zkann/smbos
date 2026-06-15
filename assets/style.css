@@ -200,7 +200,7 @@
   .setrow input[type=number]{width:80px}
   .setrow .pbtn{margin-left:6px;min-height:24px;padding:2px 8px;font-size:12px}
   .setdesc{display:block;margin-top:3px;color:var(--subtle-fg);font-size:13px}
-  .setdesc.setwarn{color:var(--amber)}
+  .setdesc.setwarn{color:var(--red)}
   footer code{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:1px 6px;font-family:var(--mono)}
 
   @media (prefers-reduced-motion: reduce){
