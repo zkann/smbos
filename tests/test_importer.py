@@ -1,5 +1,6 @@
 """Tests for the idempotent work-state importer. Stdlib + pytest; generic example data."""
 import json
+import sqlite3
 
 import pytest
 
@@ -95,3 +96,57 @@ def test_records_without_source_ref_are_not_deduped(tmp_path):
     importer.import_records(tmp_path, "ops", recs)
     importer.import_records(tmp_path, "ops", recs)
     assert len(ss.plate(tmp_path)) == 2  # NULL source_ref always inserts
+
+
+def test_priority_null_defaults_to_zero(tmp_path):
+    # explicit JSON null must NOT drop the row (it defaults to 0)
+    r = importer.import_records(tmp_path, "ops", [{"id": "a", "subject": "x", "priority": None}])
+    assert r["imported"] == 1 and r["errors"] == []
+    assert ss.plate(tmp_path)[0]["priority"] == 0
+
+
+def test_priority_bool_is_rejected(tmp_path):
+    r = importer.import_records(tmp_path, "ops", [{"id": "a", "subject": "x", "priority": True}])
+    assert r["imported"] == 0 and len(r["errors"]) == 1
+
+
+def test_whitespace_only_subject_is_skipped(tmp_path):
+    r = importer.import_records(tmp_path, "ops", [{"id": "a", "subject": "   "}])
+    assert r["imported"] == 0 and len(r["errors"]) == 1
+
+
+def test_empty_source_via_importer_not_deduped(tmp_path):
+    recs = [{"id": "", "subject": "one"}, {"id": "", "subject": "two"}]
+    importer.import_records(tmp_path, "ops", recs)
+    assert len(ss.plate(tmp_path)) == 2  # empty source -> NULL -> not deduped
+
+
+def test_store_error_is_collected_not_raised(tmp_path, monkeypatch):
+    # a transient sqlite error mid-batch must be collected, not escape uncaught (resumable)
+    calls = {"n": 0}
+    real = ss.upsert_task
+
+    def flaky(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise sqlite3.OperationalError("database is locked")
+        return real(*a, **k)
+
+    monkeypatch.setattr(importer.ss, "upsert_task", flaky)
+    recs = [{"id": "1", "subject": "a"}, {"id": "2", "subject": "b"}, {"id": "3", "subject": "c"}]
+    result = importer.import_records(tmp_path, "ops", recs)  # must not raise
+    assert result["imported"] == 2 and len(result["errors"]) == 1
+
+
+def test_cli_missing_file_is_clean(tmp_path, capsys):
+    rc = importer.main(["--sop-dir", str(tmp_path), "--domain", "ops",
+                        "--jsonl", str(tmp_path / "nope.jsonl")])
+    assert rc == 1
+    assert "could not read" in capsys.readouterr().err  # clean message, not a traceback
+
+
+def test_cli_exit_zero_with_per_record_skips(tmp_path):
+    src = tmp_path / "items.jsonl"
+    src.write_text('{"id":"a","subject":"good"}\n{"id":"b"}\n', encoding="utf-8")  # 2nd missing subject
+    rc = importer.main(["--sop-dir", str(tmp_path), "--domain", "ops", "--jsonl", str(src)])
+    assert rc == 0  # imported>0 with expected skips is success, not failure

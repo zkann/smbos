@@ -14,6 +14,7 @@ Stdlib only, Python 3.9+.
 """
 import argparse
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -32,39 +33,56 @@ def map_record(record, domain, source_key="id", kind_default="item"):
     if not isinstance(record, dict):
         raise ValueError("record is not a JSON object")
     subject = record.get("subject")
-    if not subject:
+    if subject is None or not str(subject).strip():
         raise ValueError("record missing non-empty 'subject'")
+    prio = record.get("priority", 0)
+    if isinstance(prio, bool):  # bool is an int subclass; a JSON true/false here is a mistake
+        raise ValueError(f"priority is boolean, not an integer: {prio!r}")
+    if prio is None:  # explicit JSON null defaults to 0 (don't drop the row)
+        prio = 0
     try:
-        priority = int(record.get("priority", 0))
+        priority = int(prio)
     except (TypeError, ValueError):
-        raise ValueError(f"priority is not an integer: {record.get('priority')!r}")
+        raise ValueError(f"priority is not an integer: {prio!r}")
     source = record.get(source_key)
     return {
         "domain": domain,
         "kind": str(record.get("kind", kind_default)),
-        "subject": str(subject),
+        "subject": str(subject).strip(),
         "status": str(record.get("status", "waiting")),
         "priority": priority,
-        "source_ref": None if source is None else str(source),
+        "source_ref": None if source in (None, "") else str(source),  # empty source means no source
     }
 
 
+# Per-record failures (ValueError from mapping, StateStoreError from validation, and
+# sqlite3.Error from a transient store error) are collected and skipped rather than left to
+# abort the batch, so the collect-and-continue / resumable contract holds. Upserts are
+# idempotent, so re-running after a skip is always safe.
 def import_records(sop_dir, domain, records, source_key="id", kind_default="item"):
-    """Upsert an iterable of record dicts as tasks. Returns {'imported': n, 'errors': [...]}."""
+    """Upsert an iterable of record dicts as tasks. Returns {'imported': n, 'errors': [...]}.
+
+    `imported` counts upserts applied, not distinct rows: two records sharing a source_ref
+    in one batch count as 2 but collapse to one row (idempotent).
+    """
     imported, errors = 0, []
     for i, record in enumerate(records):
         try:
             ss.upsert_task(sop_dir, **map_record(record, domain, source_key, kind_default))
             imported += 1
-        except (ValueError, ss.StateStoreError) as exc:
+        except (ValueError, ss.StateStoreError, sqlite3.Error) as exc:
             errors.append(f"record {i}: {exc}")
     return {"imported": imported, "errors": errors}
 
 
 def import_jsonl(sop_dir, domain, path, source_key="id", kind_default="item"):
-    """Import one record per line from a JSONL file. Malformed lines are skipped + reported."""
+    """Import one record per line from a JSONL file. Malformed lines are skipped + reported.
+
+    Opens with errors="replace" so a single non-UTF-8 byte can't kill the whole file.
+    Raises OSError if the file can't be opened, the caller (or the CLI) handles that.
+    """
     imported, errors = 0, []
-    with open(path, encoding="utf-8") as fh:
+    with open(path, encoding="utf-8", errors="replace") as fh:
         for ln, raw in enumerate(fh, start=1):
             raw = raw.strip()
             if not raw:
@@ -77,7 +95,7 @@ def import_jsonl(sop_dir, domain, path, source_key="id", kind_default="item"):
             try:
                 ss.upsert_task(sop_dir, **map_record(record, domain, source_key, kind_default))
                 imported += 1
-            except (ValueError, ss.StateStoreError) as exc:
+            except (ValueError, ss.StateStoreError, sqlite3.Error) as exc:
                 errors.append(f"line {ln}: {exc}")
     return {"imported": imported, "errors": errors}
 
@@ -91,11 +109,17 @@ def main(argv=None):
     ap.add_argument("--kind-default", default="item")
     args = ap.parse_args(argv)
     sop_dir = lib.resolve_sop_dir(args.sop_dir)
-    result = import_jsonl(sop_dir, args.domain, args.jsonl, args.source_key, args.kind_default)
+    try:
+        result = import_jsonl(sop_dir, args.domain, args.jsonl, args.source_key, args.kind_default)
+    except OSError as exc:  # unreadable/missing file: clean message, not a traceback (house rule)
+        print(f"could not read {args.jsonl}: {exc}", file=sys.stderr)
+        return 1
     print(f"imported {result['imported']} task(s) into domain {args.domain!r}")
     for err in result["errors"]:
         print(f"  skipped: {err}", file=sys.stderr)
-    return 0 if not result["errors"] else 1
+    # Per-record skips are expected in a backfill and do NOT signal failure. Only a hard
+    # failure (nothing imported despite having records to process) is a nonzero exit.
+    return 1 if result["imported"] == 0 and result["errors"] else 0
 
 
 if __name__ == "__main__":

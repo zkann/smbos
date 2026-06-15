@@ -91,6 +91,37 @@ def test_v1_to_v2_migration_adds_unique_index(tmp_path):
     assert a == b  # upsert works on the migrated DB
 
 
+def test_v1_to_v2_migration_dedups_existing_duplicates(tmp_path):
+    # The dangerous case: a v1 DB with duplicate (domain, source_ref) rows. v2's unique index
+    # would fail and brick the DB; _apply_migrations must dedup (keep newest id) first.
+    raw = sqlite3.connect(str(ss.db_path(tmp_path)))
+    raw.executescript(
+        "CREATE TABLE task (id INTEGER PRIMARY KEY, domain TEXT NOT NULL, kind TEXT NOT NULL,"
+        " subject TEXT NOT NULL, status TEXT NOT NULL, priority INTEGER NOT NULL DEFAULT 0,"
+        " source_ref TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);"
+        " PRAGMA user_version=1;"
+    )
+    for tid, subj in ((1, "older"), (2, "newer")):
+        raw.execute(
+            "INSERT INTO task(id,domain,kind,subject,status,priority,source_ref,created_at,updated_at)"
+            " VALUES(?,'ops','review',?,'waiting',0,'dup','t','t')", (tid, subj))
+    raw.commit()
+    raw.close()
+    with ss.connect(tmp_path) as conn:  # must NOT raise / brick
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        rows = conn.execute("SELECT subject FROM task WHERE source_ref='dup'").fetchall()
+    assert [r["subject"] for r in rows] == ["newer"]  # MAX(id) survived the dedup
+
+
+def test_empty_source_ref_is_not_deduped(tmp_path):
+    ss.record_task(tmp_path, "ops", "review", "a", source_ref="")
+    ss.record_task(tmp_path, "ops", "review", "b", source_ref="")
+    ss.upsert_task(tmp_path, "ops", "review", "c", source_ref="")
+    rows = ss.plate(tmp_path)
+    assert len(rows) == 3  # "" normalized to NULL, never deduped
+    assert all(r["source_ref"] is None for r in rows)
+
+
 def test_plate_excludes_non_waiting(tmp_path):
     tid = ss.record_task(tmp_path, "ops", "review", "started", status="waiting")
     ss.record_task(tmp_path, "ops", "review", "also waiting")
