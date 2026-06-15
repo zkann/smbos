@@ -134,20 +134,24 @@ def test_events_emits_new_plate_after_db_change(tmp_path, monkeypatch):
 
     async def run():
         gen = dashboard_app.event_stream(tmp_path, _ConnectedFor(20))
-        events = [await gen.__anext__()]            # initial (empty) snapshot
+        events = [await gen.__anext__()]            # initial plate frame
         ss.record_task(tmp_path, "ops", "review", "appeared")  # separate connection commits
+        seen_appeared = False
         try:
             async for e in gen:
                 events.append(e)
                 if "appeared" in e:
-                    break
+                    seen_appeared = True
+                elif seen_appeared and e.startswith("event: runs\n"):
+                    break  # the runs frame paired with the on-change plate frame
         finally:
             await gen.aclose()
         return events
 
     events = asyncio.run(asyncio.wait_for(run(), timeout=5))
     assert events[0].startswith("event: plate")
-    assert any("appeared" in e for e in events[1:])  # change detected across connections
+    assert any("appeared" in e and e.startswith("event: plate\n") for e in events)  # change detected
+    assert events[-1].startswith("event: runs\n")  # on-change emit pushes a runs frame too
 
 
 def test_events_emits_heartbeat(tmp_path, monkeypatch):
