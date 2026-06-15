@@ -20,14 +20,10 @@ export default function App() {
   const [stale, setStale] = useState(false)
 
   useEffect(() => {
-    // the token arrived via /?t=...; the SPA uses the injected window.__SMBOS_TOKEN__, so drop
-    // ?t= from the address bar/history to cut leakage via screenshots, copy/paste, and logs
-    const u = new URL(window.location.href)
-    if (u.searchParams.has('t')) {
-      u.searchParams.delete('t')
-      history.replaceState(null, '', `${u.pathname}${u.search}${u.hash}`)
-    }
-
+    // NOTE: do NOT strip ?t= from the URL. The page itself is token-gated (GET / requires ?t=
+    // to serve the token-injected HTML), so the token must stay in the address bar or a
+    // reload/refresh/bookmark of the now-bare URL 401s. Leak via Referer is already prevented by
+    // the page's Referrer-Policy: no-referrer + Cache-Control: no-store headers.
     let lastEventAt = Date.now()
     const fresh = () => { lastEventAt = Date.now(); setStale(false) }
     // a malformed frame must not throw out of the listener (it would drop the frame AND skip

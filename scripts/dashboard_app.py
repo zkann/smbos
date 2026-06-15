@@ -60,6 +60,19 @@ LEGACY_ORIGINS = [f"http://127.0.0.1:{LEGACY_PORT}", f"http://localhost:{LEGACY_
 # no CORS. Absent until built; the index route then returns a clear "not built" message.
 DIST_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
+# Served HTML carries the token: never cache it, never leak ?t= via Referer.
+_PAGE_HEADERS = {"Referrer-Policy": "no-referrer", "Cache-Control": "no-store"}
+# Friendly page when someone opens the dashboard without a token (vs a raw "bad or missing token").
+_NO_TOKEN_PAGE = (
+    "<!doctype html><meta charset=utf-8><title>SmbOS</title>"
+    "<body style=\"margin:0;background:#09090b;color:#fafafa;"
+    "font:16px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif\">"
+    "<main style='max-width:560px;margin:0 auto;padding:48px 32px'>"
+    "<h1 style='font-size:20px;font-weight:650'>SmbOS dashboard</h1>"
+    "<p style='color:#a1a1aa'>This dashboard needs its access token. Open it with the full URL "
+    "ending in <code>?t=&lt;token&gt;</code> from your dashboard launcher.</p></main>"
+)
+
 
 def _sse(event, payload):
     return f"event: {event}\ndata: {payload}\n\n"
@@ -161,7 +174,11 @@ def create_app(sop_dir, dist_dir=None):
 
     @app.get("/")
     def index(t: str = ""):
-        check(t)  # token-gated like the legacy daemon's page (open /?t=<token>)
+        # token-gated like the legacy daemon's page (open /?t=<token>); a missing/bad token gets
+        # a friendly HTML page, not a raw "bad or missing token" error
+        if not t or not secrets.compare_digest(t, token):
+            return Response(_NO_TOKEN_PAGE, status_code=401, media_type="text/html",
+                            headers=_PAGE_HEADERS)
         index_html = dist_dir / "index.html"
         if not index_html.is_file():
             return Response("Dashboard UI not built. Run `npm run build` in frontend/.",
@@ -173,10 +190,7 @@ def create_app(sop_dir, dist_dir=None):
         # token charset is url-safe ([A-Za-z0-9_-]); json.dumps wraps it as a JS string literal
         inject = f"<script>window.__SMBOS_TOKEN__={json.dumps(token)}</script>"
         html = html.replace("</head>", inject + "</head>", 1)
-        # the injected HTML carries the secret: don't cache it, and don't leak the ?t= token
-        # via Referer if the page ever loads an external sub-resource
-        return Response(html, media_type="text/html",
-                        headers={"Referrer-Policy": "no-referrer", "Cache-Control": "no-store"})
+        return Response(html, media_type="text/html", headers=_PAGE_HEADERS)
 
     # The SPA's hashed JS/CSS bundle (no secrets; the token lives only in the injected HTML).
     # Served per-request rather than via a StaticFiles mount: a mount raises a request-time
