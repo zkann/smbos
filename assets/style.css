@@ -197,6 +197,7 @@
   .setrow select,.setrow input[type=number],.setrow input[type=time]{
     margin-left:6px;background:transparent;color:var(--foreground);border:1px solid var(--input);
     border-radius:6px;padding:3px 8px;font-size:13.5px}
+  .setrow input[type=number]{width:80px}
   .setrow .pbtn{margin-left:6px;min-height:24px;padding:2px 8px;font-size:12px}
   .setdesc{display:block;margin-top:3px;color:var(--subtle-fg);font-size:13px}
   .setdesc.setwarn{color:var(--amber)}
