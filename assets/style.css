@@ -100,6 +100,14 @@
   #meter .step.done{color:var(--green)}
   #meter .nextwin{margin-top:6px}
 
+  /* "Do this first": the single highest-priority next action, calm but led by a green accent */
+  #nextaction{margin-top:14px}
+  .na-label{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:var(--primary);margin-bottom:6px}
+  .na-line{display:block;width:100%;text-align:left;font:inherit;font-size:15px;color:var(--foreground);cursor:pointer;
+    background:var(--card);border:1px solid var(--border);border-left:3px solid var(--primary);border-radius:var(--radius);padding:12px 16px}
+  .na-line:hover{border-color:var(--border-strong);border-left-color:var(--primary)}
+  .na-line b{font-weight:600}
+
   .toolbar{display:flex;gap:14px;align-items:center;margin-top:6px;flex-wrap:wrap}
   .toolbar input[type=search]{flex:1;min-width:220px;max-width:420px;padding:8px 12px;border:1px solid var(--input);
     border-radius:6px;font-size:14px;background:transparent;color:var(--foreground)}

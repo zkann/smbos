@@ -269,6 +269,30 @@ function renderMeter(){
     +steps.map(s=>'<span class="step'+(s.done?' done':'')+'">'+(s.done?'&#10003; ':'&#9675; ')+esc(s.label)+'</span>').join('')
     +'</div><div class="nextwin">Easiest next win: '+esc(wins[next.label]||next.label)+'</div>';
 }
+// One prominent "do this first" line, computed from the same priority order the panels use,
+// so the owner gets a decision instead of having to scan every panel. Only shown when more
+// than one area needs them (with a single area, that panel already is the answer).
+function renderNextAction(){
+  const el=document.getElementById('nextaction');
+  if(!el)return;
+  const failures=EXTRA.failures||[];
+  const drift=sops.filter(s=>!s.archived&&s.drift&&(s.status==='active'||s.status==='trusted'));
+  const flagged=sops.filter(s=>!s.archived&&s.flags.filter(f=>f!=='unrecorded changes').length);
+  const blocked=(EXTRA.work||[]).filter(w=>w.status==='blocked');
+  const waiting=(EXTRA.pending||[]).map(p=>({...p,...parseSop(p.content)})).filter(p=>(p.meta.status||'pending')==='pending');
+  const plate=EXTRA.queued||[];
+  const areas=[(failures.length+drift.length+flagged.length)>0,blocked.length>0,waiting.length>0,plate.length>0].filter(Boolean).length;
+  let msg='',target='';
+  if(failures.length){msg='Fix what broke: <b>'+esc(sopTitle(failures[0].sop))+'</b> '+esc(failures[0].plain)+'.';target='attention';}
+  else if(drift.length){msg='Review the changes to <b>'+esc(drift[0].title)+'</b> so it can run again.';target='attention';}
+  else if(blocked.length){msg='Unblock <b>'+esc(blocked[0].title)+'</b>: it’s waiting on you.';target='work';}
+  else if(waiting.length){const d=waiting[0].meta.deliverable;msg='Approve or discard '+waiting.length+' prepared item'+(waiting.length===1?'':'s')+(d?': <b>'+esc(d)+'</b>':'')+'.';target='waiting';}
+  else if(plate.length){msg='Start <b>'+esc(sopTitle(plate[0].sop))+'</b> with Claude.';target='plate';}
+  if(areas<2||!msg){el.style.display='none';el.innerHTML='';return;}
+  el.style.display='block';
+  el.innerHTML='<div class="na-label">Do this first</div><button class="na-line" data-target="'+target+'">'+msg+'</button>';
+  el.querySelector('.na-line').onclick=()=>{const t=document.getElementById(target);if(t)t.scrollIntoView({behavior:'smooth',block:'center'});};
+}
 
 /* ---------- Procedures tab ---------- */
 const RANK={trusted:0,active:1,draft:2,archived:3};
@@ -627,6 +651,6 @@ function startLiveness(){
   },90000);
 }
 summary();
-renderWaiting();renderAttention();renderWork();renderPlate();renderComing();renderMeter();
+renderWaiting();renderAttention();renderWork();renderPlate();renderComing();renderMeter();renderNextAction();
 render();
 startLiveness();
