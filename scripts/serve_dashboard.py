@@ -14,6 +14,7 @@ per-run token. Stdlib only, no network beyond localhost. Ctrl-C to stop.
 """
 import json
 import os
+import plistlib
 import re
 import secrets
 import shlex
@@ -449,10 +450,111 @@ def set_digest_notify(sop_dir, on):
     return on
 
 
-# ---- digest schedule via a tagged crontab line (best-effort, idempotent) ----
+# ---- digest schedule -------------------------------------------------------
+# macOS schedules via a launchd agent; everything else via a tagged crontab
+# line. macOS deprecated cron and, more to the point, blocks `crontab` *writes*
+# from a process without Full Disk Access, and the dashboard runs as a launchd
+# daemon that has none, so the crontab path failed there ("no crontab access").
+# launchd plists, by contrast, the daemon CAN write to ~/Library/LaunchAgents
+# without FDA. The public digest_schedule / set_digest_schedule /
+# clear_digest_schedule dispatch on the backend; the impls are below.
 DIGEST_CRON_TAG = "# smbos-digest"
+DIGEST_LAUNCHD_LABEL = "com.smbos.digest"
 
 
+def _scheduler_backend():
+    """'launchd' on macOS, 'crontab' elsewhere. A function (not a constant) so
+    tests can force either backend without touching sys.platform."""
+    return "launchd" if sys.platform == "darwin" else "crontab"
+
+
+def digest_schedule(sop_dir):
+    """Current digest time {hour, minute}, or None."""
+    if _scheduler_backend() == "launchd":
+        return _digest_schedule_launchd()
+    return _digest_schedule_crontab(sop_dir)
+
+
+def set_digest_schedule(sop_dir, hour, minute):
+    """Install/replace the daily digest schedule. Returns True on success."""
+    hour, minute = int(hour), int(minute)
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise ValueError("bad time")
+    if _scheduler_backend() == "launchd":
+        return _set_digest_launchd(sop_dir, hour, minute)
+    return _set_digest_crontab(sop_dir, hour, minute)
+
+
+def clear_digest_schedule(sop_dir):
+    if _scheduler_backend() == "launchd":
+        return _clear_digest_launchd()
+    return _clear_digest_crontab(sop_dir)
+
+
+# ---- launchd backend (macOS) ----
+def _digest_plist_path():
+    return Path.home() / "Library" / "LaunchAgents" / f"{DIGEST_LAUNCHD_LABEL}.plist"
+
+
+def _launchctl(*args):
+    try:
+        r = subprocess.run(["launchctl", *args], capture_output=True, text=True, timeout=10)
+        return r.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _digest_schedule_launchd():
+    p = _digest_plist_path()
+    if not p.exists():
+        return None
+    try:
+        ci = (plistlib.loads(p.read_bytes()).get("StartCalendarInterval") or {})
+        return {"hour": int(ci["Hour"]), "minute": int(ci["Minute"])}
+    except (OSError, ValueError, KeyError, TypeError, plistlib.InvalidFileException):
+        return None
+
+
+def _set_digest_launchd(sop_dir, hour, minute):
+    runner = Path(__file__).resolve().parent / "digest.py"
+    logp = str(Path(sop_dir) / "trigger.log")
+    plist = {
+        "Label": DIGEST_LAUNCHD_LABEL,
+        "ProgramArguments": ["/usr/bin/python3", str(runner), "--sop-dir", str(sop_dir)],
+        "StartCalendarInterval": {"Hour": int(hour), "Minute": int(minute)},
+        "RunAtLoad": False,  # a daily digest, not a run-on-every-reload job
+        "StandardOutPath": logp,
+        "StandardErrorPath": logp,
+    }
+    p = _digest_plist_path()
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(plistlib.dumps(plist))
+    except OSError:
+        return False
+    # An older crontab digest line (from a pre-launchd version) would double-run;
+    # best-effort remove it. The write may fail under the daemon's missing FDA,
+    # in which case it is left for the user to clear (surfaced in the PR notes).
+    try:
+        _clear_digest_crontab(sop_dir)
+    except Exception:
+        pass
+    _launchctl("unload", str(p))           # ignore if not currently loaded
+    return _launchctl("load", "-w", str(p))  # (re)load so the new time is live now
+
+
+def _clear_digest_launchd():
+    p = _digest_plist_path()
+    _launchctl("unload", str(p))
+    try:
+        if p.exists():
+            p.unlink()
+    except OSError:
+        return False
+    return True
+
+
+# ---- crontab backend (Linux / non-macOS) ----
 def _read_crontab():
     try:
         r = subprocess.run(["crontab", "-l"], capture_output=True, text=True, timeout=10)
@@ -470,7 +572,7 @@ def _write_crontab(text):
         return False
 
 
-def digest_schedule(sop_dir):
+def _digest_schedule_crontab(sop_dir):
     """Current digest time from the tagged crontab line, or None."""
     cur = _read_crontab()
     if not cur:
@@ -487,11 +589,8 @@ def _crontab_without_digest(cur):
     return "\n".join(l for l in cur.splitlines() if DIGEST_CRON_TAG not in l)
 
 
-def set_digest_schedule(sop_dir, hour, minute):
+def _set_digest_crontab(sop_dir, hour, minute):
     """Install/replace the daily digest cron line. Returns True on success."""
-    hour, minute = int(hour), int(minute)
-    if not (0 <= hour <= 23 and 0 <= minute <= 59):
-        raise ValueError("bad time")
     cur = _read_crontab()
     if cur is None:
         return False
@@ -506,7 +605,7 @@ def set_digest_schedule(sop_dir, hour, minute):
     return _write_crontab(new)
 
 
-def clear_digest_schedule(sop_dir):
+def _clear_digest_crontab(sop_dir):
     cur = _read_crontab()
     if cur is None:
         return False
@@ -763,7 +862,7 @@ class Handler(BaseHTTPRequestHandler):
                         ok = set_digest_schedule(self.sop_dir, hh, mm)
                         if not ok:
                             return self._send(200, json.dumps({"ok": False,
-                                "error": "Could not update your schedule (no crontab access on this machine)."}))
+                                "error": "Could not update your schedule on this machine."}))
                         return self._send(200, json.dumps({"ok": True, "digest_time": "%02d:%02d" % (hh, mm)}))
                 except (ValueError, TypeError) as e:
                     return self._send(400, json.dumps({"error": str(e)}))
