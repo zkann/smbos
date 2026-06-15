@@ -46,6 +46,19 @@ def test_index_requires_token(tmp_path):
         assert client.get("/").status_code == 401
 
 
+def test_index_no_token_serves_friendly_html(tmp_path):
+    # no token AND a wrong token both get the friendly styled page, never the real SPA
+    app = dashboard_app.create_app(tmp_path, dist_dir=_fixture_dist(tmp_path))
+    with TestClient(app, base_url="http://localhost") as client:
+        for url in ("/", "/?t=garbage"):
+            r = client.get(url)
+            assert r.status_code == 401 and "text/html" in r.headers["content-type"]
+            assert "access token" in r.text and "SmbOS" in r.text
+            assert "__SMBOS_TOKEN__" not in r.text  # the token-injected SPA is NOT served
+            assert r.headers.get("referrer-policy") == "no-referrer"
+            assert "no-store" in r.headers.get("cache-control", "")
+
+
 def test_index_serves_spa_with_injected_token(tmp_path):
     app = dashboard_app.create_app(tmp_path, dist_dir=_fixture_dist(tmp_path))
     token = lib.dashboard_token(tmp_path)
