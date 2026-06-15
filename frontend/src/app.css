@@ -1,0 +1,57 @@
+/* Command-center theme, tokens ported from assets/style.css :root (DESIGN.md 0.18.0).
+   App UI: calm, dark, dense-but-readable, elevation by lightness not shadow. */
+:root {
+  --background: #09090b; --card: #0f0f12; --card-raised: #17171b; --border: #27272a;
+  --foreground: #fafafa; --muted-fg: #a1a1aa; --subtle-fg: #85858f;
+  --primary: #22c55e; --amber: #f59e0b; --red: #f87171;
+  --chip-bg: #18181b; --radius: 12px;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--background); color: var(--foreground);
+  font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+main { max-width: 1180px; margin: 0 auto; padding: 32px; }
+header { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+h1 { font-size: 20px; font-weight: 650; margin: 0; }
+
+.banner {
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--red) 35%, transparent);
+  color: var(--red); border-radius: var(--radius);
+  padding: 8px 14px; margin-bottom: 16px; font-size: 13px;
+}
+
+.panel {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px 18px; margin-bottom: 16px;
+}
+.overline {
+  font: 11px/1 ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--muted-fg); margin-bottom: 12px;
+}
+.empty { color: var(--subtle-fg); margin: 4px 0; }
+
+.list { list-style: none; margin: 0; padding: 0; }
+.list li {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 0; border-top: 1px solid var(--border);
+}
+.list li:first-child { border-top: none; }
+ol.list { counter-reset: rank; }
+ol.list li::before {
+  counter-increment: rank; content: counter(rank);
+  font: 11px/1 ui-monospace, monospace; color: var(--subtle-fg); min-width: 14px;
+}
+.subj { flex: 1; }
+.chip {
+  font: 11px/1 ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.08em;
+  background: var(--chip-bg); color: var(--muted-fg);
+  border: 1px solid var(--border); border-radius: 999px; padding: 4px 8px;
+}
+.chip-waiting { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 35%, transparent); }
+
+.dot { width: 8px; height: 8px; border-radius: 999px; background: var(--subtle-fg); flex: none; }
+.dot.live { background: var(--primary); box-shadow: 0 0 6px color-mix(in srgb, var(--primary) 70%, transparent); }
+.dot.done { background: var(--muted-fg); }
+.dot.err { background: var(--red); }

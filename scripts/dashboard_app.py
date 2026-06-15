@@ -30,6 +30,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # allow `python3 scripts/dashboard_app.py`
 import smbos_lib as lib
@@ -55,6 +56,10 @@ HEARTBEAT_SECONDS = _positive_env("SMBOS_SSE_HEARTBEAT", "10.0")  # keepalive so
 # this app's stream, which is cross-origin (different port). Allow EXACTLY the legacy loopback
 # origin, nothing wider, so the Host-guard + token stay the real gate.
 LEGACY_ORIGINS = [f"http://127.0.0.1:{LEGACY_PORT}", f"http://localhost:{LEGACY_PORT}"]
+
+# The built Svelte SPA (frontend/ -> `npm run build`). Served same-origin so /events needs
+# no CORS. Absent until built; the index route then returns a clear "not built" message.
+DIST_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 
 def _sse(event, payload):
@@ -102,9 +107,11 @@ async def event_stream(sop_dir, request):
                 yield _sse("heartbeat", json.dumps({"ts": _now()}))
 
 
-def create_app(sop_dir):
-    """Build the FastAPI app for a given SOP dir. Token is read/created once at startup."""
+def create_app(sop_dir, dist_dir=None):
+    """Build the FastAPI app for a given SOP dir. Token is read/created once at startup.
+    dist_dir overrides where the built SPA is served from (tests pass a fixture)."""
     sop_dir = Path(sop_dir)
+    dist_dir = Path(dist_dir) if dist_dir is not None else DIST_DIR
     token = lib.dashboard_token(sop_dir)
     app = FastAPI(title="SmbOS dashboard", docs_url=None, redoc_url=None)
 
@@ -152,6 +159,30 @@ def create_app(sop_dir):
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+    @app.get("/")
+    def index(t: str = ""):
+        check(t)  # token-gated like the legacy daemon's page (open /?t=<token>)
+        index_html = dist_dir / "index.html"
+        if not index_html.is_file():
+            return Response("Dashboard UI not built. Run `npm run build` in frontend/.",
+                            status_code=503, media_type="text/plain")
+        html = index_html.read_text(encoding="utf-8")
+        if "</head>" not in html:  # fail loud, not a silently tokenless (blank) dashboard
+            return Response("Dashboard UI is missing a </head> anchor for the token; rebuild it.",
+                            status_code=500, media_type="text/plain")
+        # token charset is url-safe ([A-Za-z0-9_-]); json.dumps wraps it as a JS string literal
+        inject = f"<script>window.__SMBOS_TOKEN__={json.dumps(token)}</script>"
+        html = html.replace("</head>", inject + "</head>", 1)
+        # the injected HTML carries the secret: don't cache it, and don't leak the ?t= token
+        # via Referer if the page ever loads an external sub-resource
+        return Response(html, media_type="text/html",
+                        headers={"Referrer-Policy": "no-referrer", "Cache-Control": "no-store"})
+
+    # The SPA's hashed JS/CSS bundle (no secrets; the token lives only in the injected HTML).
+    assets_dir = dist_dir / "assets"
+    if assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
     return app
 
