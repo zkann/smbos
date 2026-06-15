@@ -71,7 +71,14 @@ def content_fingerprint(body, meta=None):
     text = body.replace("\r\n", "\n")
     for name in _JOURNAL_SECTIONS:
         text = re.sub(rf"^## {re.escape(name)}\n.*?(?=^## |\Z)", "", text, flags=re.M | re.S)
-    caps = "\n".join(f"{k}={(meta or {}).get(k, '')}" for k in CAPABILITY_FIELDS)
+    m = meta or {}
+    caps = "\n".join(f"{k}={m.get(k, '')}" for k in CAPABILITY_FIELDS)
+    # interactive_only is capability-bearing (it gates the unattended runner),
+    # so fold it into the fingerprint to make stripping it out-of-band trip
+    # drift detection. Append only when set, so adding this never re-fingerprints
+    # the existing stamped SOPs that don't carry the flag.
+    if str(m.get("interactive_only", "")).strip().lower() in ("true", "yes", "1"):
+        caps += "\ninteractive_only=true"
     return hashlib.sha256((caps + "\n" + text.strip()).encode("utf-8")).hexdigest()[:12]
 
 

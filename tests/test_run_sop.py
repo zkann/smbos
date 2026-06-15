@@ -39,6 +39,19 @@ def test_missing_run_inputs_refused_free(library, fake_claude):
     assert last_run(library)["result"] == "ok"
 
 
+def test_interactive_only_refused_free(library, fake_claude):
+    # An interactive_only SOP needs a live-session connector; the unattended
+    # runner must refuse it free, before any other gate, and --force/--prepare
+    # cannot override it (it's a missing capability, not a policy).
+    make_sop(library, id="inbox-task", status="active", extra="interactive_only: true\n")
+    for extra_args in ([], ["--prepare"], ["--force"]):
+        r = run(["inbox-task", *extra_args, "--sop-dir", str(library)], fake_claude)
+        assert r.returncode == 1, extra_args
+        assert "Needs you in the session" in (r.stderr + r.stdout), extra_args
+        rec = last_run(library)
+        assert rec["result"] == "refused" and rec["cost_usd"] == 0, extra_args
+
+
 def test_budget_guard(library, fake_claude):
     (library / "triggers.json").write_text(json.dumps({"monthly_budget_usd": 0.01}))
     from datetime import date

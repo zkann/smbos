@@ -124,6 +124,24 @@ def test_capability_fields_are_fingerprinted():
     assert is_drifted(re_read, body)
 
 
+def test_interactive_only_is_fingerprinted_but_backward_compatible():
+    """interactive_only gates the unattended runner, so stripping it out-of-band
+    must read as drift. But folding it in must NOT re-fingerprint the SOPs that
+    do not carry the flag (no mass false-drift on upgrade)."""
+    body = "## Steps\n1. Do it.\n"
+    # backward compatible: an absent/empty flag leaves the hash unchanged
+    assert content_fingerprint(body, {}) == content_fingerprint(body)
+    assert content_fingerprint(body, {"deliverable": "x"}) == \
+        content_fingerprint(body, {"deliverable": "x", "interactive_only": ""})
+    # stamped WITH the flag; removing it out-of-band trips drift
+    meta = {"interactive_only": "true"}
+    h = content_fingerprint(body, meta)
+    assert not is_drifted({**meta, "content_hash": h}, body)   # flag present -> clean
+    assert is_drifted({"content_hash": h}, body)               # flag stripped -> drift
+    # truthy variants normalize to the same fingerprint
+    assert content_fingerprint(body, {"interactive_only": "yes"}) == h
+
+
 def test_stamp_all_skips_frontmatterless_files(library, monkeypatch, capsys):
     # a non-SOP markdown file iter_sops DOES yield (unlike SKIP_NAMES entries)
     (library / "ops" / "scratch-notes.md").write_text("# notes\nno frontmatter\n")
