@@ -30,12 +30,142 @@ from smbos_lib import find_sop as lib_find_sop
 from smbos_lib import (frontmatter_field, is_drifted, parse_frontmatter,
                        run_lock_held, split_frontmatter)
 
-TOKEN = secrets.token_urlsafe(16)
 MAX_TEXT = 2000
 NOTES_HEADING = "## Notes for next revision"
 # Where the dashboard was launched from; a queued task inherits this as its target
 # project, so the right Claude Code session picks it up. Home dir means run-anywhere.
 LAUNCH_CWD = str(Path.cwd())
+
+# --- stable URL: a fixed port + a token persisted 0600, so the URL survives
+#     restarts (the launchd agent and updates included). TOKEN is set in main()
+#     from the persisted file; a throwaway fallback covers direct imports.
+TOKEN = secrets.token_urlsafe(16)
+DEFAULT_PORT = 8765
+TOKEN_FILE = ".dashboard-token"
+PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+AGENT_LABEL = "com.smbos.dashboard"
+
+
+def get_or_create_token(sop_dir):
+    """The library's persistent dashboard token (created 0600 if absent)."""
+    f = Path(sop_dir) / TOKEN_FILE
+    try:
+        tok = f.read_text(encoding="utf-8").strip()
+        if tok:
+            return tok
+    except OSError:
+        pass
+    tok = secrets.token_urlsafe(16)
+    f.write_text(tok + "\n", encoding="utf-8")
+    try:
+        os.chmod(f, 0o600)
+    except OSError:
+        pass
+    return tok
+
+
+def rotate_token(sop_dir):
+    """Invalidate the current URL by minting a new persisted token."""
+    f = Path(sop_dir) / TOKEN_FILE
+    try:
+        f.unlink()
+    except OSError:
+        pass
+    return get_or_create_token(sop_dir)
+
+
+def dashboard_port(sop_dir):
+    env = os.environ.get("SMBOS_DASHBOARD_PORT")
+    if env and env.isdigit():
+        return int(env)
+    cfg = Path(sop_dir) / "triggers.json"
+    if cfg.exists():
+        try:
+            v = json.loads(cfg.read_text(encoding="utf-8")).get("dashboard_port")
+            if isinstance(v, int):
+                return v
+        except (OSError, ValueError):
+            pass
+    return DEFAULT_PORT
+
+
+def stable_url(sop_dir):
+    return "http://127.0.0.1:{}/?t={}".format(dashboard_port(sop_dir),
+                                              get_or_create_token(sop_dir))
+
+
+def live_server_url(sop_dir):
+    """The stable URL if a healthy dashboard is already serving it, else None."""
+    from urllib.request import urlopen
+    from urllib.error import URLError
+    port, tok = dashboard_port(sop_dir), get_or_create_token(sop_dir)
+    try:
+        with urlopen("http://127.0.0.1:{}/api/ping?t={}".format(port, tok), timeout=0.5) as r:
+            if r.status == 200 and b'"ok"' in r.read():
+                return stable_url(sop_dir)
+    except (URLError, OSError):
+        pass
+    return None
+
+
+# --- launchd: keep the dashboard running across sessions, reboots, and updates.
+def plist_path():
+    return Path.home() / "Library" / "LaunchAgents" / (AGENT_LABEL + ".plist")
+
+
+def _plist_xml(sop_dir):
+    args = ["/usr/bin/env", "python3", str(PLUGIN_ROOT / "scripts" / "serve_dashboard.py"),
+            str(sop_dir), "--serve"]
+    watch = [str(PLUGIN_ROOT / "scripts"), str(PLUGIN_ROOT / "assets")]
+    log = str(Path(sop_dir) / "dashboard-daemon.log")
+    esc = lambda s: s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    sa = "".join("    <string>{}</string>\n".format(esc(a)) for a in args)
+    sw = "".join("    <string>{}</string>\n".format(esc(w)) for w in watch)
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+        '<plist version="1.0"><dict>\n'
+        '  <key>Label</key><string>{label}</string>\n'
+        '  <key>ProgramArguments</key><array>\n{sa}  </array>\n'
+        '  <key>RunAtLoad</key><true/>\n'
+        '  <key>KeepAlive</key><true/>\n'
+        '  <key>ThrottleInterval</key><integer>5</integer>\n'
+        '  <key>WatchPaths</key><array>\n{sw}  </array>\n'
+        '  <key>StandardOutPath</key><string>{log}</string>\n'
+        '  <key>StandardErrorPath</key><string>{log}</string>\n'
+        '</dict></plist>\n'
+    ).format(label=AGENT_LABEL, sa=sa, sw=sw, log=esc(log))
+
+
+def install_agent(sop_dir):
+    """Write and load the LaunchAgent. Returns (ok, message)."""
+    p = plist_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(_plist_xml(sop_dir), encoding="utf-8")
+    subprocess.run(["launchctl", "unload", str(p)], capture_output=True)  # idempotent
+    r = subprocess.run(["launchctl", "load", "-w", str(p)], capture_output=True, text=True)
+    if r.returncode != 0:
+        return False, (r.stderr or "launchctl load failed").strip()
+    return True, "loaded"
+
+
+def uninstall_agent():
+    p = plist_path()
+    if p.exists():
+        subprocess.run(["launchctl", "unload", "-w", str(p)], capture_output=True)
+        try:
+            p.unlink()
+        except OSError:
+            pass
+        return True
+    return False
+
+
+def restart_agent():
+    uid = os.getuid()
+    subprocess.run(["launchctl", "kickstart", "-k",
+                    "gui/{}/{}".format(uid, AGENT_LABEL)], capture_output=True)
 
 
 def append_suggestion(sop_dir, rel_path, text):
@@ -577,17 +707,68 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(500, '{"error":"server error"}')
 
 
-def main():
-    sop_dir = resolve_sop_dir()
+COMMANDS = {"install", "uninstall", "url", "rotate", "stop"}
+
+
+def serve(sop_dir, daemon=False):
+    """Bind the fixed port and serve. daemon=True (launchd) never reuse-exits."""
+    global TOKEN
+    TOKEN = get_or_create_token(sop_dir)
+    if not daemon:
+        running = live_server_url(sop_dir)
+        if running:
+            print("SmbOS live dashboard already running: {}".format(running), flush=True)
+            print('Reusing it. Say "stop the dashboard" or run with uninstall to remove the '
+                  "always-on one.", flush=True)
+            return
     Handler.sop_dir = sop_dir
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    port = srv.server_address[1]
+    port = dashboard_port(sop_dir)
+    try:
+        srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)  # allow_reuse_address on
+    except OSError:
+        if daemon:
+            print("Port {} is busy; another instance may be coming up.".format(port), file=sys.stderr)
+            sys.exit(1)  # launchd throttles and retries
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)  # manual fallback: random port
+        port = srv.server_address[1]
+        print("Port {} was busy; using {} for this run (URL is not the stable one).".format(
+            dashboard_port(sop_dir), port), flush=True)
     print("SmbOS live dashboard: http://127.0.0.1:{}/?t={}".format(port, TOKEN), flush=True)
-    print("Reading {}. Saved suggestions land in each SOP's notes. Ctrl-C to stop.".format(sop_dir), flush=True)
+    print("Reading {}. Ctrl-C to stop.".format(sop_dir), flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
         pass
+
+
+def main():
+    args = sys.argv[1:]
+    daemon = "--serve" in args
+    # pull out flags and a command token from anywhere; the rest is the sop dir
+    cmd = next((a for a in args if a in COMMANDS), None)
+    positional = [a for a in args if a not in COMMANDS and not a.startswith("--")]
+    sop_dir = Path(positional[0]).expanduser() if positional else resolve_sop_dir()
+
+    if cmd == "url":
+        print(stable_url(sop_dir)); return
+    if cmd == "rotate":
+        rotate_token(sop_dir)
+        if plist_path().exists():
+            restart_agent()
+        print("New URL (the old one no longer works):", flush=True)
+        print(stable_url(sop_dir)); return
+    if cmd == "install":
+        ok, msg = install_agent(sop_dir)
+        if not ok:
+            sys.exit("Could not install the always-on dashboard: " + msg)
+        print("Always-on dashboard installed. It starts at login, restarts itself, "
+              "and survives updates. Bookmark this URL (it won't change):", flush=True)
+        print(stable_url(sop_dir)); return
+    if cmd in ("uninstall", "stop"):
+        print("Always-on dashboard removed." if uninstall_agent()
+              else "No always-on dashboard was installed.")
+        return
+    serve(sop_dir, daemon=daemon)
 
 
 if __name__ == "__main__":
