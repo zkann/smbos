@@ -19,6 +19,7 @@ result), never "is it running right now".
 Stdlib only, Python 3.9+ (the macOS system python that Claude Desktop uses).
 """
 import sqlite3
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,45 +31,47 @@ BUSY_TIMEOUT_MS = 5000
 # Status enums, validated on write so a bad value fails fast instead of silently.
 TASK_STATUSES = {"waiting", "in_flight", "done", "dismissed"}
 VERDICT_LABELS = {"reply_owed", "ack", "reject", "ignore", "advance"}
+SURFACES = {"cc", "api", "cron"}  # where a run was invoked from
 
-CURRENT_SCHEMA = """
-CREATE TABLE IF NOT EXISTS task (
-    id INTEGER PRIMARY KEY,
-    domain TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    subject TEXT NOT NULL,
-    status TEXT NOT NULL,
-    priority INTEGER NOT NULL DEFAULT 0,
-    source_ref TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_task_status_priority ON task(status, priority DESC, created_at);
-
-CREATE TABLE IF NOT EXISTS run (
-    id INTEGER PRIMARY KEY,
-    sop_id TEXT NOT NULL,
-    content_hash TEXT,
-    task_id INTEGER REFERENCES task(id),
-    surface TEXT NOT NULL,           -- cc | api | cron
-    result TEXT,                     -- ok|parked|error|refused|skipped, or NULL while open
-    cost_usd REAL NOT NULL DEFAULT 0,
-    started_at TEXT NOT NULL,
-    ended_at TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_run_started ON run(started_at DESC);
-
-CREATE TABLE IF NOT EXISTS verdict (
-    id INTEGER PRIMARY KEY,
-    thread_id TEXT NOT NULL,
-    detector_label TEXT,
-    oracle_label TEXT,
-    reply_owed INTEGER NOT NULL DEFAULT 0,
-    company TEXT,
-    created_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_verdict_thread ON verdict(thread_id);
-"""
+# Schema as individual statements (not one executescript blob) so _migrate can run them
+# inside a single held transaction. Future migrations MUST add idempotent statements here
+# and bump SCHEMA_VERSION; never use executescript (it force-commits and breaks atomicity).
+SCHEMA_STATEMENTS = (
+    """CREATE TABLE IF NOT EXISTS task (
+        id INTEGER PRIMARY KEY,
+        domain TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        status TEXT NOT NULL,
+        priority INTEGER NOT NULL DEFAULT 0,
+        source_ref TEXT,
+        created_at TEXT NOT NULL,   -- ISO-8601 UTC from _now(); callers must not write local/naive times
+        updated_at TEXT NOT NULL
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_task_status_priority ON task(status, priority DESC, created_at)",
+    """CREATE TABLE IF NOT EXISTS run (
+        id INTEGER PRIMARY KEY,
+        sop_id TEXT NOT NULL,
+        content_hash TEXT,
+        task_id INTEGER REFERENCES task(id),
+        surface TEXT NOT NULL,           -- one of SURFACES; validated in start_run()
+        result TEXT,                     -- ok|parked|error|refused|skipped, or NULL while open
+        cost_usd REAL NOT NULL DEFAULT 0,
+        started_at TEXT NOT NULL,        -- ISO-8601 UTC from _now()
+        ended_at TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_run_started ON run(started_at DESC, id DESC)",
+    """CREATE TABLE IF NOT EXISTS verdict (
+        id INTEGER PRIMARY KEY,
+        thread_id TEXT NOT NULL,
+        detector_label TEXT,
+        oracle_label TEXT,
+        reply_owed INTEGER NOT NULL DEFAULT 0,
+        company TEXT,
+        created_at TEXT NOT NULL
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_verdict_thread ON verdict(thread_id)",
+)
 
 
 class StateStoreError(Exception):
@@ -84,23 +87,71 @@ def db_path(sop_dir):
 
 
 def _migrate(conn):
-    """Apply schema migrations idempotently, keyed off PRAGMA user_version.
+    """Apply schema migrations atomically, keyed off PRAGMA user_version.
+
+    Concurrency-safe across separate processes. `BEGIN IMMEDIATE` takes the write lock
+    up front so exactly one migrator proceeds; the rest wait (busy_timeout), then see the
+    bumped version and skip. Schema statements and the user_version bump commit as ONE
+    transaction, so a crash can't leave a schema with a stale version, and two processes
+    can't both apply a future data migration. Requires the connection in autocommit mode
+    (isolation_level=None), set in connect().
 
     Version-gate: if the DB's user_version is NEWER than this code understands, refuse
-    rather than run an old migration over a newer schema. This is the multi-process /
-    strangler-overlap hazard, an old-binary writer (e.g. a cron run_sop from a
-    not-yet-updated venv) must not corrupt a DB written by newer code.
+    rather than migrate, an old-binary writer (e.g. a cron run_sop from a not-yet-updated
+    venv during a rollout) must not corrupt a DB written by newer code.
     """
     ver = conn.execute("PRAGMA user_version").fetchone()[0]
+    if ver == SCHEMA_VERSION:
+        return  # common case: already migrated, take no write lock (no per-call contention)
     if ver > SCHEMA_VERSION:
         raise StateStoreError(
             f"state.db schema is v{ver} but this code understands v{SCHEMA_VERSION}. "
             "Update SmbOS before writing to this database."
         )
-    if ver < SCHEMA_VERSION:
-        conn.executescript(CURRENT_SCHEMA)
-        conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+    # ver < SCHEMA_VERSION: migrate under a write lock, serialized across processes.
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        ver = conn.execute("PRAGMA user_version").fetchone()[0]  # re-check under the lock
+        if ver < SCHEMA_VERSION:
+            for stmt in SCHEMA_STATEMENTS:
+                conn.execute(stmt)
+            conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+
+
+SETUP_ATTEMPTS = 6  # retries for the transient lock during a concurrent first-creation race
+
+
+def _open(sop_dir):
+    """Open + configure + migrate, with a bounded retry on the transient WAL-setup lock.
+
+    busy_timeout covers normal write contention, but the `journal_mode=WAL` switch during
+    a simultaneous first-creation race can still raise "database is locked" before any
+    transaction exists (the busy handler does not cover the mode switch). That window is
+    microseconds, so a short bounded retry makes concurrent first-creation safe.
+    """
+    last = None
+    for attempt in range(SETUP_ATTEMPTS):
+        conn = sqlite3.connect(str(db_path(sop_dir)))
+        conn.row_factory = sqlite3.Row
+        conn.isolation_level = None  # autocommit; transactions managed explicitly (see _migrate)
+        try:
+            conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA foreign_keys=ON")
+            _migrate(conn)
+            return conn
+        except sqlite3.OperationalError as exc:
+            conn.close()
+            last = exc
+            if "locked" in str(exc).lower() or "busy" in str(exc).lower():
+                time.sleep(0.02 * (attempt + 1))
+                continue
+            raise
+    raise last
 
 
 @contextmanager
@@ -109,14 +160,10 @@ def connect(sop_dir):
 
     Safe to call from any process: WAL allows concurrent readers plus one writer, and
     busy_timeout makes a second writer wait (up to BUSY_TIMEOUT_MS) instead of raising.
+    Concurrent first-creation is handled by _open's bounded retry.
     """
-    conn = sqlite3.connect(str(db_path(sop_dir)), timeout=BUSY_TIMEOUT_MS / 1000)
-    conn.row_factory = sqlite3.Row
+    conn = _open(sop_dir)
     try:
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
-        conn.execute("PRAGMA foreign_keys=ON")
-        _migrate(conn)
         yield conn
     finally:
         conn.close()
@@ -158,6 +205,8 @@ def set_task_status(sop_dir, task_id, status):
 
 def start_run(sop_dir, sop_id, surface, content_hash=None, task_id=None):
     """Record that a run began. Returns run id. Liveness is the flock's job, not this row."""
+    if surface not in SURFACES:
+        raise StateStoreError(f"invalid surface {surface!r}; expected one of {sorted(SURFACES)}")
     with connect(sop_dir) as conn:
         cur = conn.execute(
             "INSERT INTO run(sop_id,content_hash,task_id,surface,started_at) VALUES(?,?,?,?,?)",
@@ -202,5 +251,7 @@ def plate(sop_dir):
 
 def recent_runs(sop_dir, limit=50):
     with connect(sop_dir) as conn:
-        rows = conn.execute("SELECT * FROM run ORDER BY started_at DESC LIMIT ?", (limit,)).fetchall()
+        rows = conn.execute(
+            "SELECT * FROM run ORDER BY started_at DESC, id DESC LIMIT ?", (limit,)
+        ).fetchall()
         return [dict(r) for r in rows]

@@ -1,9 +1,11 @@
 """Unit tests for the work-state store. Stdlib + pytest; isolated per tmp_path.
 
 Covers migration, the version-gate (the multi-process/strangler hazard), task plate
-ordering, run metadata lifecycle, verdict recording, WAL mode, and cross-connection
-change detection (the data_version signal the dashboard reader polls)."""
+ordering, run metadata lifecycle, verdict recording, WAL mode, cross-connection change
+detection (the data_version signal the dashboard reader polls), and concurrent writers
+from separate connections (the module's headline property)."""
 import sqlite3
+import threading
 
 import pytest
 
@@ -80,6 +82,11 @@ def test_record_verdict_coerces_reply_owed_and_validates_label(tmp_path):
         ss.record_verdict(tmp_path, "thr-2", oracle_label="not-a-label")
 
 
+def test_invalid_surface_raises(tmp_path):
+    with pytest.raises(ss.StateStoreError):
+        ss.start_run(tmp_path, "weekly-report", surface="bogus")
+
+
 def test_data_version_detects_cross_connection_write(tmp_path):
     # The dashboard reader holds a connection open and polls data_version; a write from
     # a SEPARATE process/connection must bump it so the reader knows to push an update.
@@ -88,3 +95,40 @@ def test_data_version_detects_cross_connection_write(tmp_path):
         ss.record_task(tmp_path, "ops", "review", "new item")  # its own connection + commit
         after = ss.data_version(reader)
     assert after > before
+
+
+def test_data_version_unchanged_for_same_connection_write(tmp_path):
+    # data_version bumps for OTHER connections' commits, NOT the reader's own writes, so
+    # the polling reader must signal its own changes itself (documented in data_version()).
+    with ss.connect(tmp_path) as conn:
+        before = ss.data_version(conn)
+        now = ss._now()
+        conn.execute(
+            "INSERT INTO task(domain,kind,subject,status,priority,source_ref,created_at,updated_at)"
+            " VALUES(?,?,?,?,?,?,?,?)",
+            ("ops", "review", "self-write", "waiting", 0, None, now, now),
+        )
+        assert ss.data_version(conn) == before
+
+
+def test_concurrent_writers_from_separate_connections(tmp_path):
+    # Headline property: separate processes/connections write at once via WAL +
+    # busy_timeout with no "database is locked". Threads with their own connections
+    # exercise the same SQLite locking, and also race the first-open migration.
+    errors = []
+
+    def writer(tag):
+        try:
+            for i in range(10):
+                ss.record_task(tmp_path, "ops", "review", f"{tag}-{i}")
+        except Exception as exc:  # noqa: BLE001 - capture any writer failure for the assert
+            errors.append(exc)
+
+    threads = [threading.Thread(target=writer, args=(t,)) for t in ("A", "B")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors, f"concurrent writers raised: {errors}"
+    with ss.connect(tmp_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM task").fetchone()[0] == 20
