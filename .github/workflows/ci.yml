@@ -42,7 +42,7 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: python -m pytest tests/ -q
 
-  # The Svelte SPA (frontend/) has its own toolchain; verify it builds. The Python app's
+  # The React SPA (frontend/) has its own toolchain; verify it builds. The Python app's
   # serving tests use a fixture dist, so they don't need this build.
   build-spa:
     runs-on: ubuntu-latest
