@@ -30,6 +30,88 @@ def test_positive_env_clamps_non_positive_and_garbage(monkeypatch):
     assert dashboard_app._positive_env("X_SSE", "2.5") == 2.5
 
 
+def _fixture_dist(tmp_path):
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text(
+        "<!doctype html><html><head><title>x</title></head>"
+        "<body><div id=app></div></body></html>", encoding="utf-8")
+    (dist / "assets" / "index.js").write_text("console.log('spa')", encoding="utf-8")
+    return dist
+
+
+def test_index_requires_token(tmp_path):
+    app = dashboard_app.create_app(tmp_path, dist_dir=_fixture_dist(tmp_path))
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.get("/").status_code == 401
+
+
+def test_index_serves_spa_with_injected_token(tmp_path):
+    app = dashboard_app.create_app(tmp_path, dist_dir=_fixture_dist(tmp_path))
+    token = lib.dashboard_token(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        r = client.get("/", params={"t": token})
+        assert r.status_code == 200 and "text/html" in r.headers["content-type"]
+        assert f'window.__SMBOS_TOKEN__="{token}"' in r.text  # token injected for the SPA
+        asset = client.get("/assets/index.js")
+        assert asset.status_code == 200 and "spa" in asset.text  # bundle served (no secrets)
+
+
+def test_assets_404_before_build_then_served_after(tmp_path):
+    # server started BEFORE the SPA is built (no dist/assets): /assets is a clean 404, NOT a
+    # 500, and once a later build produces the bundle it's served with no restart.
+    dist = tmp_path / "dist"
+    dist.mkdir()  # no assets/ yet
+    app = dashboard_app.create_app(tmp_path, dist_dir=dist)
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.get("/assets/index.js").status_code == 404  # pre-build: clean 404, no crash
+        (dist / "assets").mkdir()
+        (dist / "assets" / "index.js").write_text("late", encoding="utf-8")
+        r = client.get("/assets/index.js")
+        assert r.status_code == 200 and "late" in r.text  # late build served, no restart
+        assert client.get("/assets/missing.js").status_code == 404  # missing file -> 404
+
+
+def test_assets_rejects_path_traversal(tmp_path):
+    app = dashboard_app.create_app(tmp_path, dist_dir=_fixture_dist(tmp_path))
+    (tmp_path / "secret.txt").write_text("SECRET", encoding="utf-8")
+    with TestClient(app, base_url="http://localhost") as client:
+        # escape attempts resolve outside dist/assets -> 404, never serve the secret
+        for evil in ("../../secret.txt", "..%2f..%2fsecret.txt", "....//secret.txt"):
+            r = client.get(f"/assets/{evil}")
+            assert r.status_code == 404 and "SECRET" not in r.text
+
+
+def test_index_500_when_no_head_anchor(tmp_path):
+    # a built-but-anchorless page must fail loud, not serve a tokenless (blank) dashboard
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<html><body>no head here</body></html>", encoding="utf-8")
+    app = dashboard_app.create_app(tmp_path, dist_dir=dist)
+    token = lib.dashboard_token(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        r = client.get("/", params={"t": token})
+        assert r.status_code == 500 and "head" in r.text.lower()
+
+
+def test_index_sets_no_referrer_and_no_store(tmp_path):
+    # the injected page carries the secret: don't cache it, don't leak ?t= via Referer
+    app = dashboard_app.create_app(tmp_path, dist_dir=_fixture_dist(tmp_path))
+    token = lib.dashboard_token(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        r = client.get("/", params={"t": token})
+        assert r.headers.get("referrer-policy") == "no-referrer"
+        assert "no-store" in r.headers.get("cache-control", "")
+
+
+def test_index_503_when_spa_not_built(tmp_path):
+    app = dashboard_app.create_app(tmp_path, dist_dir=tmp_path / "nope")
+    token = lib.dashboard_token(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        r = client.get("/", params={"t": token})
+        assert r.status_code == 503 and "not built" in r.text
+
+
 def test_plate_requires_token(tmp_path):
     app = dashboard_app.create_app(tmp_path)
     with TestClient(app, base_url="http://localhost") as client:
