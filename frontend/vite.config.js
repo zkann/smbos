@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite'
-import { svelte } from '@sveltejs/vite-plugin-svelte'
+import react from '@vitejs/plugin-react'
 
 // Built assets are served by the FastAPI app from frontend/dist (same origin as /events).
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [react()],
   build: { outDir: 'dist', emptyOutDir: true },
 })
