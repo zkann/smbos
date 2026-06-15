@@ -168,15 +168,35 @@ const LEVELS={
   'on-its-own':{label:'On its own',cap:'I run it on its schedule and tell you after. It still stops for the safety checks below.'}
 };
 
+const DEFAULT_PROCS=[
+  {id:'p_inv',name:'Send an invoice',level:'prepare'},
+  {id:'p_lead',name:'Follow up with a lead',level:'prepare'},
+  {id:'p_onb',name:'Onboard a new client',level:'with-me'},
+  {id:'p_rep',name:'Weekly metrics report',level:'on-its-own'},
+  {id:'p_rev',name:'Ask a customer for a review',level:'with-me'}
+];
+
 let day='busy';
 let state=structuredClone(DATA.busy);
 let granted=false, grantLevel='on-its-own';
+let PROCS=structuredClone(DEFAULT_PROCS);
+let expanded=null;
 
 function setDay(d){
   day=d; state=structuredClone(DATA[d]); granted=false; grantLevel='on-its-own';
+  PROCS=structuredClone(DEFAULT_PROCS); expanded=null;
   document.getElementById('tBusy').classList.toggle('on',d==='busy');
   document.getElementById('tCalm').classList.toggle('on',d==='calm');
   render();
+}
+function toggleProc(id){ expanded = expanded===id?null:id; render(); }
+function setProcLevel(id,level){ const p=PROCS.find(x=>x.id===id); if(p)p.level=level; render(); }
+function dialHtml(level,onpick){
+  let h='<div class="dial fade"><div class="seg">';
+  Object.keys(LEVELS).forEach(k=>{ h+='<button class="'+(k===level?'on':'')+'" onclick="'+onpick.replace('LVL',k)+'">'+LEVELS[k].label+'</button>'; });
+  h+='</div><div class="cap">'+LEVELS[level].cap+'</div>'
+    +'<div class="safety"><span class="shield">◉</span><span>Whatever the setting, I never send to a client, spend money, or delete anything without checking with you first. Autonomy and safety are separate dials.</span></div></div>';
+  return h;
 }
 
 function resolve(id,verb){
@@ -188,9 +208,9 @@ function dismiss(id){ state.move=state.move.filter(m=>m.id!==id); render(); }
 function handoff(id){
   const it=state.move.find(m=>m.id===id); if(it){it.handoff=true;render();}
 }
-function acceptGrant(){ granted=true; render(); }
+function acceptGrant(){ granted=true; const p=PROCS.find(x=>x.id==='p_inv'); if(p)p.level=grantLevel; render(); }
 function declineGrant(){ state.grant=null; render(); }
-function setLevel(l){ grantLevel=l; render(); }
+function setLevel(l){ grantLevel=l; const p=PROCS.find(x=>x.id==='p_inv'); if(p)p.level=l; render(); }
 
 function stateLine(){
   const open=state.move.filter(m=>!m.resolvedAs).length;
@@ -260,13 +280,8 @@ function render(){
         +'<button class="btn" onclick="declineGrant()">Not yet</button></div>';
     }else{
       h+='<p class="resolved" style="font-weight:600;margin-bottom:6px">✓ Done. I’ll handle the Acme invoice on my own from now on.</p>'
-        +'<p style="margin:0;color:var(--muted-fg);font-size:14px">You can change this anytime. Here is the dial:</p>';
-      h+='<div class="dial"><div class="seg">';
-      Object.keys(LEVELS).forEach(k=>{
-        h+='<button class="'+(k===grantLevel?'on':'')+'" onclick="setLevel(\''+k+'\')">'+LEVELS[k].label+'</button>';
-      });
-      h+='</div><div class="cap">'+LEVELS[grantLevel].cap+'</div>'
-        +'<div class="safety"><span class="shield">◉</span><span>Whatever the setting, I never send to a client, spend money, or delete anything without checking with you first. Autonomy and safety are separate dials.</span></div></div>';
+        +'<p style="margin:0 0 4px;color:var(--muted-fg);font-size:14px">You can change this anytime. Here is the dial:</p>';
+      h+=dialHtml(grantLevel,"setLevel('LVL')");
     }
     h+='</div></div>';
   }
@@ -274,14 +289,15 @@ function render(){
   // VALUE
   h+='<div class="value">'+state.value+'</div>';
 
-  // TRAINING AREA (tucked away)
-  h+='<details class="training"><summary>How I handle things ('+(day==='busy'?'8':'8')+' procedures)</summary>'
-    +'<div class="proc"><span class="nm">Send an invoice</span><span class="lvl '+(granted?'on-its-own':'prepare')+'">'+(granted?'On its own':'Prepare and ask')+'</span></div>'
-    +'<div class="proc"><span class="nm">Follow up with a lead</span><span class="lvl prepare">Prepare and ask</span></div>'
-    +'<div class="proc"><span class="nm">Onboard a new client</span><span class="lvl">With me</span></div>'
-    +'<div class="proc"><span class="nm">Weekly metrics report</span><span class="lvl on-its-own">On its own</span></div>'
-    +'<div class="proc"><span class="nm">Ask a customer for a review</span><span class="lvl">With me</span></div>'
-    +'</details>';
+  // TRAINING AREA — the dial lives here too, reachable anytime (not only via a grant)
+  h+='<details class="training"'+(expanded?' open':'')+'><summary>How I handle things &middot; tap a task to set how much I do on its own</summary>';
+  PROCS.forEach(p=>{
+    const cls=p.level==='on-its-own'?'on-its-own':(p.level==='prepare'?'prepare':'');
+    h+='<div class="proc" tabindex="0" role="button" onclick="toggleProc(\''+p.id+'\')">'
+      +'<span class="nm">'+p.name+'</span><span class="lvl '+cls+'">'+LEVELS[p.level].label+'</span></div>';
+    if(expanded===p.id) h+=dialHtml(p.level,"setProcLevel('"+p.id+"','LVL')");
+  });
+  h+='</details>';
 
   el.innerHTML=h;
 }
