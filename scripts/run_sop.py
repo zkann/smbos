@@ -12,6 +12,7 @@ reviews in their next session or on the dashboard. Stdlib only.
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -30,6 +31,39 @@ def find_sop(sop_dir, sop_id):
     if p is None:
         sys.exit(f"No SOP with id '{sop_id}' in {sop_dir}.")
     return p
+
+
+# Candidate install locations for the claude CLI, checked when it is not on PATH.
+# Dashboard-launched runs inherit the launchd daemon's minimal PATH (no
+# ~/.local/bin, no Homebrew), so a bare cmd=["claude", ...] dies with
+# FileNotFoundError before doing anything. Resolve an absolute path instead.
+_CLAUDE_CANDIDATES = [
+    "~/.local/bin/claude", "~/.claude/local/claude", "~/bin/claude",
+    "/opt/homebrew/bin/claude", "/usr/local/bin/claude",
+    "~/.npm-global/bin/claude", "~/.volta/bin/claude",
+]
+
+
+def resolve_claude():
+    """Absolute path to the claude CLI, or None. PATH first, then known dirs."""
+    found = shutil.which("claude")
+    if found:
+        return found
+    for c in _CLAUDE_CANDIDATES:
+        p = Path(c).expanduser()
+        if p.exists() and os.access(p, os.X_OK):
+            return str(p)
+    return None
+
+
+def run_env(claude_bin):
+    """A PATH that includes the resolved claude (and common bin dirs) so the CLI
+    and anything it shells out to are findable even from a minimal daemon env."""
+    env = dict(os.environ)
+    dirs = [str(Path(claude_bin).parent), str(Path("~/.local/bin").expanduser()),
+            "/opt/homebrew/bin", "/usr/local/bin"]
+    env["PATH"] = os.pathsep.join(dirs + [env.get("PATH", "")])
+    return env
 
 
 # Prepare-mode capability profile.
@@ -227,6 +261,19 @@ def main():
                           "note": f"monthly budget reached (${spent:.2f} of ${cap:.2f})"})
         sys.exit(f"Skipped: monthly automation budget reached (${spent:.2f} of ${cap:.2f}). Use --force to override.")
 
+    # Resolve the claude CLI only after the free no-model gates above, so a draft /
+    # drift / missing-inputs / budget result keeps its real reason. Still before the
+    # lock, so a missing binary fails free with no in-flight marker. A missing binary
+    # is logged (visible in "Needs attention"), never an uncaught FileNotFoundError.
+    claude_bin = resolve_claude()
+    if claude_bin is None:
+        log_run(sop_dir, {**base, "result": "error", "cost_usd": 0,
+                          "note": "the 'claude' command was not found. Background runs launched "
+                                  "by the dashboard get a minimal PATH; install claude on PATH or "
+                                  "in ~/.local/bin so the runner can find it."})
+        notify("SmbOS: needs attention", f"{args.sop_id} couldn't start: the 'claude' command wasn't found.")
+        sys.exit("Refused (free): 'claude' executable not found on PATH or in known locations.")
+
     payload_path = None
     if args.payload_stdin:
         payloads = sop_dir / "payloads"
@@ -278,24 +325,33 @@ def main():
         settings, stamped = prepare_settings(sop_dir, meta, body)
         scratch_ctx = tempfile.TemporaryDirectory(prefix="smbos-prepare-")
         scratch = scratch_ctx.name
-        cmd = (["claude", "-p", prompt, "--output-format", "json", "--model", args.model]
+        cmd = ([claude_bin, "-p", prompt, "--output-format", "json", "--model", args.model]
                + prepare_cmd_flags(settings))
         run_cwd = scratch
         canary_warning(sop_dir)
     else:
         prompt = build_prompt("triggered", args, sop_path, park_clause,
                               inputs_clause, payload_clause, missing_inputs_clause)
-        cmd = ["claude", "-p", prompt, "--output-format", "json",
+        cmd = [claude_bin, "-p", prompt, "--output-format", "json",
                "--model", args.model, "--permission-mode", "acceptEdits"]
         run_cwd = str(sop_dir.parent)
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=900, cwd=run_cwd)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=900,
+                              cwd=run_cwd, env=run_env(claude_bin))
     except subprocess.TimeoutExpired:
-        release_run_lock(lock)
         clear_run_active(marker)
+        release_run_lock(lock)
         log_run(sop_dir, {**base, "result": "error", "cost_usd": 0, "note": "timeout after 900s"})
         notify("SmbOS", f"{args.sop_id} took too long and was stopped.")
         sys.exit("Run timed out.")
+    except OSError as e:
+        # never let an exec failure crash the runner silently (zero silent failures)
+        clear_run_active(marker)
+        release_run_lock(lock)
+        log_run(sop_dir, {**base, "result": "error", "cost_usd": 0,
+                          "note": f"could not start the claude run: {e}"})
+        notify("SmbOS: needs attention", f"{args.sop_id} could not start ({e.__class__.__name__}).")
+        sys.exit(f"Could not start the run: {e}")
     finally:
         if args.prepare:
             scratch_ctx.cleanup()
