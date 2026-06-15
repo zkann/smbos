@@ -78,7 +78,42 @@ def test_events_generator_stops_on_disconnect(tmp_path):
         return events
 
     events = asyncio.run(asyncio.wait_for(drain(), timeout=5))
-    assert len(events) == 1 and events[0].startswith("event: plate\n")
+    # initial snapshot is two frames (plate + runs), then the disconnected client ends it
+    assert len(events) == 2
+    assert events[0].startswith("event: plate\n") and events[1].startswith("event: runs\n")
+
+
+def test_runs_requires_token(tmp_path):
+    app = dashboard_app.create_app(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.get("/api/runs").status_code == 401
+
+
+def test_runs_returns_recorded_runs(tmp_path):
+    rid = ss.start_run(tmp_path, "weekly-report", surface="cron")
+    ss.finish_run(tmp_path, rid, result="ok", cost_usd=0.5)
+    app = dashboard_app.create_app(tmp_path)
+    token = lib.dashboard_token(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        r = client.get("/api/runs", params={"t": token})
+    assert r.status_code == 200
+    runs = r.json()["runs"]
+    assert len(runs) == 1 and runs[0]["sop_id"] == "weekly-report" and runs[0]["result"] == "ok"
+
+
+def test_events_initial_snapshot_includes_runs(tmp_path):
+    rid = ss.start_run(tmp_path, "weekly-report", surface="cron")
+    ss.finish_run(tmp_path, rid, result="ok")
+
+    async def first_two():
+        gen = dashboard_app.event_stream(tmp_path, _FakeRequest())
+        out = [await gen.__anext__(), await gen.__anext__()]
+        await gen.aclose()
+        return out
+
+    plate_frame, runs_frame = asyncio.run(first_two())
+    assert plate_frame.startswith("event: plate\n")
+    assert runs_frame.startswith("event: runs\n") and "weekly-report" in runs_frame
 
 
 class _ConnectedFor:

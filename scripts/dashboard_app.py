@@ -65,6 +65,15 @@ def _now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def _snapshot(sop_dir):
+    """Both live-mirror snapshots as SSE frames: the plate (what's waiting) and recent runs.
+    Runs in a worker thread (two short DB reads) so it never blocks the event loop."""
+    return [
+        _sse("plate", json.dumps(ss.plate(sop_dir))),
+        _sse("runs", json.dumps(ss.recent_runs(sop_dir))),
+    ]
+
+
 async def event_stream(sop_dir, request):
     """SSE generator. Holds ONE connection so PRAGMA data_version is comparable across polls
     (the counter is not comparable across connections). Emits a plate snapshot on connect,
@@ -75,7 +84,8 @@ async def event_stream(sop_dir, request):
     # its own connection and is offloaded to a thread so a slow read can't stall the loop.
     with ss.connect(sop_dir) as conn:
         last_dv = ss.data_version(conn)
-        yield _sse("plate", json.dumps(await asyncio.to_thread(ss.plate, sop_dir)))
+        for frame in await asyncio.to_thread(_snapshot, sop_dir):  # initial: plate + runs
+            yield frame
         since_beat = 0.0
         while True:
             if await request.is_disconnected():
@@ -85,7 +95,8 @@ async def event_stream(sop_dir, request):
             dv = ss.data_version(conn)
             if dv != last_dv:
                 last_dv = dv
-                yield _sse("plate", json.dumps(await asyncio.to_thread(ss.plate, sop_dir)))
+                for frame in await asyncio.to_thread(_snapshot, sop_dir):  # plate + runs on change
+                    yield frame
             if since_beat >= HEARTBEAT_SECONDS:
                 since_beat = 0.0
                 yield _sse("heartbeat", json.dumps({"ts": _now()}))
@@ -127,6 +138,11 @@ def create_app(sop_dir):
     def api_plate(t: str = ""):
         check(t)
         return {"plate": ss.plate(sop_dir)}
+
+    @app.get("/api/runs")
+    def api_runs(t: str = ""):
+        check(t)
+        return {"runs": ss.recent_runs(sop_dir)}
 
     @app.get("/events")
     async def events(request: Request, t: str = ""):
