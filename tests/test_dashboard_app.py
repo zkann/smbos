@@ -57,6 +57,28 @@ def test_index_serves_spa_with_injected_token(tmp_path):
         assert asset.status_code == 200 and "spa" in asset.text  # bundle served (no secrets)
 
 
+def test_index_500_when_no_head_anchor(tmp_path):
+    # a built-but-anchorless page must fail loud, not serve a tokenless (blank) dashboard
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<html><body>no head here</body></html>", encoding="utf-8")
+    app = dashboard_app.create_app(tmp_path, dist_dir=dist)
+    token = lib.dashboard_token(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        r = client.get("/", params={"t": token})
+        assert r.status_code == 500 and "head" in r.text.lower()
+
+
+def test_index_sets_no_referrer_and_no_store(tmp_path):
+    # the injected page carries the secret: don't cache it, don't leak ?t= via Referer
+    app = dashboard_app.create_app(tmp_path, dist_dir=_fixture_dist(tmp_path))
+    token = lib.dashboard_token(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        r = client.get("/", params={"t": token})
+        assert r.headers.get("referrer-policy") == "no-referrer"
+        assert "no-store" in r.headers.get("cache-control", "")
+
+
 def test_index_503_when_spa_not_built(tmp_path):
     app = dashboard_app.create_app(tmp_path, dist_dir=tmp_path / "nope")
     token = lib.dashboard_token(tmp_path)

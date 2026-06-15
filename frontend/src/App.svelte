@@ -17,12 +17,22 @@
     stale = false;
   }
 
+  // A malformed frame must not throw out of the listener (it would drop the frame AND skip
+  // fresh(), so the banner could fire on a live stream). Parse defensively; the arrival of
+  // ANY frame still means the stream is alive, so fresh() runs regardless.
+  function onFrame(setter) {
+    return (e) => {
+      try { setter(JSON.parse(e.data)); } catch (_) { /* keep last good data */ }
+      fresh();
+    };
+  }
+
   onMount(() => {
     es = new EventSource(`/events?t=${encodeURIComponent(token)}`);
-    es.addEventListener('plate', (e) => { plate = JSON.parse(e.data); fresh(); });
-    es.addEventListener('runs', (e) => { runs = JSON.parse(e.data); fresh(); });
+    es.addEventListener('plate', onFrame((v) => { plate = v; }));
+    es.addEventListener('runs', onFrame((v) => { runs = v; }));
     es.addEventListener('heartbeat', fresh);
-    // EventSource auto-reconnects on error; the staleness banner covers the gap.
+    es.onerror = () => { stale = true; };  // surface the drop; EventSource auto-reconnects
     staleTimer = setInterval(() => { stale = Date.now() - lastEventAt > STALE_MS; }, 3000);
   });
   onDestroy(() => { es?.close(); clearInterval(staleTimer); });
@@ -41,7 +51,7 @@
     <div class="banner" role="status">Reconnecting, data may be stale</div>
   {/if}
 
-  <header><span class="dot live"></span><h1>SmbOS</h1></header>
+  <header><span class="dot live" aria-hidden="true"></span><h1>SmbOS</h1></header>
 
   <section class="panel">
     <div class="overline">On your plate</div>
@@ -67,7 +77,7 @@
       <ul class="list">
         {#each runs as r}
           <li>
-            <span class="dot {runState(r)}"></span>
+            <span class="dot {runState(r)}" aria-hidden="true"></span>
             <span class="subj">{r.sop_id}</span>
             <span class="chip">{r.result || 'running'}</span>
           </li>

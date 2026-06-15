@@ -167,11 +167,17 @@ def create_app(sop_dir, dist_dir=None):
         if not index_html.is_file():
             return Response("Dashboard UI not built. Run `npm run build` in frontend/.",
                             status_code=503, media_type="text/plain")
-        # inject the token so the SPA's EventSource can authenticate (same origin); json.dumps
-        # safely escapes it into a JS string literal
+        html = index_html.read_text(encoding="utf-8")
+        if "</head>" not in html:  # fail loud, not a silently tokenless (blank) dashboard
+            return Response("Dashboard UI is missing a </head> anchor for the token; rebuild it.",
+                            status_code=500, media_type="text/plain")
+        # token charset is url-safe ([A-Za-z0-9_-]); json.dumps wraps it as a JS string literal
         inject = f"<script>window.__SMBOS_TOKEN__={json.dumps(token)}</script>"
-        html = index_html.read_text(encoding="utf-8").replace("</head>", inject + "</head>")
-        return Response(html, media_type="text/html")
+        html = html.replace("</head>", inject + "</head>", 1)
+        # the injected HTML carries the secret: don't cache it, and don't leak the ?t= token
+        # via Referer if the page ever loads an external sub-resource
+        return Response(html, media_type="text/html",
+                        headers={"Referrer-Policy": "no-referrer", "Cache-Control": "no-store"})
 
     # The SPA's hashed JS/CSS bundle (no secrets; the token lives only in the injected HTML).
     assets_dir = dist_dir / "assets"
