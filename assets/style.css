@@ -14,7 +14,7 @@
     --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
     /* legacy variable aliases used throughout */
     --bg:var(--background); --ink:var(--foreground); --muted:var(--muted-fg); --line:var(--border);
-    --draft-bg:var(--amber-soft); --draft-ink:var(--amber);
+    --draft-bg:var(--chip-bg); --draft-ink:var(--muted-fg);
     --active-bg:var(--blue-soft); --active-ink:var(--blue);
     --trusted-bg:var(--green-soft); --trusted-ink:var(--green);
     --archived-bg:#1c1c1f; --archived-ink:var(--subtle-fg);
@@ -42,7 +42,7 @@
   .counts{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .pill{font-size:12.5px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--card);color:var(--muted-fg)}
   .pill b{font-weight:600;color:var(--foreground);font-family:var(--mono)}
-  .pill.draft{background:var(--amber-soft);color:var(--amber);border-color:var(--amber-border)}
+  .pill.draft{background:var(--chip-bg);color:var(--muted-fg);border-color:var(--border)}
   .pill.warn{background:var(--amber-soft);color:var(--amber);border-color:var(--amber-border)}
   .hint.warnhint{margin:10px 0 0;color:var(--amber);font-size:13px}
   .pill.active{background:var(--blue-soft);color:var(--blue);border-color:var(--blue-border)}
@@ -100,6 +100,14 @@
   #meter .step.done{color:var(--green)}
   #meter .nextwin{margin-top:6px}
 
+  /* "Do this first": the single highest-priority next action, calm but led by a green accent */
+  #nextaction{margin-top:14px}
+  .na-label{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:var(--primary);margin-bottom:6px}
+  .na-line{display:block;width:100%;text-align:left;font:inherit;font-size:15px;color:var(--foreground);cursor:pointer;
+    background:var(--card);border:1px solid var(--border);border-left:3px solid var(--primary);border-radius:var(--radius);padding:12px 16px}
+  .na-line:hover{border-color:var(--border-strong);border-left-color:var(--primary)}
+  .na-line b{font-weight:600}
+
   .toolbar{display:flex;gap:14px;align-items:center;margin-top:6px;flex-wrap:wrap}
   .toolbar input[type=search]{flex:1;min-width:220px;max-width:420px;padding:8px 12px;border:1px solid var(--input);
     border-radius:6px;font-size:14px;background:transparent;color:var(--foreground)}
@@ -120,7 +128,7 @@
   /* shadcn Badge (soft variants) */
   .badge{font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:2px 10px;
     border-radius:999px;white-space:nowrap;cursor:help;border:1px solid transparent}
-  .badge.draft{background:var(--amber-soft);color:var(--amber);border-color:var(--amber-border)}
+  .badge.draft{background:var(--chip-bg);color:var(--muted-fg);border-color:var(--border)}
   .badge.active{background:var(--blue-soft);color:var(--blue);border-color:var(--blue-border)}
   .badge.trusted{background:var(--green-soft);color:var(--green);border-color:var(--green-border)}
   .badge.archived{background:var(--archived-bg);color:var(--subtle-fg);border-color:var(--border)}
