@@ -196,6 +196,69 @@ def test_remember_folder_trust_skips_home_and_bad_config(tmp_path, monkeypatch):
     assert str((tmp_path / "whatever").resolve()) in json.loads(cfg.read_text())["projects"]
 
 
+class _FakePing:
+    def __init__(self, status=200, body=b'{"ok": true}'):
+        self.status, self._body = status, body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self):
+        return self._body
+
+
+def test_live_server_url_none_without_record(library):
+    assert sv.live_server_url(library) is None
+
+
+def test_server_record_roundtrip_and_reuse(library, monkeypatch):
+    sv.write_server_record(library, 51515, "tok123")
+    rec = sv.server_record(library)
+    assert rec.is_file()
+    import stat
+    assert stat.S_IMODE(rec.stat().st_mode) == 0o600  # owner-only
+
+    pinged = {}
+    def fake_urlopen(url, timeout=None):
+        pinged["url"] = url
+        return _FakePing()
+    monkeypatch.setattr(sv, "urlopen", fake_urlopen)
+    assert sv.live_server_url(library) == "http://127.0.0.1:51515/?t=tok123"
+    assert "t=tok123" in pinged["url"] and "/api/ping" in pinged["url"]
+
+
+def test_live_server_url_clears_dead_record(library, monkeypatch):
+    sv.write_server_record(library, 51515, "tok123")
+    def dead(url, timeout=None):
+        raise sv.URLError("connection refused")
+    monkeypatch.setattr(sv, "urlopen", dead)
+    assert sv.live_server_url(library) is None
+    assert not sv.server_record(library).exists()  # stale file cleared
+
+
+def test_live_server_url_clears_wrong_token(library, monkeypatch):
+    sv.write_server_record(library, 51515, "tok123")
+    monkeypatch.setattr(sv, "urlopen",
+                        lambda url, timeout=None: _FakePing(status=403, body=b'{"error":"bad token"}'))
+    assert sv.live_server_url(library) is None
+    assert not sv.server_record(library).exists()
+
+
+def test_clear_own_server_record_only_when_ours(library, monkeypatch):
+    sv.write_server_record(library, 51515, "tok123")  # writes our pid
+    sv.clear_own_server_record(library)
+    assert not sv.server_record(library).exists()
+
+    # a record owned by another pid is left alone
+    import json
+    sv.server_record(library).write_text(json.dumps({"port": 1, "token": "x", "pid": -999}))
+    sv.clear_own_server_record(library)
+    assert sv.server_record(library).exists()
+
+
 def test_start_run_refuses_unrecorded_changes(library, monkeypatch):
     from smbos_lib import content_fingerprint, set_frontmatter_fields, split_frontmatter
     sop = library / "ops" / "weekly-metrics-report.md"

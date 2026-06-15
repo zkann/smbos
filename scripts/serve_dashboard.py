@@ -22,7 +22,9 @@ import sys
 from datetime import date, datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
+from urllib.request import urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from generate_dashboard import SKIP_NAMES, build_html, resolve_sop_dir
@@ -36,6 +38,65 @@ NOTES_HEADING = "## Notes for next revision"
 # Where the dashboard was launched from; a queued task inherits this as its target
 # project, so the right Claude Code session picks it up. Home dir means run-anywhere.
 LAUNCH_CWD = str(Path.cwd())
+# A running server records its port and token here so another launch (a second
+# Claude session, or the same one a day later) can find and reuse it instead of
+# starting an orphan with a fresh URL. One library, one server.
+SERVER_FILE_NAME = ".dashboard-server.json"
+
+
+def server_record(sop_dir):
+    return Path(sop_dir) / SERVER_FILE_NAME
+
+
+def server_url(port, token):
+    return "http://127.0.0.1:{}/?t={}".format(port, token)
+
+
+def live_server_url(sop_dir):
+    """URL of a dashboard server already serving this library, or None.
+
+    Reads the recorded port/token and pings it; a healthy server returns its
+    reusable URL. A missing, malformed, or dead record returns None and the
+    stale file is cleared so the caller starts fresh."""
+    rec = server_record(sop_dir)
+    try:
+        info = json.loads(rec.read_text(encoding="utf-8"))
+        port, token = int(info["port"]), str(info["token"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    try:
+        with urlopen("http://127.0.0.1:{}/api/ping?t={}".format(port, token), timeout=0.5) as r:
+            if r.status == 200 and b'"ok"' in r.read():
+                return server_url(port, token)
+    except (URLError, OSError):
+        pass
+    try:
+        rec.unlink()
+    except OSError:
+        pass
+    return None
+
+
+def write_server_record(sop_dir, port, token):
+    """Record this server's port/token (owner-readable only) for later reuse."""
+    rec = server_record(sop_dir)
+    try:
+        rec.write_text(json.dumps({"port": port, "token": token, "pid": os.getpid()}),
+                       encoding="utf-8")
+        os.chmod(rec, 0o600)
+    except OSError:
+        pass
+
+
+def clear_own_server_record(sop_dir):
+    """Remove the record on clean shutdown, but only if it still points at us."""
+    rec = server_record(sop_dir)
+    try:
+        info = json.loads(rec.read_text(encoding="utf-8"))
+        if info.get("pid") == os.getpid():
+            rec.unlink()
+    except (OSError, ValueError):
+        pass
 
 
 def append_suggestion(sop_dir, rel_path, text):
@@ -579,15 +640,24 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     sop_dir = resolve_sop_dir()
+    existing = live_server_url(sop_dir)
+    if existing:
+        print("SmbOS live dashboard: {}".format(existing), flush=True)
+        print("Reusing the dashboard already running for {}. Say \"stop the dashboard\" "
+              "to shut it down.".format(sop_dir), flush=True)
+        return
     Handler.sop_dir = sop_dir
     srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     port = srv.server_address[1]
-    print("SmbOS live dashboard: http://127.0.0.1:{}/?t={}".format(port, TOKEN), flush=True)
+    write_server_record(sop_dir, port, TOKEN)
+    print("SmbOS live dashboard: {}".format(server_url(port, TOKEN)), flush=True)
     print("Reading {}. Saved suggestions land in each SOP's notes. Ctrl-C to stop.".format(sop_dir), flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        clear_own_server_record(sop_dir)
 
 
 if __name__ == "__main__":
