@@ -383,10 +383,12 @@ def test_digest_schedule_launchd(library, monkeypatch, tmp_path):
     import plistlib
     plist_path = tmp_path / "com.smbos.digest.plist"
     lc_calls = []
+    cron_clears = []
     monkeypatch.setattr(sv, "_scheduler_backend", lambda: "launchd")
     monkeypatch.setattr(sv, "_digest_plist_path", lambda: plist_path)
     monkeypatch.setattr(sv, "_launchctl", lambda *a: lc_calls.append(a) or True)
-    monkeypatch.setattr(sv, "_clear_digest_crontab", lambda d: True)  # don't touch real crontab
+    # don't touch real crontab; record that the legacy-cron cleanup is attempted
+    monkeypatch.setattr(sv, "_clear_digest_crontab", lambda d: cron_clears.append(d) or True)
 
     assert sv.set_digest_schedule(library, 7, 45) is True
     d = plistlib.loads(plist_path.read_bytes())
@@ -400,10 +402,13 @@ def test_digest_schedule_launchd(library, monkeypatch, tmp_path):
     # bad time rejected before any write
     with pytest.raises(ValueError):
         sv.set_digest_schedule(library, 99, 0)
-    # clear removes the plist and unloads
+    # clear removes the plist and unloads, AND best-effort clears legacy cron
+    # (Codex P2: disabling must stop an old cron-scheduled digest too)
+    before = len(cron_clears)
     assert sv.clear_digest_schedule(library) is True
     assert not plist_path.exists()
     assert sv.digest_schedule(library) is None
+    assert len(cron_clears) > before  # disable path attempted the cron cleanup
 
 
 def test_apply_item(library, monkeypatch, tmp_path):

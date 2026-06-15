@@ -487,7 +487,7 @@ def set_digest_schedule(sop_dir, hour, minute):
 
 def clear_digest_schedule(sop_dir):
     if _scheduler_backend() == "launchd":
-        return _clear_digest_launchd()
+        return _clear_digest_launchd(sop_dir)
     return _clear_digest_crontab(sop_dir)
 
 
@@ -543,9 +543,16 @@ def _set_digest_launchd(sop_dir, hour, minute):
     return _launchctl("load", "-w", str(p))  # (re)load so the new time is live now
 
 
-def _clear_digest_launchd():
+def _clear_digest_launchd(sop_dir):
     p = _digest_plist_path()
     _launchctl("unload", str(p))
+    # mirror _set_digest_launchd: also best-effort remove a legacy crontab
+    # digest line, so disabling actually stops an old cron-scheduled digest on
+    # a machine upgraded from the crontab backend (Codex P2).
+    try:
+        _clear_digest_crontab(sop_dir)
+    except Exception:
+        pass
     try:
         if p.exists():
             p.unlink()
