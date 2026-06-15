@@ -502,37 +502,82 @@ function summary(){
   document.getElementById('modeNote').textContent=CFG.live
     ?(CFG.project?' Tasks you put on your plate default to the '+CFG.project+' folder.':' Tasks you put on your plate run in any folder.')
     :' This page is a snapshot; ask Claude for your dashboard to get a fresh one.';
-  renderLaunchPerm();
+  renderSettings();
 }
 const PERM_OPTIONS=[
   ['ask','Ask me before everything','Claude checks with you before every action.'],
   ['trust','Ask before running things','Claude applies edits on its own but checks before running commands or fetching the web. The safe default.'],
-  ['skip','Don’t ask, just run it','No prompts at all. Fast, but the only thing watching is you. Best only when you’re sitting with it.']
+  ['skip','Don\u2019t ask, just run it','No prompts at all. Fast, but the only thing watching is you. Best only when you\u2019re sitting with it.']
 ];
-function renderLaunchPerm(){
-  const el=document.getElementById('launchperm');
+async function saveSetting(key,value,st,okmsg){
+  st.className='sstatus';st.textContent='Saving\u2026';
+  try{
+    const r=await fetch('/api/settings',{method:'POST',
+      headers:{'Content-Type':'application/json','X-Token':CFG.token},
+      body:JSON.stringify({key:key,value:value})});
+    const j=await r.json().catch(()=>({}));
+    if(r.ok&&j.ok){st.className='sstatus';st.textContent=okmsg;return j;}
+    st.className='sstatus err';st.textContent=(j&&j.error)||('Could not save ('+r.status+').');return null;
+  }catch(e){st.className='sstatus err';st.textContent='Could not reach the dashboard.';return null;}
+}
+function renderSettings(){
+  const el=document.getElementById('settings');
   if(!el)return;
   if(!CFG.live){el.innerHTML='';return;}
   const cur=CFG.launch_permission||'trust';
-  const desc=(PERM_OPTIONS.find(o=>o[0]===cur)||PERM_OPTIONS[1])[2];
-  el.innerHTML='<label class="permlabel">When I open Claude for a task: '
+  const permdesc=(PERM_OPTIONS.find(o=>o[0]===cur)||PERM_OPTIONS[1])[2];
+  const term=CFG.terminal||'terminal';
+  const budget=(CFG.budget!=null?CFG.budget:20);
+  const dtime=CFG.digest_time||'';
+  const dnotify=CFG.digest_notify!==false;
+  el.innerHTML='<details class="settings"><summary>Settings</summary>'
+    +'<div class="setrow"><label>When I open Claude for a task'
     +'<select id="permsel">'+PERM_OPTIONS.map(o=>'<option value="'+o[0]+'"'+(o[0]===cur?' selected':'')+'>'+esc(o[1])+'</option>').join('')+'</select></label>'
-    +'<span class="permdesc'+(cur==='skip'?' permwarn':'')+'" id="permdesc">'+esc(desc)+'</span>'
-    +'<span class="sstatus" id="permstatus"></span>';
+    +'<span class="setdesc'+(cur==='skip'?' setwarn':'')+'" id="permdesc">'+esc(permdesc)+'</span>'
+    +'<span class="sstatus" id="permstatus"></span></div>'
+    +'<div class="setrow"><label>Monthly automation budget $'
+    +'<input id="budgetin" type="number" min="0" step="1" value="'+esc(String(budget))+'" style="width:80px"></label>'
+    +'<span class="setdesc">Caps what background runs may spend against your plan\u2019s allowance. The meter on Today tracks usage against it.</span>'
+    +'<span class="sstatus" id="budgetstatus"></span></div>'
+    +'<div class="setrow"><label>Open Claude in'
+    +'<select id="termsel"><option value="terminal"'+(term==='terminal'?' selected':'')+'>Terminal</option>'
+    +'<option value="iterm"'+(term==='iterm'?' selected':'')+'>iTerm2</option></select></label>'
+    +'<span class="setdesc">Which terminal the launch buttons open.</span>'
+    +'<span class="sstatus" id="termstatus"></span></div>'
+    +'<div class="setrow"><label>Daily summary at'
+    +'<input id="digesttime" type="time" value="'+esc(dtime)+'">'
+    +'<button class="pbtn" id="digestoff"'+(dtime?'':' style="display:none"')+'>off</button></label>'
+    +'<label class="setinline"><input type="checkbox" id="digestnotify"'+(dnotify?' checked':'')+'> also notify me</label>'
+    +'<span class="setdesc">A once-a-day rundown of what\u2019s waiting, ran, and cost. The time sets a schedule on this Mac (it runs when the Mac is awake).</span>'
+    +'<span class="sstatus" id="digeststatus"></span></div>'
+    +'</details>';
+  // launch_permission has its own endpoint (separate from /api/settings)
   document.getElementById('permsel').onchange=async function(){
-    const v=this.value;const st=document.getElementById('permstatus');
-    st.className='sstatus';st.textContent='Saving…';
-    try{
-      const r=await fetch('/api/launch-permission',{method:'POST',
-        headers:{'Content-Type':'application/json','X-Token':CFG.token},
-        body:JSON.stringify({value:v})});
-      if(r.ok){CFG.launch_permission=v;
-        const d=document.getElementById('permdesc');
-        d.textContent=(PERM_OPTIONS.find(o=>o[0]===v)||PERM_OPTIONS[1])[2];
-        d.className='permdesc'+(v==='skip'?' permwarn':'');
-        st.textContent='Saved. Applies the next time you open Claude from here.';}
-      else{st.className='sstatus err';st.textContent='Could not save.';}
-    }catch(e){st.className='sstatus err';st.textContent='Could not reach the dashboard.';}
+    const v=this.value;const st=document.getElementById('permstatus');const d=document.getElementById('permdesc');
+    st.className='sstatus';st.textContent='Saving\u2026';
+    try{const r=await fetch('/api/launch-permission',{method:'POST',headers:{'Content-Type':'application/json','X-Token':CFG.token},body:JSON.stringify({value:v})});
+      if(r.ok){CFG.launch_permission=v;d.textContent=(PERM_OPTIONS.find(o=>o[0]===v)||PERM_OPTIONS[1])[2];d.className='setdesc'+(v==='skip'?' setwarn':'');st.textContent='Saved. Applies the next time you open Claude.';}
+      else st.className='sstatus err',st.textContent='Could not save.';}
+    catch(e){st.className='sstatus err';st.textContent='Could not reach the dashboard.';}
+  };
+  document.getElementById('budgetin').onchange=async function(){
+    const j=await saveSetting('budget',this.value,document.getElementById('budgetstatus'),'Saved.');
+    if(j&&j.budget!=null){CFG.budget=j.budget;this.value=j.budget;}
+  };
+  document.getElementById('termsel').onchange=function(){
+    saveSetting('terminal',this.value,document.getElementById('termstatus'),'Saved.').then(j=>{if(j)CFG.terminal=j.terminal;});
+  };
+  document.getElementById('digestnotify').onchange=function(){
+    saveSetting('digest_notify',this.checked,document.getElementById('digeststatus'),'Saved.');
+  };
+  const dt=document.getElementById('digesttime'),doff=document.getElementById('digestoff');
+  dt.onchange=async function(){
+    const j=await saveSetting('digest_time',this.value,document.getElementById('digeststatus'),'Saved. You\u2019ll get the summary daily at '+this.value+'.');
+    if(j){CFG.digest_time=this.value;doff.style.display=this.value?'':'none';}
+  };
+  doff.onclick=async function(){
+    const j=await saveSetting('digest_time','',document.getElementById('digeststatus'),'Daily summary turned off.');
+    if(j){CFG.digest_time='';dt.value='';doff.style.display='none';}
   };
 }
 document.querySelectorAll('.tab').forEach(b=>{b.onclick=()=>{

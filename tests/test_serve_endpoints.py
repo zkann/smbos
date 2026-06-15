@@ -315,3 +315,64 @@ def test_set_launch_permission_endpoint(library):
     sv.set_launch_permission(library, "skip")
     assert stat.S_IMODE(cfg.stat().st_mode) == 0o600
     assert json.loads(cfg.read_text())["digest"]["slack_webhook_url"] == "x"
+
+
+def test_settings_writers(library):
+    import json
+    assert sv.set_budget(library, "12.5") == 12.5
+    assert json.loads((library / "triggers.json").read_text())["monthly_budget_usd"] == 12.5
+    with pytest.raises(ValueError):
+        sv.set_budget(library, "-1")
+    with pytest.raises(ValueError):
+        sv.set_budget(library, "abc")
+    assert sv.set_terminal(library, "iterm") == "iterm"
+    assert sv.preferred_terminal(library) == "iterm"
+    with pytest.raises(ValueError):
+        sv.set_terminal(library, "nope")
+    assert sv.set_digest_notify(library, False) is False
+    data = json.loads((library / "triggers.json").read_text())
+    assert data["digest"]["notify"] is False
+    # all writers preserve other keys + mode
+    import os, stat
+    cfg = library / "triggers.json"
+    os.chmod(cfg, 0o600)
+    sv.set_budget(library, 30)
+    d = json.loads(cfg.read_text())
+    assert d["terminal"] == "iterm" and d["digest"]["notify"] is False and d["monthly_budget_usd"] == 30
+    assert stat.S_IMODE(cfg.stat().st_mode) == 0o600
+
+
+def test_digest_schedule_crontab(library, monkeypatch, tmp_path):
+    calls = {"written": None}
+    monkeypatch.setattr(sv, "_read_crontab", lambda: "0 9 * * * something-else\n")
+    monkeypatch.setattr(sv, "_write_crontab", lambda text: calls.__setitem__("written", text) or True)
+    assert sv.set_digest_schedule(library, 7, 45) is True
+    w = calls["written"]
+    assert "something-else" in w                       # preserved existing line
+    assert "45 7 * * *" in w and sv.DIGEST_CRON_TAG in w
+    # reading it back
+    monkeypatch.setattr(sv, "_read_crontab", lambda: w)
+    assert sv.digest_schedule(library) == {"hour": 7, "minute": 45}
+    # replacing (not duplicating) the tagged line
+    calls["written"] = None
+    assert sv.set_digest_schedule(library, 8, 0) is True
+    assert calls["written"].count(sv.DIGEST_CRON_TAG) == 1
+    # clearing
+    assert sv.clear_digest_schedule(library) is True
+    assert sv.DIGEST_CRON_TAG not in calls["written"]
+    # bad time rejected; no-crontab returns False not crash
+    with pytest.raises(ValueError):
+        sv.set_digest_schedule(library, 99, 0)
+    monkeypatch.setattr(sv, "_read_crontab", lambda: None)
+    assert sv.set_digest_schedule(library, 7, 0) is False
+    # a sop dir with spaces must be shell-quoted in the cron line, and still
+    # parse back (minute/hour lead the line, unaffected by later quoting)
+    spaced = tmp_path / "Business SOPs"
+    spaced.mkdir()
+    monkeypatch.setattr(sv, "_read_crontab", lambda: "")
+    monkeypatch.setattr(sv, "_write_crontab", lambda text: calls.__setitem__("written", text) or True)
+    assert sv.set_digest_schedule(spaced, 6, 30) is True
+    assert "'" + str(spaced) + "'" in calls["written"] or '"' + str(spaced) in calls["written"] \
+        or str(spaced).replace(" ", "\\ ") in calls["written"]
+    monkeypatch.setattr(sv, "_read_crontab", lambda: calls["written"])
+    assert sv.digest_schedule(spaced) == {"hour": 6, "minute": 30}

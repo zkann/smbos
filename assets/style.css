@@ -187,11 +187,18 @@
     margin:0 4px 4px 0;display:inline-block;font-size:13px;color:var(--muted-fg)}
 
   footer{margin:30px 32px;max-width:1180px;border-top:1px solid var(--border);padding-top:16px;color:var(--subtle-fg);font-size:13.5px}
-  .permlabel{display:inline-block;margin-top:8px;color:var(--muted-fg);font-size:13.5px}
-  #permsel{margin-left:6px;background:transparent;color:var(--foreground);border:1px solid var(--input);
+  details.settings{margin-top:10px;color:var(--muted-fg);font-size:13.5px}
+  details.settings>summary{cursor:pointer;color:var(--foreground);font-weight:500;
+    display:inline-block;padding:2px 0;list-style:revert}
+  .setrow{margin:12px 0 0;padding-left:4px}
+  .setrow>label{color:var(--muted-fg)}
+  .setrow label.setinline{margin-left:14px;color:var(--subtle-fg);font-size:13px}
+  .setrow select,.setrow input[type=number],.setrow input[type=time]{
+    margin-left:6px;background:transparent;color:var(--foreground);border:1px solid var(--input);
     border-radius:6px;padding:3px 8px;font-size:13.5px}
-  .permdesc{display:block;margin-top:4px;color:var(--subtle-fg);font-size:13px}
-  .permdesc.permwarn{color:var(--amber)}
+  .setrow .pbtn{margin-left:6px;min-height:24px;padding:2px 8px;font-size:12px}
+  .setdesc{display:block;margin-top:3px;color:var(--subtle-fg);font-size:13px}
+  .setdesc.setwarn{color:var(--amber)}
   footer code{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:1px 6px;font-family:var(--mono)}
 
   @media (prefers-reduced-motion: reduce){
