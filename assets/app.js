@@ -143,17 +143,23 @@ function renderWaiting(){
     n.onclick=()=>{
     const p=items[+n.dataset.i];
     const srcSop=sopById(p.meta.sop);
-    document.getElementById('dtitle').textContent='Waiting for you: '+(sopTitle(p.meta.sop)||p.path);
-    document.getElementById('dbody').innerHTML=
-      '<div class="dmeta"><span class="badge pending">pending</span>'
-      +'<span class="pill">started by '+esc(p.source_plain||'an automated run')+'</span>'
-      +'<span class="pill">'+esc(relTime(p.meta.created)||p.meta.created||'')+'</span>'
-      +(srcSop?'<a class="sopref" id="viewsrcsop" tabindex="0" role="link">View the procedure</a>':'')+'</div>'
-      +mdToHtml(stripCandidatesBlock(p.body));
-    const v=document.getElementById('viewsrcsop');
-    if(v){v.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();v.onclick();}};
-          v.onclick=()=>openDetail(srcSop);}
-    if(!dlg.open)dlg.showModal();
+    // A result and the procedure that made it are one thing seen two ways. Show
+    // provenance as a breadcrumb (the procedure NAME is the link, no extra chrome),
+    // and let the procedure open with a way back, so it is a loop, not a dead end.
+    const openResult=()=>{
+      document.getElementById('dtitle').textContent='Waiting for you: '+(sopTitle(p.meta.sop)||p.path);
+      document.getElementById('dbody').innerHTML=
+        (srcSop?'<div class="crumb">from <a class="crumblink" id="viewsrcsop" tabindex="0" role="link">'+esc(srcSop.title)+'</a> &rsaquo; this run</div>':'')
+        +'<div class="dmeta"><span class="badge pending">pending</span>'
+        +'<span class="pill">started by '+esc(p.source_plain||'an automated run')+'</span>'
+        +'<span class="pill">'+esc(relTime(p.meta.created)||p.meta.created||'')+'</span></div>'
+        +mdToHtml(stripCandidatesBlock(p.body));
+      const v=document.getElementById('viewsrcsop');
+      if(v){v.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();v.onclick();}};
+            v.onclick=()=>openDetail(srcSop,{label:'the result',fn:openResult});}
+      if(!dlg.open)dlg.showModal();
+    };
+    openResult();
   };});
   el.querySelectorAll('.pbtn[data-d]').forEach(btn=>{btn.onclick=async()=>{
     const p=items[+btn.dataset.i];
@@ -396,14 +402,15 @@ function render(){
 }
 
 /* ---------- Detail dialog ---------- */
-function openDetail(s){
+function openDetail(s, back){
   document.getElementById('dtitle').textContent=s.title;
   const m=s.meta;
   const improved=Math.max(0,parseInt(m.version||'1')-1);
   const runs=parseInt(m.runs||'0');
   const clean=parseInt(m.clean_runs||'0');
   document.getElementById('dbody').innerHTML=
-    '<div class="dmeta"><span class="badge '+s.status+'" title="'+esc(STATUS_TIP[s.status]||'')+'">'+s.status+'</span>'
+    (back?'<a class="crumbback" id="backcrumb" tabindex="0" role="link">&lsaquo; Back to '+esc(back.label)+'</a>':'')
+    +'<div class="dmeta"><span class="badge '+s.status+'" title="'+esc(STATUS_TIP[s.status]||'')+'">'+s.status+'</span>'
     +'<span class="pill">'+(runs>0?('used '+runs+' time'+(runs===1?'':'s')):'never used yet')+'</span>'
     +(relTime(m.last_used)?'<span class="pill">last '+esc(relTime(m.last_used))+'</span>':'')
     +(improved>0?'<span class="pill">improved '+improved+' time'+(improved===1?'':'s')+'</span>':'')
@@ -439,6 +446,9 @@ function openDetail(s){
   if(of)of.onclick=(e)=>{e.preventDefault();launchClaude({kind:'open_file',id:s.meta.id},null);};
   const dn=document.getElementById('donowbtn');
   if(dn)dn.onclick=()=>{dn.disabled=true;launchClaude({kind:'sop',id:s.meta.id},document.getElementById('donowstatus'));};
+  const bc=document.getElementById('backcrumb');
+  if(bc){bc.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();bc.onclick();}};
+         bc.onclick=()=>back.fn();}
   const ri0=document.getElementById('runinputs');
   if(pb&&ri0&&(s.meta.run_inputs||'').trim()&&!s.drift&&!s.body.includes('[personalize:')){
     ri0.addEventListener('input',()=>{
