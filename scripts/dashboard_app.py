@@ -29,8 +29,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, StreamingResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, Response, StreamingResponse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # allow `python3 scripts/dashboard_app.py`
 import smbos_lib as lib
@@ -180,9 +179,17 @@ def create_app(sop_dir, dist_dir=None):
                         headers={"Referrer-Policy": "no-referrer", "Cache-Control": "no-store"})
 
     # The SPA's hashed JS/CSS bundle (no secrets; the token lives only in the injected HTML).
-    # Mount unconditionally with check_dir=False so a build that happens AFTER the server starts
-    # is served without a restart, matching the index route, which re-reads index.html per request.
-    app.mount("/assets", StaticFiles(directory=str(dist_dir / "assets"), check_dir=False), name="assets")
+    # Served per-request rather than via a StaticFiles mount: a mount raises a request-time
+    # RuntimeError when the dir is missing (the unbuilt default on a fresh clone), whereas this
+    # gives a clean 404 pre-build / for a stale hash, serves a late build with no restart
+    # (matching the index route), and closes traversal by path containment.
+    @app.get("/assets/{path:path}")
+    def assets(path: str):
+        base = (dist_dir / "assets").resolve()
+        target = (base / path).resolve()
+        if base not in target.parents or not target.is_file():
+            raise HTTPException(status_code=404)
+        return FileResponse(target)
 
     return app
 

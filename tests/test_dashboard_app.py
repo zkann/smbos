@@ -57,20 +57,29 @@ def test_index_serves_spa_with_injected_token(tmp_path):
         assert asset.status_code == 200 and "spa" in asset.text  # bundle served (no secrets)
 
 
-def test_assets_served_after_a_late_build(tmp_path):
-    # Codex's scenario: the server started BEFORE the SPA was built (no dist/assets yet).
-    # create_app must not raise, and once a later `npm run build` produces the bundle it is
-    # served with no restart (matches the index route, which re-reads index.html per request).
+def test_assets_404_before_build_then_served_after(tmp_path):
+    # server started BEFORE the SPA is built (no dist/assets): /assets is a clean 404, NOT a
+    # 500, and once a later build produces the bundle it's served with no restart.
     dist = tmp_path / "dist"
-    dist.mkdir()  # no assets/ yet at app construction
-    app = dashboard_app.create_app(tmp_path, dist_dir=dist)  # must not raise (check_dir=False)
-    # ... the build then runs, producing the bundle ...
-    (dist / "assets").mkdir()
-    (dist / "assets" / "index.js").write_text("late", encoding="utf-8")
+    dist.mkdir()  # no assets/ yet
+    app = dashboard_app.create_app(tmp_path, dist_dir=dist)
     with TestClient(app, base_url="http://localhost") as client:
+        assert client.get("/assets/index.js").status_code == 404  # pre-build: clean 404, no crash
+        (dist / "assets").mkdir()
+        (dist / "assets" / "index.js").write_text("late", encoding="utf-8")
         r = client.get("/assets/index.js")
-        assert r.status_code == 200 and "late" in r.text  # served without restarting the app
-        assert client.get("/assets/missing.js").status_code == 404  # missing file -> clean 404
+        assert r.status_code == 200 and "late" in r.text  # late build served, no restart
+        assert client.get("/assets/missing.js").status_code == 404  # missing file -> 404
+
+
+def test_assets_rejects_path_traversal(tmp_path):
+    app = dashboard_app.create_app(tmp_path, dist_dir=_fixture_dist(tmp_path))
+    (tmp_path / "secret.txt").write_text("SECRET", encoding="utf-8")
+    with TestClient(app, base_url="http://localhost") as client:
+        # escape attempts resolve outside dist/assets -> 404, never serve the secret
+        for evil in ("../../secret.txt", "..%2f..%2fsecret.txt", "....//secret.txt"):
+            r = client.get(f"/assets/{evil}")
+            assert r.status_code == 404 and "SECRET" not in r.text
 
 
 def test_index_500_when_no_head_anchor(tmp_path):
