@@ -24,8 +24,9 @@
   body{margin:0;background:var(--background);color:var(--foreground);
     font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
   ::selection{background:rgba(34,197,94,.3)}
-  button,a,input,textarea{font:inherit}
-  button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
+  button,a,input,select,textarea{font:inherit}
+  button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,
+  textarea:focus-visible,summary:focus-visible,
   [tabindex]:focus-visible,[role=button]:focus-visible{
     outline:2px solid var(--ring);outline-offset:2px}
 
