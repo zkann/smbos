@@ -220,18 +220,6 @@ def main():
     now = datetime.now(timezone.utc)
     base = {"ts": now.isoformat(), "sop": args.sop_id, "source": args.source, "model": args.model}
 
-    # Resolve the claude CLI up front. A missing binary is logged (visible in
-    # "Needs attention"), never an uncaught FileNotFoundError mid-run. Checked
-    # before the lock so it fails free, with no in-flight marker left behind.
-    claude_bin = resolve_claude()
-    if claude_bin is None:
-        log_run(sop_dir, {**base, "result": "error", "cost_usd": 0,
-                          "note": "the 'claude' command was not found. Background runs launched "
-                                  "by the dashboard get a minimal PATH; install claude on PATH or "
-                                  "in ~/.local/bin so the runner can find it."})
-        notify("SmbOS: needs attention", f"{args.sop_id} couldn't start: the 'claude' command wasn't found.")
-        sys.exit("Refused (free): 'claude' executable not found on PATH or in known locations.")
-
     # Gate matrix:                triggered   prepare
     #   draft status              refuse      SKIP (prep is safe in the cage)
     #   [personalize:] slots      n/a         refuse free
@@ -272,6 +260,19 @@ def main():
         log_run(sop_dir, {**base, "result": "skipped", "cost_usd": 0,
                           "note": f"monthly budget reached (${spent:.2f} of ${cap:.2f})"})
         sys.exit(f"Skipped: monthly automation budget reached (${spent:.2f} of ${cap:.2f}). Use --force to override.")
+
+    # Resolve the claude CLI only after the free no-model gates above, so a draft /
+    # drift / missing-inputs / budget result keeps its real reason. Still before the
+    # lock, so a missing binary fails free with no in-flight marker. A missing binary
+    # is logged (visible in "Needs attention"), never an uncaught FileNotFoundError.
+    claude_bin = resolve_claude()
+    if claude_bin is None:
+        log_run(sop_dir, {**base, "result": "error", "cost_usd": 0,
+                          "note": "the 'claude' command was not found. Background runs launched "
+                                  "by the dashboard get a minimal PATH; install claude on PATH or "
+                                  "in ~/.local/bin so the runner can find it."})
+        notify("SmbOS: needs attention", f"{args.sop_id} couldn't start: the 'claude' command wasn't found.")
+        sys.exit("Refused (free): 'claude' executable not found on PATH or in known locations.")
 
     payload_path = None
     if args.payload_stdin:
