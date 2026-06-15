@@ -21,7 +21,7 @@ class _FakeRequest:
 
 def test_positive_env_clamps_non_positive_and_garbage(monkeypatch):
     # a <=0 or non-numeric poll/heartbeat would busy-spin the SSE loop -> falls back to default
-    for bad in ("0", "-3", "abc", ""):
+    for bad in ("0", "-3", "abc", "", "inf", "-inf", "nan"):  # inf would hang asyncio.sleep forever
         monkeypatch.setenv("X_SSE", bad)
         assert dashboard_app._positive_env("X_SSE", "1.0") == 1.0
     monkeypatch.setenv("X_SSE", "0.05")

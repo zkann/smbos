@@ -20,6 +20,7 @@ Python 3.9+ (asyncio.to_thread / is_disconnected are 3.9-safe).
 import argparse
 import asyncio
 import json
+import math
 import os
 import secrets
 import sys
@@ -35,13 +36,14 @@ import smbos_lib as lib
 import state_store as ss
 
 def _positive_env(name, default):
-    """A positive float from env, falling back to `default` for missing/non-numeric/<=0.
-    A non-positive poll or heartbeat would busy-spin the SSE loop and degrade availability."""
+    """A positive, FINITE float from env, falling back to `default` for missing/non-numeric/
+    <=0/inf/nan. A non-positive value would busy-spin the SSE loop; inf would hang it forever
+    (asyncio.sleep(inf)) -- both the availability failures this clamp exists to prevent."""
     try:
         value = float(os.environ.get(name, default))
     except (TypeError, ValueError):
         return float(default)
-    return value if value > 0 else float(default)
+    return value if (value > 0 and math.isfinite(value)) else float(default)
 
 
 DEFAULT_PORT = int(os.environ.get("SMBOS_APP_PORT", "8766"))  # 8765 is the legacy daemon
