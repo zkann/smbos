@@ -387,6 +387,14 @@ function runBox(s){
             :(needsPersonalize?'Personalize it first (open it with Claude once)'
             :(req?'Fill in what it needs first':''));
   const deliverable=s.meta.deliverable||'';
+  // State-dependent emphasis: a draft's safe first move is doing it WITH Claude, live and
+  // supervised, so that earns the green primary and leads. "Do it without me" (autonomous,
+  // in the cage) only takes the primary once a procedure is active/trusted. This keeps the
+  // most prominent button pointed at the right action and never leaves a disabled primary.
+  const isDraft=s.status==='draft';
+  const prepareBtn='<button class="'+(isDraft?'pbtn':'btn-primary runbtn')+'" id="preparebtn"'+(gate?' disabled':'')+'>Do it without me</button>';
+  const queueBtn='<button class="pbtn" id="queuebtn">Put it on my plate instead</button>';
+  const donowBtn=isDraft?'<button class="btn-primary runbtn" id="donowbtn">Do it with Claude now</button>':'';
   return '<div class="suggest"><div class="slabel">Run this task</div>'
     +(deliverable?'<div class="hint lead">You get: '+esc(deliverable)+'</div>':'')
     +(items.length?'<div class="hint lead">Tell it: '
@@ -395,13 +403,12 @@ function runBox(s){
     +(items.length?'Type those here':'Anything this run should know? Optional.')
     +'"></textarea>'
     +scopeChoice()
-    +'<div class="row"><button class="btn-primary runbtn" id="preparebtn"'+(gate?' disabled':'')+'>Do it without me</button>'
-    +'<button class="pbtn" id="queuebtn">Put it on my plate instead</button>'
-    +(s.status==='draft'?'<button class="pbtn okb" id="donowbtn">Do it with Claude now</button>':'')
+    +'<div class="row">'+(isDraft?donowBtn+queueBtn+prepareBtn:prepareBtn+queueBtn)
     +'<span class="sstatus err" id="runstatus">'+gate+'</span>'
     +'<span class="sstatus" id="queuestatus"></span>'
     +'<span class="sstatus" id="donowstatus"></span></div>'
-    +'<div class="hint">"Do it without me" prepares the work in the background inside a safety cage (it can’t send, publish, or spend; it can only research the sources this procedure declares) and the result lands under "Waiting for you", with a notification. It uses a little of your Claude plan’s automation allowance; the dollar figures track that usage, not separate charges. "On my plate" does it with you, live, next time you open Claude.</div></div>';
+    +'<div class="hint">'+(isDraft?'"Do it with Claude now" opens a window and does it with you, live. ':'')
+    +'"Do it without me" prepares the work in the background inside a safety cage (it can’t send, publish, or spend; it can only research the sources this procedure declares) and the result lands under "Waiting for you", with a notification. It uses a little of your Claude plan’s automation allowance; the dollar figures track that usage, not separate charges. "On my plate" does it with you, live, next time you open Claude.</div></div>';
 }
 function scopeChoice(){
   if(!CFG.project)return '';
