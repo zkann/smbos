@@ -5,7 +5,38 @@ from pathlib import Path
 
 from conftest import SCRIPTS, make_sop
 
+import run_sop
+import state_store as ss
+
 RUNNER = SCRIPTS / "run_sop.py"
+
+
+def test_surface_mapping():
+    assert run_sop._surface("cron") == "cron"
+    assert run_sop._surface("scheduled") == "cron"
+    assert run_sop._surface("manual") == "cc"
+    assert run_sop._surface("") == "cc"
+    assert run_sop._surface("linear") == "api"
+    assert run_sop._surface("slack") == "api"
+
+
+def test_ok_run_recorded_in_state_store(library, fake_claude):
+    r = run(["weekly-metrics-report", "--sop-dir", str(library), "--source", "cron"], fake_claude)
+    assert r.returncode == 0
+    runs = ss.recent_runs(library)
+    assert len(runs) == 1
+    row = runs[0]
+    assert row["sop_id"] == "weekly-metrics-report"
+    assert row["result"] == "ok"
+    assert row["surface"] == "cron"
+    assert row["ended_at"] is not None  # finish recorded
+
+
+def test_refused_run_not_recorded_in_state_store(library, fake_claude):
+    make_sop(library, id="draft-task", status="draft")
+    r = run(["draft-task", "--sop-dir", str(library)], fake_claude)
+    assert r.returncode == 1
+    assert ss.recent_runs(library) == []  # refused before start_run -> no run row
 
 
 def run(args, env, cwd=None):

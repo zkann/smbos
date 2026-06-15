@@ -20,10 +20,33 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import state_store
 from smbos_lib import (acquire_run_lock, append_run, clear_run_active,
                        find_sop as lib_find_sop, frontmatter_field, is_drifted,
                        mark_run_active, month_spend, notify, release_run_lock,
                        resolve_sop_dir, split_frontmatter)
+
+
+def _surface(source):
+    """Map the trigger source to a state_store surface (cc | api | cron)."""
+    s = (source or "").lower()
+    if "cron" in s or "schedul" in s:
+        return "cron"
+    if s in ("manual", "cc", "cli", ""):
+        return "cc"
+    return "api"  # external triggers (dashboard, linear, slack, webhook, ...)
+
+
+def _record_run_finish(sop_dir, run_row_id, result, cost):
+    """Best-effort: record the run's terminal result in the live-mirror store. Recording to
+    the mirror must NEVER break or fail the actual run, hence the broad guard."""
+    if run_row_id is None:
+        return
+    try:
+        state_store.finish_run(sop_dir, run_row_id, result=result,
+                               cost_usd=cost if isinstance(cost, (int, float)) else 0.0)
+    except Exception:  # noqa: BLE001 - mirror recording is best-effort, never fatal to the run
+        pass
 
 
 def find_sop(sop_dir, sop_id):
@@ -310,6 +333,13 @@ def main():
     # A graceful exit clears it below; a hard kill leaves it (that's the signal).
     marker = mark_run_active(sop_dir, args.sop_id,
                              "prepare" if args.prepare else "triggered", args.source)
+    # Record the run in the live-mirror store (metadata only; liveness stays the flock's
+    # job). Best-effort: a store failure must never break the actual run.
+    try:
+        run_row_id = state_store.start_run(sop_dir, args.sop_id, surface=_surface(args.source),
+                                           content_hash=meta.get("content_hash"))
+    except Exception:  # noqa: BLE001 - mirror recording is best-effort
+        run_row_id = None
 
     pending_dir = sop_dir / "pending"
     pending_dir.mkdir(exist_ok=True)
@@ -365,6 +395,7 @@ def main():
         clear_run_active(marker)
         release_run_lock(lock)
         log_run(sop_dir, {**base, "result": "error", "cost_usd": 0, "note": "timeout after 900s"})
+        _record_run_finish(sop_dir, run_row_id, "error", 0)
         notify("SmbOS", f"{args.sop_id} took too long and was stopped.")
         sys.exit("Run timed out.")
     except OSError as e:
@@ -373,6 +404,7 @@ def main():
         release_run_lock(lock)
         log_run(sop_dir, {**base, "result": "error", "cost_usd": 0,
                           "note": f"could not start the claude run: {e}"})
+        _record_run_finish(sop_dir, run_row_id, "error", 0)
         notify("SmbOS: needs attention", f"{args.sop_id} could not start ({e.__class__.__name__}).")
         sys.exit(f"Could not start the run: {e}")
     finally:
@@ -403,6 +435,7 @@ def main():
     log_run(sop_dir, {**base, "result": result, "cost_usd": cost, "duration_ms": duration,
                       "session_id": session_id, "pending": str(pending_file) if parked else None,
                       "prepare": True if args.prepare else None, "note": summary})
+    _record_run_finish(sop_dir, run_row_id, result, cost)
     title = frontmatter_field(sop_path, "title") or args.sop_id
     if parked:
         notify("SmbOS: result waiting for you", f"{title} finished preparing. Review it on the dashboard or in your next session.")
