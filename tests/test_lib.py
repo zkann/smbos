@@ -60,3 +60,49 @@ def test_digest_not_treated_as_sop(tmp_path):
     names = [p.name for p in iter_sops(d)]
     assert "DIGEST.md" not in names and "real.md" in names
     assert find_sop(d, "DIGEST") is None
+
+
+def test_run_marker_running_then_clear(library):
+    m = lib.mark_run_active(library, "weekly-metrics-report", "prepare", "dashboard")
+    runs = lib.active_runs(library)
+    assert len(runs) == 1
+    assert runs[0]["sop"] == "weekly-metrics-report"
+    assert runs[0]["mode"] == "prepare"
+    assert runs[0]["state"] == "running"  # this test process's pid is alive and fresh
+    lib.clear_run_active(m)
+    assert lib.active_runs(library) == []
+
+
+def test_run_marker_stalled_when_pid_dead(library):
+    import json
+    from datetime import datetime, timezone
+    d = library / "active-runs"
+    d.mkdir(exist_ok=True)
+    (d / "x__2147483646.json").write_text(json.dumps(
+        {"sop": "x", "pid": 2147483646,
+         "started": datetime.now(timezone.utc).isoformat(),
+         "mode": "prepare", "source": "dashboard"}), encoding="utf-8")
+    runs = lib.active_runs(library)
+    assert len(runs) == 1 and runs[0]["state"] == "stalled"
+
+
+def test_run_marker_stalled_when_too_old(library):
+    import json, os
+    from datetime import datetime, timezone, timedelta
+    d = library / "active-runs"
+    d.mkdir(exist_ok=True)
+    old = (datetime.now(timezone.utc) - timedelta(seconds=3000)).isoformat()
+    (d / f"y__{os.getpid()}.json").write_text(json.dumps(
+        {"sop": "y", "pid": os.getpid(), "started": old}), encoding="utf-8")
+    # too old to be a legitimate live run even though the pid is alive
+    assert lib.active_runs(library)[0]["state"] == "stalled"
+
+
+def test_mark_run_supersedes_same_sop(library):
+    import json, os
+    d = library / "active-runs"
+    d.mkdir(exist_ok=True)
+    (d / "dup__111.json").write_text(json.dumps({"sop": "dup", "pid": 111, "started": "x"}), encoding="utf-8")
+    lib.mark_run_active(library, "dup")  # prunes prior dup__*.json, writes one for this pid
+    files = list(d.glob("dup__*.json"))
+    assert len(files) == 1 and str(os.getpid()) in files[0].name

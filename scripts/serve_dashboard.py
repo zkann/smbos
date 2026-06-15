@@ -663,7 +663,7 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(200, html, "text/html")
 
     def do_POST(self):
-        if self.path not in ("/api/suggest", "/api/resolve", "/api/run", "/api/queue", "/api/launch", "/api/launch-permission", "/api/settings"):
+        if self.path not in ("/api/suggest", "/api/resolve", "/api/run", "/api/queue", "/api/launch", "/api/launch-permission", "/api/settings", "/api/clear-run"):
             return self._send(404, '{"error":"not found"}')
         if self.headers.get("X-Token") != TOKEN:
             return self._send(403, '{"error":"bad or missing token"}')
@@ -688,6 +688,14 @@ class Handler(BaseHTTPRequestHandler):
                         append_suggestion(self.sop_dir, str(target.relative_to(self.sop_dir)),
                                           f"(discarded a prepared result) {reason}")
                 return self._send(200, json.dumps({"ok": True, "status": status}))
+            if self.path == "/api/clear-run":
+                name = Path(str(payload.get("file", ""))).name
+                if name:
+                    try:
+                        (self.sop_dir / "active-runs" / name).unlink()
+                    except OSError:
+                        pass
+                return self._send(200, json.dumps({"ok": True}))
             if self.path == "/api/launch":
                 msg = launch(self.sop_dir, payload)
                 return self._send(200, json.dumps({"ok": True, "did": msg}))

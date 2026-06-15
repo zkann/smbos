@@ -19,9 +19,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from smbos_lib import (acquire_run_lock, append_run, find_sop as lib_find_sop,
-                       frontmatter_field, is_drifted, month_spend, notify,
-                       release_run_lock, resolve_sop_dir, split_frontmatter)
+from smbos_lib import (acquire_run_lock, append_run, clear_run_active,
+                       find_sop as lib_find_sop, frontmatter_field, is_drifted,
+                       mark_run_active, month_spend, notify, release_run_lock,
+                       resolve_sop_dir, split_frontmatter)
 
 
 def find_sop(sop_dir, sop_id):
@@ -242,6 +243,11 @@ def main():
         sys.exit(f"Refused (free): '{args.sop_id}' is already running. "
                  "Wait for it to finish; its result will appear under \"waiting for you\".")
 
+    # Mark the run in-flight so the dashboard can show running / stalled state.
+    # A graceful exit clears it below; a hard kill leaves it (that's the signal).
+    marker = mark_run_active(sop_dir, args.sop_id,
+                             "prepare" if args.prepare else "triggered", args.source)
+
     pending_dir = sop_dir / "pending"
     pending_dir.mkdir(exist_ok=True)
     pending_file = pending_dir / (f"{now.strftime('%Y%m%dT%H%M%S')}-"
@@ -286,6 +292,7 @@ def main():
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=900, cwd=run_cwd)
     except subprocess.TimeoutExpired:
         release_run_lock(lock)
+        clear_run_active(marker)
         log_run(sop_dir, {**base, "result": "error", "cost_usd": 0, "note": "timeout after 900s"})
         notify("SmbOS", f"{args.sop_id} took too long and was stopped.")
         sys.exit("Run timed out.")
@@ -307,6 +314,7 @@ def main():
         summary = (proc.stdout or proc.stderr or "")[:300]
 
     release_run_lock(lock)
+    clear_run_active(marker)
     parked = pending_file.exists()
     if args.prepare and not parked and not is_error:
         # the artifact IS the contract; producing none is a failure, harness-checked
