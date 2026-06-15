@@ -124,6 +124,20 @@ def test_events_emits_heartbeat(tmp_path, monkeypatch):
     assert any("event: heartbeat" in e for e in events)
 
 
+def test_cors_allows_only_the_legacy_origin(tmp_path):
+    # the legacy dashboard page (its loopback origin) may consume the stream cross-origin;
+    # any other origin gets no Access-Control-Allow-Origin (browser blocks the read)
+    app = dashboard_app.create_app(tmp_path)
+    token = lib.dashboard_token(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        legacy = client.get("/api/plate", params={"t": token},
+                            headers={"Origin": "http://127.0.0.1:8765"})
+        assert legacy.headers.get("access-control-allow-origin") == "http://127.0.0.1:8765"
+        evil = client.get("/api/plate", params={"t": token},
+                          headers={"Origin": "http://evil.example.com"})
+        assert evil.headers.get("access-control-allow-origin") is None
+
+
 def test_rejects_non_loopback_host(tmp_path):
     # DNS-rebinding defense: a non-loopback Host is 403'd even with a valid token
     ss.record_task(tmp_path, "ops", "review", "secret-ish")
