@@ -61,8 +61,11 @@ function mdToHtml(md){
 // The `## Candidates` json block is machine-readable data that drives the
 // per-item Start buttons; keep it out of the human-rendered body so it never
 // shows as raw JSON. The candidates appear as clickable rows instead.
+// Anchor to the exact `## Candidates` heading line (matching parse_candidates
+// in generate_dashboard.py); a looser match would swallow a human heading like
+// `## Candidates for review` and drop the prose summary with it.
 function stripCandidatesBlock(body){
-  return body.replace(/\n*##\s+Candidates\b[\s\S]*?```json[\s\S]*?```[ \t]*/i,'\n');
+  return body.replace(/\n*^##\s+Candidates[ \t]*$[\s\S]*?```json[\s\S]*?```[ \t]*/im,'\n');
 }
 function section(body,name){
   const re=new RegExp('## '+name+'\\r?\\n([\\s\\S]*?)(?=\\r?\\n## |$)');
