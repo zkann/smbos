@@ -9,6 +9,7 @@ Working rules for this repo:
 - Owner-facing copy uses plain words: no cron syntax, no raw errors, no em dashes (house style). Shared vocabulary: "waiting for you", "on your plate", "in flight", "coming up".
 - Dashboard changes need a screenshot check for every interactive state, not just DOM assertions (an invisible-disabled-button bug taught this).
 - Shared helpers live in `scripts/smbos_lib.py`; do not re-implement frontmatter parsing or directory resolution.
+- This is a public repo. Examples in docs, code, tests, CHANGELOG, and commit/PR text stay generic (client/invoice/proposal/onboarding processes; `~/clients/acme` for a project folder). Never mirror a real user's private workflow, clients, employer, or local file paths.
 
 ## Skill routing
 
