@@ -125,6 +125,8 @@
   .badge.trusted{background:var(--green-soft);color:var(--green);border-color:var(--green-border)}
   .badge.archived{background:var(--archived-bg);color:var(--subtle-fg);border-color:var(--border)}
   .badge.pending{background:var(--amber-soft);color:var(--amber);border-color:var(--amber-border)}
+  /* partial = a factual caveat (prepared work is incomplete), not an attention state; rendered quiet, distinct from amber pending/draft */
+  .badge.partial{background:var(--card-raised);color:var(--muted-fg);border-color:var(--border-strong)}
 
   .card p{margin:8px 0 0;color:var(--muted-fg);font-size:13.5px;min-height:20px}
   .card .stats{margin-top:12px;display:flex;gap:14px;font-size:13px;color:var(--subtle-fg);flex-wrap:wrap}

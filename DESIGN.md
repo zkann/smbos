@@ -16,6 +16,7 @@ shadcn zinc-dark tokens hand-ported to plain CSS (`assets/style.css` :root), fus
 - Ink: `--foreground #fafafa`, `--muted-fg #a1a1aa`, `--subtle-fg #85858f` (AA-checked at 5.2:1)
 - Primary signal: green `#22c55e` (live dot, current stage, progress, primary buttons with `#052e16` text)
 - Status: draft = amber `#fbbf24`, active = blue `#60a5fa`, trusted = green `#4ade80`, each as soft translucent badges (10-12% tint + 25% border)
+- Badges carry one meaning per color: `pending` (awaiting your approval) is amber like draft; `partial` (a prepared deliverable that came back incomplete) is a quiet neutral chip (`--card-raised` / `--muted-fg`), not amber, because it's a factual caveat rather than an attention state.
 - Risk: red `--red #f87171` is reserved for danger, not status. It marks the lost-connection banner and the "skip approval" permission warning (`.setwarn`). Amber stays caution/draft; red stays "this removes a safeguard." Don't reuse red for a benign state.
 - Secondary surfaces: `--chip-bg #18181b` (chips, tab rail), `--inset #0c0c0f` (sub-panels inside the dialog), `--border-strong #3f3f46` (hover borders, disabled dashes), `--primary-hover #1eb554`.
 - Rules: dark surfaces gain elevation by lightness steps, not shadows; status colors always ship with text labels; zero counts render neutral, never tinted; every text/surface pair stays WCAG AA (verified in the 0.18.0 PR). No hex literals outside `:root`.
