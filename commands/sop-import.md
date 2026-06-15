@@ -7,13 +7,24 @@ Turn process knowledge the user already has into draft SOPs. Three modes; pick f
 
 Resolve the SOP directory: `$SOP_DIR` if set, else `./sops` if it exists, else `~/sops`. If none exists, run the /sop-init flow first.
 
+## Core principle: reference, do not paraphrase
+
+A real process often already has canonical pieces: a master procedure, a style guide, a checklist, reusable answer banks, and standing rules the user has captured as project memories. **The SOP should POINT to those (list them in Inputs, defer to them in the step that uses them) rather than restate them in its own words.** Paraphrasing a living rule-set into the SOP body silently drops every rule the paraphrase did not copy, and the copy drifts from the source over time. A step that says "do X following `that-doc`" is more faithful than a step that re-explains a thinned-out version of `that-doc`.
+
+So before drafting and before saving, **sweep for what already exists and wire it in**:
+- Reference docs near the source (same folder/repo): a `*-best-practices.md`, a master `*-sop.md`, a checklist, a template, a reusable bank. Add the relevant ones to the SOP's Inputs and have the right step defer to them.
+- Project memories: scan the relevant `~/.claude/projects/*/memory/` index for standing rules that govern this process, and cite the ones that apply in the step they belong to. (Recurring corrections usually already live here.)
+- If a sub-task is itself a documented procedure, compose it with `[[sop:id]]` (or reference its doc) instead of inlining a summary.
+
+When in doubt, the SOP is a thin orchestrator over the canonical corpus, not a second copy of it.
+
 ## Mode 1: Document (file path, URL, or pasted text)
 
 Source can be anything with process knowledge in it: a Notion export, a Google Doc, a checklist, a section of an employee handbook, an old email explaining how something is done.
 
 1. Read the source. Identify each distinct workflow in it; one doc often contains several.
 2. Present the candidate list first (title + one line each). Let the user pick before drafting anything.
-3. For each approved candidate, draft an SOP in the standard template. Map what the doc gives you; for gaps the doc does not answer, insert `[personalize: question]` slots rather than inventing answers.
+3. For each approved candidate, draft an SOP in the standard template. Map what the doc gives you; for gaps the doc does not answer, insert `[personalize: question]` slots rather than inventing answers. Apply the core principle above: where the source doc points to (or sits beside) other canonical docs and the user's project memories, reference them in Inputs and defer to them in the relevant step instead of copying their rules into the SOP.
 
 ## Mode 2: Interview (`interview`, or no source given)
 
@@ -35,6 +46,8 @@ Mine the user's past Claude Code sessions for recurring tasks that deserve SOPs.
 5. Privacy rule: quote the user's own words back only as evidence in this conversation; never copy credentials, client names, or message bodies into SOP files. Reference where things live instead.
 
 ## Saving (all modes)
+
+Before saving, do the reference sweep from the core principle: confirm any canonical docs and project memories that govern this process are referenced in the SOP (Inputs + the relevant step), not paraphrased into it.
 
 Imported SOPs get `status: draft` (they have not survived a real run), today's date, `runs: 0`, `clean_runs: 0`, and a changelog line naming the source ("imported from onboarding-checklist.docx" / "imported from interview" / "imported from session history"). Save to `<category>/<id>.md`, record the fingerprint (`python3 <plugin-root>/scripts/sop_version.py stamp <id>`), add the INDEX.md line, and commit if the SOP directory is a git repo.
 
