@@ -42,6 +42,7 @@ LAUNCH_CWD = str(Path.cwd())
 TOKEN = secrets.token_urlsafe(16)
 DEFAULT_PORT = 8765
 TOKEN_FILE = ".dashboard-token"
+SERVER_FILE = ".dashboard-server.json"  # records the ACTUAL bound port/token/pid
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 AGENT_LABEL = "com.smbos.dashboard"
 
@@ -94,16 +95,53 @@ def stable_url(sop_dir):
                                               get_or_create_token(sop_dir))
 
 
-def live_server_url(sop_dir):
-    """The stable URL if a healthy dashboard is already serving it, else None."""
+def _ping(port, tok):
     from urllib.request import urlopen
     from urllib.error import URLError
-    port, tok = dashboard_port(sop_dir), get_or_create_token(sop_dir)
     try:
         with urlopen("http://127.0.0.1:{}/api/ping?t={}".format(port, tok), timeout=0.5) as r:
-            if r.status == 200 and b'"ok"' in r.read():
-                return stable_url(sop_dir)
+            return r.status == 200 and b'"ok"' in r.read()
     except (URLError, OSError):
+        return False
+
+
+def write_server_record(sop_dir, port, token):
+    """Record the ACTUAL bound port/token so a server on a fallback port stays
+    discoverable (folded in from the reuse work, beyond the deterministic URL)."""
+    rec = Path(sop_dir) / SERVER_FILE
+    try:
+        rec.write_text(json.dumps({"port": port, "token": token, "pid": os.getpid()}),
+                       encoding="utf-8")
+        os.chmod(rec, 0o600)
+    except OSError:
+        pass
+
+
+def clear_own_server_record(sop_dir):
+    rec = Path(sop_dir) / SERVER_FILE
+    try:
+        if json.loads(rec.read_text(encoding="utf-8")).get("pid") == os.getpid():
+            rec.unlink()
+    except (OSError, ValueError):
+        pass
+
+
+def live_server_url(sop_dir):
+    """A healthy dashboard already serving this library, else None. Checks the
+    recorded actual port first (covers a fallback port), then the fixed port."""
+    rec = Path(sop_dir) / SERVER_FILE
+    try:
+        info = json.loads(rec.read_text(encoding="utf-8"))
+        port, tok = int(info["port"]), str(info["token"])
+        if _ping(port, tok):
+            return "http://127.0.0.1:{}/?t={}".format(port, tok)
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    if _ping(dashboard_port(sop_dir), get_or_create_token(sop_dir)):
+        return stable_url(sop_dir)
+    try:
+        rec.unlink()  # stale record, clear it
+    except OSError:
         pass
     return None
 
@@ -733,12 +771,15 @@ def serve(sop_dir, daemon=False):
         port = srv.server_address[1]
         print("Port {} was busy; using {} for this run (URL is not the stable one).".format(
             dashboard_port(sop_dir), port), flush=True)
+    write_server_record(sop_dir, port, TOKEN)
     print("SmbOS live dashboard: http://127.0.0.1:{}/?t={}".format(port, TOKEN), flush=True)
     print("Reading {}. Ctrl-C to stop.".format(sop_dir), flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        clear_own_server_record(sop_dir)
 
 
 def main():

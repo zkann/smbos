@@ -58,3 +58,30 @@ def test_install_reports_launchctl_failure(tmp_path, monkeypatch):
                         lambda cmd, **kw: type("R", (), {"returncode": 1, "stderr": "boom"})())
     ok, msg = sv.install_agent(tmp_path)
     assert ok is False and "boom" in msg
+
+
+def test_record_makes_fallback_port_discoverable(tmp_path, monkeypatch):
+    import json, stat, os
+    # a server that fell back to a random port writes its actual port/token
+    sv.write_server_record(tmp_path, 51234, "tok-abc")
+    rec = tmp_path / sv.SERVER_FILE
+    assert json.loads(rec.read_text())["port"] == 51234
+    assert stat.S_IMODE(os.stat(rec).st_mode) == 0o600
+    # live_server_url pings the RECORDED port (not the fixed one) first
+    monkeypatch.setattr(sv, "_ping", lambda port, tok: port == 51234 and tok == "tok-abc")
+    assert sv.live_server_url(tmp_path) == "http://127.0.0.1:51234/?t=tok-abc"
+    # nothing answering -> stale record cleared, None
+    monkeypatch.setattr(sv, "_ping", lambda port, tok: False)
+    assert sv.live_server_url(tmp_path) is None
+    assert not rec.exists()
+
+
+def test_clear_own_record_respects_pid(tmp_path):
+    import json, os
+    rec = tmp_path / sv.SERVER_FILE
+    rec.write_text(json.dumps({"port": 1, "token": "x", "pid": os.getpid()}))
+    sv.clear_own_server_record(tmp_path)
+    assert not rec.exists()
+    rec.write_text(json.dumps({"port": 1, "token": "x", "pid": 999999}))  # someone else's
+    sv.clear_own_server_record(tmp_path)
+    assert rec.exists()  # left alone
