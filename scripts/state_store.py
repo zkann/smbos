@@ -24,7 +24,8 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 1  # bump when CURRENT_SCHEMA changes; migrations key off PRAGMA user_version
+SCHEMA_VERSION = 2  # bump when SCHEMA_STATEMENTS changes; migrations key off PRAGMA user_version
+# v2: partial unique index on (domain, source_ref) so imports can upsert idempotently.
 DB_NAME = "state.db"
 BUSY_TIMEOUT_MS = 5000
 
@@ -50,6 +51,11 @@ SCHEMA_STATEMENTS = (
         updated_at TEXT NOT NULL
     )""",
     "CREATE INDEX IF NOT EXISTS idx_task_status_priority ON task(status, priority DESC, created_at, id)",
+    # v2: a sourced task is unique per (domain, source_ref) so re-imports upsert instead of
+    # duplicating. Partial (source_ref IS NOT NULL) so ad-hoc tasks with no source still insert
+    # freely. A v1 DB with pre-existing dups is deduped by _apply_migrations BEFORE this index
+    # builds (otherwise the build raises and bricks the DB).
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_task_source ON task(domain, source_ref) WHERE source_ref IS NOT NULL",
     """CREATE TABLE IF NOT EXISTS run (
         id INTEGER PRIMARY KEY,
         sop_id TEXT NOT NULL,
@@ -83,6 +89,13 @@ def _now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def _norm_source(source_ref):
+    """Empty string means "no source", normalize it to NULL so it is never deduped as a
+    real key. (The partial unique index treats '' as a value; a stringifying caller could
+    otherwise collide every empty source into one row.)"""
+    return None if source_ref in (None, "") else source_ref
+
+
 def db_path(sop_dir):
     return Path(sop_dir) / DB_NAME
 
@@ -114,13 +127,40 @@ def _migrate(conn):
     try:
         ver = conn.execute("PRAGMA user_version").fetchone()[0]  # re-check under the lock
         if ver < SCHEMA_VERSION:
-            for stmt in SCHEMA_STATEMENTS:
-                conn.execute(stmt)
+            _apply_migrations(conn, ver)
             conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         conn.commit()
+    except sqlite3.IntegrityError as exc:
+        conn.rollback()  # e.g. the v2 unique index can't build over conflicting data we failed to dedup
+        raise StateStoreError(f"migration to v{SCHEMA_VERSION} failed on conflicting data: {exc}") from exc
     except BaseException:
         conn.rollback()
         raise
+
+
+def _table_exists(conn, name):
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+    ).fetchone() is not None
+
+
+def _apply_migrations(conn, from_ver):
+    """Bring the schema from `from_ver` up to SCHEMA_VERSION inside the caller's transaction.
+
+    Versioned pre-steps run first (data fixes that must happen before the idempotent base
+    schema), then SCHEMA_STATEMENTS (CREATE ... IF NOT EXISTS) creates anything missing.
+    """
+    # 1 -> 2: an existing v1 table may hold duplicate (domain, source_ref) rows (v1 had no
+    # uniqueness). Collapse them, keeping the newest id, BEFORE the v2 unique index is built,
+    # or the index creation raises and would otherwise brick the DB on every open. No-op on a
+    # fresh DB (the task table doesn't exist yet) and never re-runs (gated on from_ver < 2).
+    if from_ver < 2 and _table_exists(conn, "task"):
+        conn.execute(
+            "DELETE FROM task WHERE source_ref IS NOT NULL AND id NOT IN ("
+            " SELECT MAX(id) FROM task WHERE source_ref IS NOT NULL GROUP BY domain, source_ref)"
+        )
+    for stmt in SCHEMA_STATEMENTS:
+        conn.execute(stmt)
 
 
 SETUP_ATTEMPTS = 6  # retries for the transient lock during a concurrent first-creation race
@@ -185,6 +225,7 @@ def data_version(conn):
 def record_task(sop_dir, domain, kind, subject, status="waiting", priority=0, source_ref=None):
     if status not in TASK_STATUSES:
         raise StateStoreError(f"invalid task status {status!r}; expected one of {sorted(TASK_STATUSES)}")
+    source_ref = _norm_source(source_ref)
     now = _now()
     with connect(sop_dir) as conn:
         cur = conn.execute(
@@ -194,6 +235,50 @@ def record_task(sop_dir, domain, kind, subject, status="waiting", priority=0, so
         )
         conn.commit()
         return cur.lastrowid
+
+
+def upsert_task(sop_dir, domain, kind, subject, status=None, priority=0, source_ref=None):
+    """Insert a task, or update the existing one with the same (domain, source_ref).
+
+    Idempotent for imports: re-running with the same source_ref updates that row in place
+    (preserving its created_at) instead of duplicating. A NULL source_ref always inserts;
+    ad-hoc tasks with no source are not deduped. Returns the task id.
+
+    status=None means "insert as 'waiting', but LEAVE an existing row's status unchanged".
+    This is what makes re-import/sync safe: a task you marked done or dismissed is not
+    resurrected onto the plate by a later backfill. Pass an explicit status only when the
+    source authoritatively owns it (it is then written on both insert and update).
+    """
+    if status is not None and status not in TASK_STATUSES:
+        raise StateStoreError(f"invalid task status {status!r}; expected one of {sorted(TASK_STATUSES)}")
+    insert_status = status or "waiting"
+    source_ref = _norm_source(source_ref)
+    now = _now()
+    with connect(sop_dir) as conn:
+        if source_ref is None:
+            cur = conn.execute(
+                "INSERT INTO task(domain,kind,subject,status,priority,source_ref,created_at,updated_at)"
+                " VALUES(?,?,?,?,?,?,?,?)",
+                (domain, kind, subject, insert_status, priority, None, now, now),
+            )
+            return cur.lastrowid
+        # On conflict, always refresh content fields; refresh status ONLY when the caller
+        # supplied one, so a locally completed/dismissed task isn't resurrected by a re-import.
+        # set_status is a fixed literal (no user input), so the f-string carries no injection risk.
+        set_status = "status=excluded.status, " if status is not None else ""
+        conn.execute(
+            "INSERT INTO task(domain,kind,subject,status,priority,source_ref,created_at,updated_at)"
+            " VALUES(?,?,?,?,?,?,?,?)"
+            # the partial index's WHERE predicate must be repeated here for ON CONFLICT to match it
+            " ON CONFLICT(domain, source_ref) WHERE source_ref IS NOT NULL DO UPDATE SET"
+            "   kind=excluded.kind, subject=excluded.subject, " + set_status +
+            "   priority=excluded.priority, updated_at=excluded.updated_at",
+            (domain, kind, subject, insert_status, priority, source_ref, now, now),
+        )
+        row = conn.execute(
+            "SELECT id FROM task WHERE domain=? AND source_ref=?", (domain, source_ref)
+        ).fetchone()
+        return row["id"]
 
 
 def set_task_status(sop_dir, task_id, status):
