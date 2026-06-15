@@ -63,6 +63,24 @@ def test_upsert_null_source_always_inserts(tmp_path):
     assert len(ss.plate(tmp_path)) == 2  # NULL source_ref is never deduped
 
 
+def test_upsert_preserves_status_when_not_supplied(tmp_path):
+    # the trust case: a completed/dismissed task must NOT be resurrected by a re-import
+    tid = ss.upsert_task(tmp_path, "ops", "review", "x", source_ref="s1")
+    ss.set_task_status(tmp_path, tid, "done")
+    ss.upsert_task(tmp_path, "ops", "review", "x (updated)", source_ref="s1")  # status=None -> keep done
+    assert ss.plate(tmp_path) == []  # not back on the plate
+    with ss.connect(tmp_path) as conn:
+        row = conn.execute("SELECT status, subject FROM task WHERE source_ref='s1'").fetchone()
+    assert row["status"] == "done" and row["subject"] == "x (updated)"  # content refreshed, status kept
+
+
+def test_upsert_sets_status_when_explicitly_supplied(tmp_path):
+    tid = ss.upsert_task(tmp_path, "ops", "review", "x", source_ref="s1")
+    ss.set_task_status(tmp_path, tid, "done")
+    ss.upsert_task(tmp_path, "ops", "review", "x", status="waiting", source_ref="s1")  # explicit overrides
+    assert len(ss.plate(tmp_path)) == 1
+
+
 def test_upsert_same_source_ref_different_domain_are_distinct(tmp_path):
     ss.upsert_task(tmp_path, "ops", "review", "x", source_ref="s1")
     ss.upsert_task(tmp_path, "billing", "review", "y", source_ref="s1")

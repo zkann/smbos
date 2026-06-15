@@ -237,15 +237,21 @@ def record_task(sop_dir, domain, kind, subject, status="waiting", priority=0, so
         return cur.lastrowid
 
 
-def upsert_task(sop_dir, domain, kind, subject, status="waiting", priority=0, source_ref=None):
+def upsert_task(sop_dir, domain, kind, subject, status=None, priority=0, source_ref=None):
     """Insert a task, or update the existing one with the same (domain, source_ref).
 
     Idempotent for imports: re-running with the same source_ref updates that row in place
-    (preserving its created_at) instead of duplicating. A NULL source_ref always inserts,
+    (preserving its created_at) instead of duplicating. A NULL source_ref always inserts;
     ad-hoc tasks with no source are not deduped. Returns the task id.
+
+    status=None means "insert as 'waiting', but LEAVE an existing row's status unchanged".
+    This is what makes re-import/sync safe: a task you marked done or dismissed is not
+    resurrected onto the plate by a later backfill. Pass an explicit status only when the
+    source authoritatively owns it (it is then written on both insert and update).
     """
-    if status not in TASK_STATUSES:
+    if status is not None and status not in TASK_STATUSES:
         raise StateStoreError(f"invalid task status {status!r}; expected one of {sorted(TASK_STATUSES)}")
+    insert_status = status or "waiting"
     source_ref = _norm_source(source_ref)
     now = _now()
     with connect(sop_dir) as conn:
@@ -253,17 +259,21 @@ def upsert_task(sop_dir, domain, kind, subject, status="waiting", priority=0, so
             cur = conn.execute(
                 "INSERT INTO task(domain,kind,subject,status,priority,source_ref,created_at,updated_at)"
                 " VALUES(?,?,?,?,?,?,?,?)",
-                (domain, kind, subject, status, priority, None, now, now),
+                (domain, kind, subject, insert_status, priority, None, now, now),
             )
             return cur.lastrowid
+        # On conflict, always refresh content fields; refresh status ONLY when the caller
+        # supplied one, so a locally completed/dismissed task isn't resurrected by a re-import.
+        # set_status is a fixed literal (no user input), so the f-string carries no injection risk.
+        set_status = "status=excluded.status, " if status is not None else ""
         conn.execute(
             "INSERT INTO task(domain,kind,subject,status,priority,source_ref,created_at,updated_at)"
             " VALUES(?,?,?,?,?,?,?,?)"
             # the partial index's WHERE predicate must be repeated here for ON CONFLICT to match it
             " ON CONFLICT(domain, source_ref) WHERE source_ref IS NOT NULL DO UPDATE SET"
-            "   kind=excluded.kind, subject=excluded.subject, status=excluded.status,"
+            "   kind=excluded.kind, subject=excluded.subject, " + set_status +
             "   priority=excluded.priority, updated_at=excluded.updated_at",
-            (domain, kind, subject, status, priority, source_ref, now, now),
+            (domain, kind, subject, insert_status, priority, source_ref, now, now),
         )
         row = conn.execute(
             "SELECT id FROM task WHERE domain=? AND source_ref=?", (domain, source_ref)

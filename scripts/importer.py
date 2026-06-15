@@ -45,11 +45,12 @@ def map_record(record, domain, source_key="id", kind_default="item"):
     except (TypeError, ValueError):
         raise ValueError(f"priority is not an integer: {prio!r}")
     source = record.get(source_key)
+    status = record.get("status")  # absent -> None -> upsert keeps an existing row's status
     return {
         "domain": domain,
         "kind": str(record.get("kind", kind_default)),
         "subject": str(subject).strip(),
-        "status": str(record.get("status", "waiting")),
+        "status": None if status is None else str(status),
         "priority": priority,
         "source_ref": None if source in (None, "") else str(source),  # empty source means no source
     }

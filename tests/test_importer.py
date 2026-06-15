@@ -46,6 +46,16 @@ def test_reimport_updates_and_is_resumable(tmp_path):
     assert revised["subject"] == "Acme invoice (revised)" and revised["priority"] == 5
 
 
+def test_reimport_does_not_resurrect_completed_task(tmp_path):
+    # a backfill/sync re-run must not pull a locally-completed task back onto the plate
+    recs = [{"id": "inv-1", "subject": "Acme invoice"}]
+    importer.import_records(tmp_path, "invoicing", recs)
+    tid = ss.plate(tmp_path)[0]["id"]
+    ss.set_task_status(tmp_path, tid, "done")
+    importer.import_records(tmp_path, "invoicing", recs)  # re-run; record carries no status
+    assert ss.plate(tmp_path) == []  # stays done
+
+
 def test_import_skips_bad_records_but_keeps_good(tmp_path):
     recs = [
         {"id": "ok-1", "subject": "valid"},
