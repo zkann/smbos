@@ -21,7 +21,7 @@ class _FakeRequest:
 
 def test_plate_requires_token(tmp_path):
     app = dashboard_app.create_app(tmp_path)
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost") as client:
         assert client.get("/api/plate").status_code == 401          # missing token
         assert client.get("/api/plate", params={"t": "wrong"}).status_code == 401  # bad token
 
@@ -31,7 +31,7 @@ def test_plate_returns_tasks_in_priority_order(tmp_path):
     ss.record_task(tmp_path, "ops", "review", "beta", priority=1)
     app = dashboard_app.create_app(tmp_path)
     token = lib.dashboard_token(tmp_path)
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost") as client:
         r = client.get("/api/plate", params={"t": token})
     assert r.status_code == 200
     assert [t["subject"] for t in r.json()["plate"]] == ["alpha", "beta"]
@@ -39,7 +39,7 @@ def test_plate_returns_tasks_in_priority_order(tmp_path):
 
 def test_events_requires_token(tmp_path):
     app = dashboard_app.create_app(tmp_path)
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost") as client:
         assert client.get("/events").status_code == 401
 
 
@@ -68,3 +68,69 @@ def test_events_generator_stops_on_disconnect(tmp_path):
 
     events = asyncio.run(asyncio.wait_for(drain(), timeout=5))
     assert len(events) == 1 and events[0].startswith("event: plate\n")
+
+
+class _ConnectedFor:
+    """Disconnects after `n` polls, so the streaming loop actually runs."""
+    def __init__(self, n):
+        self.n = n
+
+    async def is_disconnected(self):
+        self.n -= 1
+        return self.n < 0
+
+
+def test_events_emits_new_plate_after_db_change(tmp_path, monkeypatch):
+    # the held-connection data_version premise: a write from ANOTHER connection mid-stream
+    # is detected and pushed as a fresh plate. This is the loop body nothing else covers.
+    monkeypatch.setattr(dashboard_app, "POLL_SECONDS", 0.01)
+    monkeypatch.setattr(dashboard_app, "HEARTBEAT_SECONDS", 1000.0)  # keep heartbeat out of the way
+
+    async def run():
+        gen = dashboard_app.event_stream(tmp_path, _ConnectedFor(20))
+        events = [await gen.__anext__()]            # initial (empty) snapshot
+        ss.record_task(tmp_path, "ops", "review", "appeared")  # separate connection commits
+        try:
+            async for e in gen:
+                events.append(e)
+                if "appeared" in e:
+                    break
+        finally:
+            await gen.aclose()
+        return events
+
+    events = asyncio.run(asyncio.wait_for(run(), timeout=5))
+    assert events[0].startswith("event: plate")
+    assert any("appeared" in e for e in events[1:])  # change detected across connections
+
+
+def test_events_emits_heartbeat(tmp_path, monkeypatch):
+    monkeypatch.setattr(dashboard_app, "POLL_SECONDS", 0.01)
+    monkeypatch.setattr(dashboard_app, "HEARTBEAT_SECONDS", 0.02)  # ~2 polls
+
+    async def run():
+        gen = dashboard_app.event_stream(tmp_path, _ConnectedFor(50))
+        events = []
+        try:
+            async for e in gen:
+                events.append(e)
+                if "event: heartbeat" in e:
+                    break
+        finally:
+            await gen.aclose()
+        return events
+
+    events = asyncio.run(asyncio.wait_for(run(), timeout=5))
+    assert any("event: heartbeat" in e for e in events)
+
+
+def test_rejects_non_loopback_host(tmp_path):
+    # DNS-rebinding defense: a non-loopback Host is 403'd even with a valid token
+    ss.record_task(tmp_path, "ops", "review", "secret-ish")
+    app = dashboard_app.create_app(tmp_path)
+    token = lib.dashboard_token(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        bad = client.get("/api/plate", params={"t": token}, headers={"host": "evil.example.com"})
+        assert bad.status_code == 403
+        good = client.get("/api/plate", params={"t": token}, headers={"host": "127.0.0.1:8766"})
+        assert good.status_code == 200

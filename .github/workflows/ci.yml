@@ -30,11 +30,15 @@ jobs:
   # so the dependency-free parts stay verified on the macOS system python (3.9).
   test-app:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 3.9 backs the module's "Python 3.9+" claim (the macOS system python); 3.12 = venv target
+        python-version: ["3.9", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
       - run: pip install -r requirements-dev.txt
       - run: python -m pytest tests/ -q
 

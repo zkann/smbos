@@ -28,8 +28,8 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from generate_dashboard import SKIP_NAMES, build_html, parse_candidates, resolve_sop_dir, sop_next
 from smbos_lib import find_sop as lib_find_sop
-from smbos_lib import (frontmatter_field, is_drifted, parse_frontmatter,
-                       run_lock_held, split_frontmatter)
+from smbos_lib import (dashboard_token, frontmatter_field, is_drifted,
+                       parse_frontmatter, run_lock_held, split_frontmatter)
 
 MAX_TEXT = 2000
 NOTES_HEADING = "## Notes for next revision"
@@ -49,21 +49,12 @@ AGENT_LABEL = "com.smbos.dashboard"
 
 
 def get_or_create_token(sop_dir):
-    """The library's persistent dashboard token (created 0600 if absent)."""
-    f = Path(sop_dir) / TOKEN_FILE
-    try:
-        tok = f.read_text(encoding="utf-8").strip()
-        if tok:
-            return tok
-    except OSError:
-        pass
-    tok = secrets.token_urlsafe(16)
-    f.write_text(tok + "\n", encoding="utf-8")
-    try:
-        os.chmod(f, 0o600)
-    except OSError:
-        pass
-    return tok
+    """The persistent dashboard token (created 0600 if absent).
+
+    Delegates to smbos_lib.dashboard_token, the single source of truth, so this daemon and
+    the FastAPI app share one token and one atomic-creation path (no divergent tokens).
+    """
+    return dashboard_token(sop_dir)
 
 
 def rotate_token(sop_dir):

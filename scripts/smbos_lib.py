@@ -310,15 +310,28 @@ def append_run(sop_dir, record):
 def dashboard_token(sop_dir):
     """Read the dashboard's shared access token, creating it (0600) on first use.
 
-    Lives in <sop_dir>/.dashboard-token so the local dashboard server can gate its
-    endpoints. Shared by whatever serves the dashboard; the file is gitignored.
+    Lives in <sop_dir>/.dashboard-token so the local dashboard server(s) can gate their
+    endpoints. The single source of truth for the token, both the legacy daemon and the
+    FastAPI app call this so they always agree. Creation is atomic (O_CREAT|O_EXCL): if two
+    processes start against a fresh dir at once, exactly one writes and the rest read the
+    winner's token, so they never mint divergent tokens. The file is gitignored.
     """
     path = Path(sop_dir) / ".dashboard-token"
-    if path.exists():
-        token = path.read_text(encoding="utf-8").strip()
-        if token:
-            return token
+    existing = _read_token(path)
+    if existing:
+        return existing
     token = secrets.token_urlsafe(32)
-    path.write_text(token, encoding="utf-8")
-    path.chmod(stat.S_IRUSR | stat.S_IWUSR)  # 0600: owner-only
+    try:
+        fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, stat.S_IRUSR | stat.S_IWUSR)
+    except FileExistsError:
+        return _read_token(path) or token  # another process won the create race
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(token)
     return token
+
+
+def _read_token(path):
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""

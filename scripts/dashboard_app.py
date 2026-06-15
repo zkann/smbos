@@ -10,6 +10,11 @@ Not stdlib: depends on fastapi + uvicorn (see requirements.txt). The legacy daem
 stdlib; this app runs under its own venv. Liveness still belongs to the flock, this only
 reads metadata via state_store.
 
+DEFERRED (cutover lane): no launchd plist points here yet, so in production this app is
+manual-run only (`python scripts/dashboard_app.py` inside a venv with requirements.txt
+installed). The venv-aware plist + the legacy->new port swap land when the action endpoints
+are ported and the parity tests pass.
+
 Python 3.9+ (asyncio.to_thread / is_disconnected are 3.9-safe).
 """
 import argparse
@@ -22,7 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # allow `python3 scripts/dashboard_app.py`
 import smbos_lib as lib
@@ -46,9 +51,12 @@ async def event_stream(sop_dir, request):
     (the counter is not comparable across connections). Emits a plate snapshot on connect,
     a fresh plate whenever the DB changes, and a heartbeat so the client can tell a live but
     quiet stream from a dead one. Stops when the client disconnects."""
+    # The held connection (for the cross-poll-comparable data_version) stays on the event-loop
+    # thread; data_version is a lockless microsecond read, safe to call inline. plate() opens
+    # its own connection and is offloaded to a thread so a slow read can't stall the loop.
     with ss.connect(sop_dir) as conn:
         last_dv = ss.data_version(conn)
-        yield _sse("plate", json.dumps(ss.plate(sop_dir)))
+        yield _sse("plate", json.dumps(await asyncio.to_thread(ss.plate, sop_dir)))
         since_beat = 0.0
         while True:
             if await request.is_disconnected():
@@ -58,7 +66,7 @@ async def event_stream(sop_dir, request):
             dv = ss.data_version(conn)
             if dv != last_dv:
                 last_dv = dv
-                yield _sse("plate", json.dumps(ss.plate(sop_dir)))
+                yield _sse("plate", json.dumps(await asyncio.to_thread(ss.plate, sop_dir)))
             if since_beat >= HEARTBEAT_SECONDS:
                 since_beat = 0.0
                 yield _sse("heartbeat", json.dumps({"ts": _now()}))
@@ -69,6 +77,16 @@ def create_app(sop_dir):
     sop_dir = Path(sop_dir)
     token = lib.dashboard_token(sop_dir)
     app = FastAPI(title="SmbOS dashboard", docs_url=None, redoc_url=None)
+
+    @app.middleware("http")
+    async def _guard_host(request, call_next):
+        # DNS-rebinding / drive-by-localhost defense: only serve requests addressed to
+        # loopback. A malicious page that rebinds a hostname to 127.0.0.1 sends its own
+        # Host header, which this rejects (the token is the primary gate; this is depth).
+        hostname = (request.headers.get("host") or "").split(":")[0]
+        if hostname not in ("127.0.0.1", "localhost"):
+            return Response("forbidden host", status_code=403)
+        return await call_next(request)
 
     def check(t):
         # constant-time compare; token arrives as the ?t= query param (matches the legacy daemon)
