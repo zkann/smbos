@@ -867,7 +867,8 @@ def main():
         # the app's LaunchAgent). install_agent/_plist_xml stay for now as the rollback target.
         cutover = PLUGIN_ROOT / "scripts" / "cutover_dashboard.py"
         sys.exit("The always-on dashboard now runs the app. Install it with:\n"
-                 "  python3 {} {} install".format(cutover, sop_dir))
+                 "  python3 {} {} install".format(shlex.quote(str(cutover)),
+                                                  shlex.quote(str(sop_dir))))
     if cmd in ("uninstall", "stop"):
         print("Always-on dashboard removed." if uninstall_agent()
               else "No always-on dashboard was installed.")

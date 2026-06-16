@@ -175,10 +175,13 @@ def test_env_ready_false_when_venv_missing(tmp_path):
 def test_env_ready_false_when_app_deps_missing(monkeypatch, tmp_path):
     # venv interpreter present and SPA built, shared imports fine, but fastapi/uvicorn missing:
     # env_ready must say no so install rebuilds instead of flipping onto a crashing app.
-    py = tmp_path / "bin" / "python"; py.parent.mkdir(parents=True); py.write_text("#!")
+    py = tmp_path / "bin" / "python"
+    py.parent.mkdir(parents=True)
+    py.write_text("#!")
     monkeypatch.setattr(cut, "venv_python", lambda *a, **k: py)
     monkeypatch.setattr(cut, "FRONTEND", tmp_path)
-    (tmp_path / "dist").mkdir(); (tmp_path / "dist" / "index.html").write_text("x")
+    (tmp_path / "dist").mkdir()
+    (tmp_path / "dist" / "index.html").write_text("x")
     seen = {}
 
     def can_import(p, mods):
@@ -229,9 +232,9 @@ def test_install_builds_when_env_not_ready(monkeypatch, tmp_path, capsys):
     assert "http://127.0.0.1:8765" in capsys.readouterr().out
 
 
-def test_serve_install_redirects_to_the_app_installer(monkeypatch):
+def test_serve_install_redirects_to_the_app_installer(monkeypatch, tmp_path):
     # The retired daemon's `install` must not provision itself; it points at the cutover.
-    monkeypatch.setattr(sys, "argv", ["serve_dashboard.py", "/tmp/sops", "install"])
+    monkeypatch.setattr(sys, "argv", ["serve_dashboard.py", str(tmp_path), "install"])
     with pytest.raises(SystemExit) as e:
         legacy.main()
     assert "cutover_dashboard.py" in str(e.value) and "install" in str(e.value)

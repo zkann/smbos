@@ -251,7 +251,8 @@ def main(argv=None):
     if cmd is None:  # require an explicit verb: a bare path must not trigger a live flip
         sys.exit("usage: cutover_dashboard.py [install|migrate|build|url|uninstall] [sop_dir]")
     if cmd == "url":
-        print(legacy.stable_url(sop_dir)); return
+        print(legacy.stable_url(sop_dir))
+        return
     if cmd == "uninstall":
         ok = legacy.uninstall_agent()
         print("Always-on dashboard removed." if ok else "No always-on dashboard was installed.")
@@ -270,7 +271,8 @@ def main(argv=None):
         if ok:
             print("Always-on dashboard installed. It starts at login and serves a stable URL "
                   "(bookmark it):", flush=True)
-            print(legacy.stable_url(sop_dir)); return
+            print(legacy.stable_url(sop_dir))
+            return
     print(msg, flush=True)
     sys.exit(0 if ok else 1)
 
