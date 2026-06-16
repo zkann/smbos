@@ -342,6 +342,60 @@ def plate(sop_dir):
         return [dict(r) for r in rows]
 
 
+def in_flight(sop_dir):
+    """Tasks being worked right now: status 'in_flight', same ordering as the plate.
+
+    A task moves here when its launch opens a session for it; it leaves when the work
+    marks it done or dismissed. Mirrors plate() so the dashboard can show both lists.
+    """
+    with connect(sop_dir) as conn:
+        rows = conn.execute(
+            "SELECT * FROM task WHERE status='in_flight' ORDER BY priority DESC, created_at ASC, id ASC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def _coerce_task_id(task_id):
+    """A task id as an int, or raise StateStoreError. Accepts ints and digit strings (request
+    params arrive as strings), but REJECTS bools and non-integral floats: silently truncating
+    1.9 -> task 1 would launch/act on a different task than asked, which for an id that gates a
+    process spawn is a correctness bug, not a convenience."""
+    if isinstance(task_id, bool):
+        raise StateStoreError(f"task id is not an integer: {task_id!r}")
+    if isinstance(task_id, float):
+        if not task_id.is_integer():
+            raise StateStoreError(f"task id is not an integer: {task_id!r}")
+        return int(task_id)
+    try:
+        return int(task_id)
+    except (TypeError, ValueError):
+        raise StateStoreError(f"task id is not an integer: {task_id!r}")
+
+
+def get_task(sop_dir, task_id):
+    """One task row as a dict, or None if no task has that id. Raises StateStoreError if
+    task_id is not int-coercible (a malformed id from a request, not a missing row)."""
+    task_id = _coerce_task_id(task_id)
+    with connect(sop_dir) as conn:
+        row = conn.execute("SELECT * FROM task WHERE id=?", (task_id,)).fetchone()
+        return dict(row) if row is not None else None
+
+
+def claim_task(sop_dir, task_id):
+    """Atomically move a task from 'waiting' to 'in_flight'. Returns True iff THIS call made the
+    transition; False if the task wasn't waiting (missing, already picked up, or a concurrent
+    claim won the race). The single conditional UPDATE is the launch gate: it closes the
+    read-check-act window a double-click or a second client would otherwise drive into two
+    launches of one task. Raises StateStoreError on a non-integer id."""
+    task_id = _coerce_task_id(task_id)
+    with connect(sop_dir) as conn:
+        cur = conn.execute(
+            "UPDATE task SET status='in_flight', updated_at=? WHERE id=? AND status='waiting'",
+            (_now(), task_id),
+        )
+        return cur.rowcount == 1
+
+
 def recent_runs(sop_dir, limit=50):
     with connect(sop_dir) as conn:
         rows = conn.execute(
