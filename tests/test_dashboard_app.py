@@ -836,3 +836,11 @@ def test_launch_sop(tmp_path, monkeypatch):
         assert r.status_code == 200 and r.json()["sop"] == "triage"
         assert seen == {"kind": "sop", "id": "triage"}  # the browser sends only the id
         assert client.post("/api/launch-sop", headers=h, json={"id": "nope"}).status_code == 404
+
+
+def test_procedures_skips_unreadable_sop(tmp_path):
+    # one non-UTF-8 / unreadable SOP must not 500 the whole /api/procedures list
+    _make_sop(tmp_path, "good")
+    (tmp_path / "ops" / "bad.md").write_bytes(b"---\nid: bad\n---\n\xff\xfe not utf-8\n")
+    rows = dashboard_app._procedures(tmp_path)
+    assert [r["id"] for r in rows] == ["good"]  # bad skipped, no crash

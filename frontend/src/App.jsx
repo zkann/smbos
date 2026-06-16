@@ -46,6 +46,7 @@ export default function App() {
   const [procedures, setProcedures] = useState([])
   const [procBusy, setProcBusy] = useState({})
   const [procInputs, setProcInputs] = useState({})
+  const [procErr, setProcErr] = useState({})  // sop id -> the server's refusal reason (the 409 detail)
 
   useEffect(() => {
     // NOTE: do NOT strip ?t= from the URL. The page itself is token-gated (GET / requires ?t=
@@ -122,27 +123,37 @@ export default function App() {
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d) { setSettings(d.settings); setBudgetInput(String(d.settings.budget)) } })
       .catch(() => {})
+    refreshProcedures()
+  }, [])
+
+  const refreshProcedures = () =>
     fetch(`/api/procedures?t=${encodeURIComponent(token)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d) setProcedures(d.procedures) })
       .catch(() => {})
-  }, [])
 
   // POST a procedure action (run/queue/prepare/pick-up) with the header token. busyVal marks the
-  // row in flight; success clears it (the action's effect shows in Recent runs / a new session),
-  // an error leaves a retry.
+  // row in flight; success clears it (the action's effect shows in Recent runs / a new session).
+  // On a refusal the server's reason (the 409 detail, e.g. "changed outside the save flow, review
+  // it first" or "needs information") is surfaced inline so the row isn't a silent dead-end.
   async function procPost(url, body, sid, busyVal) {
     setProcBusy((s) => ({ ...s, [sid]: busyVal }))
+    setProcErr((s) => { const n = { ...s }; delete n[sid]; return n })
     try {
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-SMBOS-Token': token },
         body: JSON.stringify(body),
       })
-      if (!res.ok) throw new Error(String(res.status))
+      if (!res.ok) {
+        let detail = `Couldn't do that (${res.status}).`
+        try { const d = await res.json(); if (d && d.detail) detail = d.detail } catch (_) { /* keep generic */ }
+        throw new Error(detail)
+      }
       setProcBusy((s) => { const n = { ...s }; delete n[sid]; return n })
-    } catch (_) {
+    } catch (e) {
       setProcBusy((s) => ({ ...s, [sid]: 'error' }))
+      setProcErr((s) => ({ ...s, [sid]: e.message }))
     }
   }
   const runSop = (id, opts = {}) =>
@@ -407,7 +418,7 @@ export default function App() {
       </section>
 
       {procedures.length > 0 && (
-        <details className="panel procedures">
+        <details className="panel procedures" onToggle={(e) => { if (e.target.open) refreshProcedures() }}>
           <summary className="overline">Procedures</summary>
           <ol className="list">
             {procedures.map((p, i) => {
@@ -442,6 +453,7 @@ export default function App() {
                       </button>
                     </>
                   )}
+                  {procErr[p.id] && <span className="proc-err">{procErr[p.id]}</span>}
                 </li>
               )
             })}

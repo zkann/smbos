@@ -89,6 +89,8 @@ ol.list > li::before {
   border: 1px solid var(--input); border-radius: 6px; padding: 5px 9px; min-width: 160px;
 }
 .proc-inputs:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-color: var(--border-strong); }
+.procedures .list li { flex-wrap: wrap; }
+.proc-err { flex-basis: 100%; color: var(--red); font-size: 12px; padding-top: 4px; }
 .setrow { display: flex; align-items: center; gap: 10px; padding: 7px 0; }
 .setrow label { flex: 1; color: var(--muted-fg); font-size: 13px; }
 .setrow .prefix { color: var(--muted-fg); margin-left: auto; }

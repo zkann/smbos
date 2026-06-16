@@ -174,7 +174,7 @@ def _queue(sop_dir):
         for p in sorted(qdir.glob("*.md")):
             try:
                 m = lib.parse_frontmatter(p.read_text(encoding="utf-8"))
-            except OSError:
+            except (OSError, UnicodeDecodeError):  # skip an unreadable queue file, don't drop the list
                 continue
             if (m.get("status") or "").strip() != "queued":
                 continue
@@ -197,7 +197,7 @@ def _procedures(sop_dir):
     for p in lib.iter_sops(sop_dir):
         try:
             m = lib.parse_frontmatter(p.read_text(encoding="utf-8"))
-        except OSError:
+        except (OSError, UnicodeDecodeError):  # one unreadable SOP must not drop the whole list
             continue
         sid = m.get("id") or p.stem
         out.append({
