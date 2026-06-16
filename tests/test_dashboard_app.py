@@ -186,6 +186,60 @@ def test_runs_requires_token(tmp_path):
         assert client.get("/api/runs").status_code == 401
 
 
+def test_runs_liveness_open_run_is_stalled_without_flock(tmp_path, monkeypatch):
+    rid = ss.start_run(tmp_path, "weekly-report", surface="cron")  # open: no finish recorded
+    # no live flock for its SOP -> the open run died without finishing -> stalled, not running
+    monkeypatch.setattr(dashboard_app.lib, "active_runs", lambda sd: [])
+    assert dashboard_app._runs_with_liveness(tmp_path)[0]["state"] == "stalled"
+    # flock held for its SOP -> genuinely running
+    monkeypatch.setattr(dashboard_app.lib, "active_runs",
+                        lambda sd: [{"sop": "weekly-report", "state": "running"}])
+    assert dashboard_app._runs_with_liveness(tmp_path)[0]["state"] == "running"
+    # a recorded result wins regardless of markers
+    ss.finish_run(tmp_path, rid, "ok")
+    assert dashboard_app._runs_with_liveness(tmp_path)[0]["state"] == "done"
+
+
+def test_runs_liveness_error_and_only_newest_open_runs(tmp_path, monkeypatch):
+    e = ss.start_run(tmp_path, "sync", surface="cron"); ss.finish_run(tmp_path, e, "error")
+    # two open runs of the same SOP with the flock held: only the NEWEST reads running, the
+    # older open row is a previous run that never closed -> stalled
+    o1 = ss.start_run(tmp_path, "dup", surface="cc")
+    o2 = ss.start_run(tmp_path, "dup", surface="cc")
+    monkeypatch.setattr(dashboard_app.lib, "active_runs",
+                        lambda sd: [{"sop": "dup", "state": "running"}])
+    by_id = {r["id"]: r["state"] for r in dashboard_app._runs_with_liveness(tmp_path)}
+    assert by_id[o2] == "running" and by_id[o1] == "stalled"
+    assert by_id[e] == "error"
+
+
+def test_events_emits_runs_on_liveness_change(tmp_path, monkeypatch):
+    # a run going stalled is a flock release, which writes NOTHING to the DB (data_version is
+    # unchanged); the stream must still push a fresh runs frame off the liveness signature
+    monkeypatch.setattr(dashboard_app, "POLL_SECONDS", 0.01)
+    monkeypatch.setattr(dashboard_app, "HEARTBEAT_SECONDS", 1000.0)
+    ss.start_run(tmp_path, "weekly", surface="cron")  # open run
+    state = {"v": [{"sop": "weekly", "state": "running"}]}
+    monkeypatch.setattr(dashboard_app.lib, "active_runs", lambda sd: state["v"])
+
+    async def run():
+        gen = dashboard_app.event_stream(tmp_path, _ConnectedFor(50))
+        await gen.__anext__()                       # consume the initial plate frame
+        state["v"] = [{"sop": "weekly", "state": "stalled"}]  # flip liveness, no DB write
+        frames = []
+        try:
+            async for e in gen:
+                frames.append(e)
+                if e.startswith("event: runs\n") and "stalled" in e:
+                    break
+        finally:
+            await gen.aclose()
+        return frames
+
+    frames = asyncio.run(asyncio.wait_for(run(), timeout=5))
+    assert any(e.startswith("event: runs\n") and "stalled" in e for e in frames)
+
+
 def test_runs_returns_recorded_runs(tmp_path):
     rid = ss.start_run(tmp_path, "weekly-report", surface="cron")
     ss.finish_run(tmp_path, rid, result="ok", cost_usd=0.5)

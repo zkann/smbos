@@ -83,13 +83,49 @@ def _now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def _runs_with_liveness(sop_dir):
+    """Recent runs, each annotated with a derived `state`: 'done'/'error' from the recorded
+    result, or for a still-open run (no result yet) 'running' ONLY if the flock for its SOP is
+    actually held (lib.active_runs is the liveness authority) AND it's the newest open run for
+    that SOP; otherwise 'stalled'. So a run hard-killed without recording its finish shows as
+    stalled rather than a false 'running'.
+
+    Liveness is flock-authoritative, but it's correlated to a run row by sop_id + newest-open
+    (the run table has no per-run liveness handle). That correlation is exact as long as every
+    lock-holding run records its row via start_run -- which run_sop, the only thing that takes
+    the lock, does. A future per-run-id join (persisting the marker/pid on the run row) would
+    drop that assumption; until then a non-run_sop lock holder could in principle misattribute."""
+    runs = ss.recent_runs(sop_dir)
+    active = {r["sop"]: r["state"] for r in lib.active_runs(sop_dir)}  # sop_id -> running/stalled
+    seen_open = set()  # recent_runs is newest-first: the first open row per SOP is the live candidate
+    for r in runs:
+        result = r.get("result")
+        if result == "error":
+            r["state"] = "error"
+        elif result:
+            r["state"] = "done"
+        else:
+            sop = r.get("sop_id")
+            newest_open = sop not in seen_open
+            seen_open.add(sop)
+            r["state"] = "running" if (newest_open and active.get(sop) == "running") else "stalled"
+    return runs
+
+
+def _liveness_sig(sop_dir):
+    """A cheap, comparable signature of flock-derived run liveness. The SSE loop watches this so
+    a run going stalled (a flock release, which writes nothing to the DB and so doesn't move
+    data_version) still pushes a fresh runs frame."""
+    return tuple(sorted((r.get("sop", ""), r.get("state", "")) for r in lib.active_runs(sop_dir)))
+
+
 def _snapshot(sop_dir):
     """The live-mirror snapshots as SSE frames: the plate (waiting), what's in flight, and
-    recent runs. Runs in a worker thread (short DB reads) so it never blocks the event loop."""
+    recent runs (with liveness). Runs in a worker thread so it never blocks the event loop."""
     return [
         _sse("plate", json.dumps(ss.plate(sop_dir))),
         _sse("inflight", json.dumps(ss.in_flight(sop_dir))),
-        _sse("runs", json.dumps(ss.recent_runs(sop_dir))),
+        _sse("runs", json.dumps(_runs_with_liveness(sop_dir))),
     ]
 
 
@@ -134,14 +170,17 @@ def _launch_session(sop_dir, prompt):
 
 async def event_stream(sop_dir, request):
     """SSE generator. Holds ONE connection so PRAGMA data_version is comparable across polls
-    (the counter is not comparable across connections). Emits a plate snapshot on connect,
-    a fresh plate whenever the DB changes, and a heartbeat so the client can tell a live but
-    quiet stream from a dead one. Stops when the client disconnects."""
+    (the counter is not comparable across connections). Emits a snapshot on connect, a fresh
+    snapshot whenever the DB changes OR run liveness changes, and a heartbeat so the client can
+    tell a live but quiet stream from a dead one. Stops when the client disconnects."""
     # The held connection (for the cross-poll-comparable data_version) stays on the event-loop
-    # thread; data_version is a lockless microsecond read, safe to call inline. plate() opens
-    # its own connection and is offloaded to a thread so a slow read can't stall the loop.
+    # thread; data_version is a lockless microsecond read, safe to call inline. The snapshot and
+    # the liveness read open their own files and are offloaded to a thread so a slow read can't
+    # stall the loop. Liveness (a flock release on a dying run) writes nothing to the DB, so
+    # data_version alone would miss a run going stalled; we watch it separately.
     with ss.connect(sop_dir) as conn:
         last_dv = ss.data_version(conn)
+        last_live = await asyncio.to_thread(_liveness_sig, sop_dir)
         for frame in await asyncio.to_thread(_snapshot, sop_dir):  # initial: plate, inflight, runs
             yield frame
         since_beat = 0.0
@@ -151,8 +190,9 @@ async def event_stream(sop_dir, request):
             await asyncio.sleep(POLL_SECONDS)
             since_beat += POLL_SECONDS
             dv = ss.data_version(conn)
-            if dv != last_dv:
-                last_dv = dv
+            live = await asyncio.to_thread(_liveness_sig, sop_dir)
+            if dv != last_dv or live != last_live:
+                last_dv, last_live = dv, live
                 for frame in await asyncio.to_thread(_snapshot, sop_dir):  # plate, inflight, runs on change
                     yield frame
             if since_beat >= HEARTBEAT_SECONDS:
@@ -207,7 +247,7 @@ def create_app(sop_dir, dist_dir=None):
     @app.get("/api/runs")
     def api_runs(t: str = ""):
         check(t)
-        return {"runs": ss.recent_runs(sop_dir)}
+        return {"runs": _runs_with_liveness(sop_dir)}
 
     @app.post("/api/launch")
     async def launch(request: Request):
