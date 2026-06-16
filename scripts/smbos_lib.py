@@ -231,6 +231,56 @@ def run_lock_held(sop_dir, sop_id):
         os.close(fd)
 
 
+# --- Run gating + parked-result helpers --------------------------------------
+# Relocated from serve_dashboard so both the legacy daemon and the FastAPI app
+# share one implementation (the daemon now imports these). Pure: each takes a
+# sop_dir plus arguments and touches only the library's own files; no daemon
+# process state (LAUNCH_CWD etc.) leaks in, which is why these move cleanly and
+# the stateful helpers (queue_run, append_suggestion, apply_item) do not yet.
+
+def required_inputs(sop_dir, sid):
+    """The SOP's `run_inputs:` frontmatter value (what a run must be given), or None.
+
+    A run gate: an SOP that declares run_inputs cannot run until they're supplied.
+    """
+    for p in Path(sop_dir).rglob(f"{sid}.md"):
+        m = re.search(r"^run_inputs: *(.+)$", p.read_text(encoding="utf-8")[:900], re.M)
+        return m.group(1).strip() if m else None
+    return None
+
+
+def has_unrecorded_changes(sop_dir, sid):
+    """True if the SOP file drifted from its recorded version (edited outside the save flow).
+
+    A run gate: a drifted SOP must be reviewed/re-stamped before it runs, so a silent
+    edit can't change what an unattended run does.
+    """
+    for p in Path(sop_dir).rglob(f"{sid}.md"):
+        meta, body = split_frontmatter(p.read_text(encoding="utf-8"))
+        return is_drifted(meta, body)
+    return False
+
+
+def resolve_pending_file(sop_dir, rel_name, decision):
+    """Approve or discard a parked result (a `pending/` file awaiting the owner's call).
+
+    Flips its `status: pending` frontmatter to approved/discarded and stamps a trailer.
+    Returns the new status. Raises FileNotFoundError if the item is gone, ValueError on a
+    bad decision. The basename is taken from rel_name so a path can't escape pending/.
+    """
+    p = Path(sop_dir) / "pending" / Path(str(rel_name)).name
+    if not p.is_file():
+        raise FileNotFoundError("no such pending item")
+    if decision not in ("approve", "discard"):
+        raise ValueError("decision must be approve or discard")
+    text = p.read_text(encoding="utf-8")
+    new_status = "approved" if decision == "approve" else "discarded"
+    text = re.sub(r"^status: *pending$", f"status: {new_status}", text, count=1, flags=re.M)
+    p.write_text(text + f"\n> {new_status} via dashboard on "
+                 f"{datetime.now(timezone.utc).isoformat()}\n", encoding="utf-8")
+    return new_status
+
+
 # --- Run-lifecycle markers ---------------------------------------------------
 # The flock says "a run is live" only while the holder is alive: a crashed or
 # killed run releases its lock, leaving no trace (the silent-failure class).

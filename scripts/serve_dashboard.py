@@ -28,8 +28,9 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from generate_dashboard import SKIP_NAMES, build_html, parse_candidates, resolve_sop_dir, sop_next
 from smbos_lib import find_sop as lib_find_sop
-from smbos_lib import (dashboard_token, frontmatter_field, is_drifted,
-                       parse_frontmatter, run_lock_held, split_frontmatter)
+from smbos_lib import (dashboard_token, frontmatter_field, has_unrecorded_changes,
+                       is_drifted, parse_frontmatter, required_inputs,
+                       resolve_pending_file, run_lock_held, split_frontmatter)
 
 MAX_TEXT = 2000
 NOTES_HEADING = "## Notes for next revision"
@@ -229,27 +230,6 @@ def append_suggestion(sop_dir, rel_path, text):
     target.write_text(content, encoding="utf-8")
 
 
-def resolve_pending_file(sop_dir, rel_name, decision):
-    p = sop_dir / "pending" / Path(str(rel_name)).name
-    if not p.is_file():
-        raise FileNotFoundError("no such pending item")
-    if decision not in ("approve", "discard"):
-        raise ValueError("decision must be approve or discard")
-    text = p.read_text(encoding="utf-8")
-    new_status = "approved" if decision == "approve" else "discarded"
-    text = re.sub(r"^status: *pending$", f"status: {new_status}", text, count=1, flags=re.M)
-    p.write_text(text + f"\n> {new_status} via dashboard on "
-                 f"{datetime.now(timezone.utc).isoformat()}\n", encoding="utf-8")
-    return new_status
-
-
-def required_inputs(sop_dir, sid):
-    for p in sop_dir.rglob(f"{sid}.md"):
-        m = re.search(r"^run_inputs: *(.+)$", p.read_text(encoding="utf-8")[:900], re.M)
-        return m.group(1).strip() if m else None
-    return None
-
-
 def sop_declared_folder(sop_dir, sid):
     """An SOP's canonical `folder:` (expanded), or None. When set, queued tasks
     and launches for that SOP route there regardless of where the dashboard was
@@ -286,13 +266,6 @@ def queue_run(sop_dir, sop_id, inputs=None, scope="here"):
         body += f"\nOwner's notes for the run:\n{str(inputs)[:2000]}\n"
     (qdir / f"{now.strftime('%Y%m%dT%H%M%S')}-{sid}.md").write_text(body, encoding="utf-8")
     return sid, project
-
-
-def has_unrecorded_changes(sop_dir, sid):
-    for p in sop_dir.rglob(f"{sid}.md"):
-        meta, body = split_frontmatter(p.read_text(encoding="utf-8"))
-        return is_drifted(meta, body)
-    return False
 
 
 def start_run(sop_dir, sop_id, inputs=None, prepare=False):

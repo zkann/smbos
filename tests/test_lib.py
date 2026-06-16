@@ -136,3 +136,46 @@ def test_mark_run_supersedes_same_sop(library):
     lib.mark_run_active(library, "dup")  # prunes prior dup__*.json, writes one for this pid
     files = list(d.glob("dup__*.json"))
     assert len(files) == 1 and str(os.getpid()) in files[0].name
+
+
+# --- relocated run-gate + parked-result helpers (cutover: moved from serve_dashboard) ---
+
+def test_required_inputs_reads_frontmatter(tmp_path):
+    d = tmp_path / "sops"
+    (d / "ops").mkdir(parents=True)
+    (d / "ops" / "with-inputs.md").write_text(
+        "---\nid: with-inputs\nrun_inputs: invoice number, client\n---\nbody", encoding="utf-8")
+    (d / "ops" / "no-inputs.md").write_text("---\nid: no-inputs\n---\nbody", encoding="utf-8")
+    assert lib.required_inputs(d, "with-inputs") == "invoice number, client"
+    assert lib.required_inputs(d, "no-inputs") is None
+    assert lib.required_inputs(d, "missing") is None
+
+
+def test_has_unrecorded_changes_drift(tmp_path):
+    d = tmp_path / "sops"
+    (d / "ops").mkdir(parents=True)
+    # unstamped (no content_hash) is NOT drift; a wrong stamped hash IS drift
+    (d / "ops" / "fresh.md").write_text("---\nid: fresh\nstatus: draft\n---\nbody", encoding="utf-8")
+    (d / "ops" / "stale.md").write_text(
+        "---\nid: stale\ncontent_hash: deadbeef\n---\nbody changed since stamp", encoding="utf-8")
+    assert lib.has_unrecorded_changes(d, "fresh") is False
+    assert lib.has_unrecorded_changes(d, "stale") is True
+    assert lib.has_unrecorded_changes(d, "missing") is False
+
+
+def test_resolve_pending_file_approve_discard_and_errors(tmp_path):
+    import pytest
+    pend = tmp_path / "pending"
+    pend.mkdir()
+    (pend / "p1.md").write_text("---\nstatus: pending\n---\nresult", encoding="utf-8")
+    assert lib.resolve_pending_file(tmp_path, "p1.md", "approve") == "approved"
+    body = (pend / "p1.md").read_text(encoding="utf-8")
+    assert "status: approved" in body and "approved via dashboard" in body
+    (pend / "p2.md").write_text("---\nstatus: pending\n---\nresult", encoding="utf-8")
+    assert lib.resolve_pending_file(tmp_path, "p2.md", "discard") == "discarded"
+    # only the basename is used, so a traversal attempt stays inside pending/
+    assert lib.resolve_pending_file(tmp_path, "../../etc/p1.md", "approve") == "approved"
+    with pytest.raises(ValueError):
+        lib.resolve_pending_file(tmp_path, "p2.md", "bogus")
+    with pytest.raises(FileNotFoundError):
+        lib.resolve_pending_file(tmp_path, "gone.md", "approve")
