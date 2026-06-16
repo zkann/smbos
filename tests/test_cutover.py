@@ -166,3 +166,72 @@ def test_compat_ok_passes_for_a_real_interpreter():
     # The system interpreter can import the shared stdlib modules from scripts/.
     ok, err = cut.compat_ok(sys.executable)
     assert ok, err
+
+
+def test_env_ready_false_when_venv_missing(tmp_path):
+    assert cut.env_ready(venv=tmp_path / "nope") is False
+
+
+def test_env_ready_false_when_app_deps_missing(monkeypatch, tmp_path):
+    # venv interpreter present and SPA built, shared imports fine, but fastapi/uvicorn missing:
+    # env_ready must say no so install rebuilds instead of flipping onto a crashing app.
+    py = tmp_path / "bin" / "python"; py.parent.mkdir(parents=True); py.write_text("#!")
+    monkeypatch.setattr(cut, "venv_python", lambda *a, **k: py)
+    monkeypatch.setattr(cut, "FRONTEND", tmp_path)
+    (tmp_path / "dist").mkdir(); (tmp_path / "dist" / "index.html").write_text("x")
+    seen = {}
+
+    def can_import(p, mods):
+        seen["mods"] = mods
+        return (False, "ModuleNotFoundError: fastapi")
+    monkeypatch.setattr(cut, "compat_ok", lambda p: (True, ""))
+    monkeypatch.setattr(cut, "_can_import", can_import)
+    assert cut.env_ready() is False
+    assert "fastapi" in seen["mods"]  # it actually checked the app deps
+
+
+def test_bare_invocation_prints_usage_not_install(monkeypatch, tmp_path):
+    # the default must NOT be install: a bare path can't be allowed to flip the live daemon.
+    flagged = {"build": False, "migrate": False}
+    monkeypatch.setattr(cut, "env_ready", lambda *a, **k: False)
+    monkeypatch.setattr(cut, "build_env",
+                        lambda *a, **k: (flagged.__setitem__("build", True), (True, ""))[1])
+    monkeypatch.setattr(cut, "migrate",
+                        lambda *a, **k: (flagged.__setitem__("migrate", True), (True, ""))[1])
+    monkeypatch.setattr(legacy, "resolve_sop_dir", lambda *a, **k: tmp_path)
+    with pytest.raises(SystemExit) as e:
+        cut.main([str(tmp_path)])  # path only, no verb
+    assert "usage" in str(e.value)
+    assert flagged == {"build": False, "migrate": False}  # nothing ran
+
+
+def _stub_install(monkeypatch, tmp_path, *, ready):
+    built = {"called": False}
+    monkeypatch.setattr(cut, "env_ready", lambda *a, **k: ready)
+    monkeypatch.setattr(cut, "build_env",
+                        lambda *a, **k: (built.__setitem__("called", True), (True, "built"))[1])
+    monkeypatch.setattr(cut, "migrate", lambda sd, *a, **k: (True, "flipped"))
+    monkeypatch.setattr(legacy, "stable_url", lambda sd: "http://127.0.0.1:8765/?t=tok")
+    return built
+
+
+def test_install_skips_build_when_env_ready(monkeypatch, tmp_path, capsys):
+    built = _stub_install(monkeypatch, tmp_path, ready=True)
+    cut.main(["install", str(tmp_path)])  # returns (no SystemExit) on success
+    assert built["called"] is False  # a ready machine doesn't pay the rebuild
+    assert "http://127.0.0.1:8765" in capsys.readouterr().out
+
+
+def test_install_builds_when_env_not_ready(monkeypatch, tmp_path, capsys):
+    built = _stub_install(monkeypatch, tmp_path, ready=False)
+    cut.main(["install", str(tmp_path)])
+    assert built["called"] is True
+    assert "http://127.0.0.1:8765" in capsys.readouterr().out
+
+
+def test_serve_install_redirects_to_the_app_installer(monkeypatch):
+    # The retired daemon's `install` must not provision itself; it points at the cutover.
+    monkeypatch.setattr(sys, "argv", ["serve_dashboard.py", "/tmp/sops", "install"])
+    with pytest.raises(SystemExit) as e:
+        legacy.main()
+    assert "cutover_dashboard.py" in str(e.value) and "install" in str(e.value)

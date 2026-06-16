@@ -87,7 +87,7 @@ Unattended runs are guarded four ways:
 
 ## The dashboard
 
-For a dashboard that stays at one URL and is always up, install it as a background service: `serve_dashboard.py <sop-dir> install` (macOS LaunchAgent; fixed port, persisted token, auto-restarts on update). `url` / `rotate` / `uninstall` manage it.
+For a dashboard that stays at one URL and is always up, install it as a background service: `cutover_dashboard.py <sop-dir> install` (macOS LaunchAgent; fixed port, persisted token). The first install builds a small virtualenv for the app and its web bundle, then starts it at login on a stable URL. `url` / `uninstall` manage it.
 
 For anyone who would rather look than read a terminal: `/sop-dashboard` (or just "show me my SOP dashboard") generates a single HTML file from your SOP directory and opens it in the browser. Cards grouped by category with status badges, run counts, and trigger phrases; a "needs attention" list for drafts that never ran, stale SOPs, and pending revision notes; search across everything; click any card for the full SOP with its changelog.
 

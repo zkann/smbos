@@ -107,15 +107,14 @@ def test_daemon_serve_routes_run_anywhere(tmp_path, monkeypatch):
     assert sv.LAUNCH_CWD == str(tmp_path)  # not "/"
 
 
-def test_install_resolves_relative_path(tmp_path, monkeypatch):
-    # main() must resolve a relative SOP path before the plist embeds it
-    import os
+def test_install_redirects_with_resolved_path(tmp_path, monkeypatch):
+    # install now redirects to the cutover installer; main() must still resolve a relative
+    # SOP path to absolute so the printed command is runnable as-is.
+    import pytest
     monkeypatch.chdir(tmp_path)
     (tmp_path / "sops").mkdir()
-    written = {}
-    monkeypatch.setattr(sv, "plist_path", lambda: tmp_path / "p.plist")
-    monkeypatch.setattr(sv, "install_agent",
-                        lambda d: written.__setitem__("dir", d) or (True, "loaded"))
     monkeypatch.setattr(sv.sys, "argv", ["serve_dashboard.py", "sops", "install"])
-    sv.main()
-    assert written["dir"].is_absolute() and written["dir"] == (tmp_path / "sops")
+    with pytest.raises(SystemExit) as e:
+        sv.main()
+    assert "cutover_dashboard.py" in str(e.value)
+    assert str(tmp_path / "sops") in str(e.value)  # absolute, not the relative "sops"

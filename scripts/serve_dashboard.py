@@ -862,12 +862,12 @@ def main():
         print("New URL (the old one no longer works):", flush=True)
         print(stable_url(sop_dir)); return
     if cmd == "install":
-        ok, msg = install_agent(sop_dir)
-        if not ok:
-            sys.exit("Could not install the always-on dashboard: " + msg)
-        print("Always-on dashboard installed. It starts at login, restarts itself, "
-              "and survives updates. Bookmark this URL (it won't change):", flush=True)
-        print(stable_url(sop_dir)); return
+        # The always-on dashboard is now the FastAPI app, not this stdlib daemon. Point at the
+        # cutover installer rather than provisioning the retired daemon (which would overwrite
+        # the app's LaunchAgent). install_agent/_plist_xml stay for now as the rollback target.
+        cutover = PLUGIN_ROOT / "scripts" / "cutover_dashboard.py"
+        sys.exit("The always-on dashboard now runs the app. Install it with:\n"
+                 "  python3 {} {} install".format(cutover, sop_dir))
     if cmd in ("uninstall", "stop"):
         print("Always-on dashboard removed." if uninstall_agent()
               else "No always-on dashboard was installed.")

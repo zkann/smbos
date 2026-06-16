@@ -116,14 +116,19 @@ def health_ok(sop_dir, port=PORT, attempts=20, delay=0.5):
     return False
 
 
+def _can_import(python_exec, modules):
+    """True if `python_exec` can import the given comma-separated modules (from scripts/)."""
+    r = subprocess.run([str(python_exec), "-c", "import " + modules],
+                       cwd=str(PLUGIN_ROOT / "scripts"), capture_output=True, text=True)
+    return r.returncode == 0, (r.stderr or "").strip()
+
+
 def compat_ok(python_exec):
     """Pre-flight smoke test (not a full schema guarantee): confirm the venv interpreter can
     import the shared modules it'll run under the daemon. The venv and the system python both
     write the same stdlib-sqlite3 mirror via state_store, so an import failure is the likely
     breakage; this catches that before we hand the venv the daemon, not deeper schema skew."""
-    r = subprocess.run([str(python_exec), "-c", "import sqlite3, state_store, smbos_lib"],
-                       cwd=str(PLUGIN_ROOT / "scripts"), capture_output=True, text=True)
-    return r.returncode == 0, (r.stderr or "").strip()
+    return _can_import(python_exec, "sqlite3, state_store, smbos_lib")
 
 
 # --- launchctl plumbing ----------------------------------------------------------------
@@ -221,23 +226,51 @@ def build_env(venv=VENV):
     return True, "environment built"
 
 
+def env_ready(venv=VENV):
+    """True when the app can run without a (re)build: venv interpreter present, SPA bundle
+    built, and the interpreter imports BOTH the shared modules and the app's runtime deps
+    (fastapi/uvicorn). The dep check matters: a half-built venv would pass compat_ok (stdlib
+    only) yet crash the app on startup, so without it `install` would skip the build that's
+    needed and then fail the cutover. Lets a ready machine skip the slow build_env."""
+    py = venv_python(venv)
+    if not py.exists() or not (FRONTEND / "dist" / "index.html").exists():
+        return False
+    return compat_ok(py)[0] and _can_import(py, "fastapi, uvicorn")[0]
+
+
+COMMANDS = {"build", "migrate", "install", "uninstall", "url"}
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
-    cmd = next((a for a in argv if not a.startswith("-")), "migrate")
-    positional = [a for a in argv if not a.startswith("-") and a != cmd]
+    cmd = next((a for a in argv if a in COMMANDS), None)
+    positional = [a for a in argv if a not in COMMANDS and not a.startswith("-")]
     sop_dir = (Path(positional[0]).expanduser().resolve() if positional
                else legacy.resolve_sop_dir())
 
+    if cmd is None:  # require an explicit verb: a bare path must not trigger a live flip
+        sys.exit("usage: cutover_dashboard.py [install|migrate|build|url|uninstall] [sop_dir]")
+    if cmd == "url":
+        print(legacy.stable_url(sop_dir)); return
+    if cmd == "uninstall":
+        ok = legacy.uninstall_agent()
+        print("Always-on dashboard removed." if ok else "No always-on dashboard was installed.")
+        return
     if cmd == "build":
         ok, msg = build_env()
     elif cmd == "migrate":
         ok, msg = migrate(sop_dir)
-    elif cmd == "all":
-        ok, msg = build_env()
+    else:  # install (also the default): build only if needed, then flip
+        if env_ready():
+            ok, msg = True, "environment already built"
+        else:
+            ok, msg = build_env()
         if ok:
             ok, msg = migrate(sop_dir)
-    else:
-        sys.exit("usage: cutover_dashboard.py [build|migrate|all] [sop_dir]")
+        if ok:
+            print("Always-on dashboard installed. It starts at login and serves a stable URL "
+                  "(bookmark it):", flush=True)
+            print(legacy.stable_url(sop_dir)); return
     print(msg, flush=True)
     sys.exit(0 if ok else 1)
 
