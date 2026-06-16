@@ -444,11 +444,11 @@ export default function App() {
                           onChange={(e) => setProcInputs((s) => ({ ...s, [p.id]: e.target.value }))} />
                       )}
                       <button className="act act-primary" onClick={() => runSop(p.id, { inputs: procInputs[p.id] })}
-                        disabled={b === 'running'}>
+                        disabled={!!b && err === false}>
                         {b === 'running' ? 'running…' : err ? 'retry' : 'Run'}
                       </button>
                       <button className={`act${err ? ' act-err' : ''}`} onClick={() => queueSop(p.id)}
-                        disabled={b === 'queuing'}>
+                        disabled={!!b && err === false}>
                         {b === 'queuing' ? 'queuing…' : 'Queue'}
                       </button>
                     </>
