@@ -32,6 +32,12 @@ export default function App() {
   // per parked-result action state: file -> 'approve'|'discard'|'error', or `${file}#${i}` ->
   // 'applying'|'error'. Success clears via the SSE pending frame dropping the resolved item.
   const [pend, setPend] = useState({})
+  // settings is owner-controlled config (not live-mirror state), so it's fetched once on mount
+  // and updated from each write's echoed state, not streamed. confirmSkip gates the one
+  // dangerous value (Skip all approvals) behind an inline confirm.
+  const [settings, setSettings] = useState(null)
+  const [budgetInput, setBudgetInput] = useState('')
+  const [confirmSkip, setConfirmSkip] = useState(false)
 
   useEffect(() => {
     // NOTE: do NOT strip ?t= from the URL. The page itself is token-gated (GET / requires ?t=
@@ -89,6 +95,42 @@ export default function App() {
 
     return () => { es.close(); clearInterval(timer) }
   }, [])
+
+  // settings: fetch once on mount (config, not streamed)
+  useEffect(() => {
+    fetch(`/api/settings?t=${encodeURIComponent(token)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) { setSettings(d.settings); setBudgetInput(String(d.settings.budget)) } })
+      .catch(() => {})
+  }, [])
+
+  // apply-on-change write of one setting; the response echoes the full new config to resync. On
+  // failure, re-fetch so a rejected value snaps the control back to what actually persisted.
+  async function saveSetting(key, value) {
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-SMBOS-Token': token },
+        body: JSON.stringify({ key, value }),
+      })
+      if (!res.ok) throw new Error(String(res.status))
+      const d = await res.json()
+      setSettings(d.settings)
+      setBudgetInput(String(d.settings.budget))
+    } catch (_) {
+      fetch(`/api/settings?t=${encodeURIComponent(token)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (d) { setSettings(d.settings); setBudgetInput(String(d.settings.budget)) } })
+        .catch(() => {})
+    }
+  }
+
+  // the launch-permission select: 'skip' (remove every safeguard) routes through an inline
+  // confirm; trust/ask apply immediately.
+  function onPermission(v) {
+    if (v === 'skip') setConfirmSkip(true)
+    else { setConfirmSkip(false); saveSetting('launch_permission', v) }
+  }
 
   // Pick up a task: open a primed Claude session for it. The token rides in a custom header (a
   // cross-origin POST with one forces a CORS preflight the server's GET-only policy blocks).
@@ -266,6 +308,49 @@ export default function App() {
           </ul>
         )}
       </section>
+
+      {settings && (
+        <details className="panel settings">
+          <summary className="overline">Settings</summary>
+          <div className="setrow">
+            <label htmlFor="perm">When I launch a session</label>
+            <select id="perm" value={confirmSkip ? 'skip' : settings.launch_permission}
+              onChange={(e) => onPermission(e.target.value)}>
+              <option value="trust">Trust edits, ask before commands</option>
+              <option value="ask">Ask every time</option>
+              <option value="skip">Skip all approvals</option>
+            </select>
+          </div>
+          {confirmSkip && (
+            <div className="setwarn-row">
+              <span className="setwarn">Skips every check. This removes a safeguard.</span>
+              <button className="act act-danger"
+                onClick={() => { setConfirmSkip(false); saveSetting('launch_permission', 'skip') }}>
+                Yes, skip every check
+              </button>
+              <button className="act" onClick={() => setConfirmSkip(false)}>Cancel</button>
+            </div>
+          )}
+          {!confirmSkip && settings.launch_permission === 'skip' && (
+            <span className="setwarn">Skipping every check. This removes a safeguard.</span>
+          )}
+          <div className="setrow">
+            <label htmlFor="term">Terminal</label>
+            <select id="term" value={settings.terminal}
+              onChange={(e) => saveSetting('terminal', e.target.value)}>
+              <option value="terminal">Terminal</option>
+              <option value="iterm">iTerm</option>
+            </select>
+          </div>
+          <div className="setrow">
+            <label htmlFor="budget">Monthly budget</label>
+            <span className="prefix">$</span>
+            <input id="budget" type="number" min="0" step="1" value={budgetInput}
+              onChange={(e) => setBudgetInput(e.target.value)}
+              onBlur={() => saveSetting('budget', Number(budgetInput) || 0)} />
+          </div>
+        </details>
+      )}
     </main>
   )
 }

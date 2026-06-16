@@ -161,6 +161,31 @@ async def _body_obj(request):
     return body
 
 
+def _settings(sop_dir):
+    """Current owner config for the Settings panel, reusing the daemon's config readers
+    (they read triggers.json). Digest controls are deferred to the launchd-cutover PR."""
+    budget = 0.0
+    try:
+        tj = json.loads((Path(sop_dir) / "triggers.json").read_text(encoding="utf-8"))
+        if isinstance(tj, dict):
+            budget = float(tj.get("monthly_budget_usd") or 0)
+    except (OSError, ValueError, TypeError):
+        pass
+    return {
+        "launch_permission": legacy.launch_permission(sop_dir),  # trust / ask / skip
+        "terminal": legacy.preferred_terminal(sop_dir),          # terminal / iterm
+        "budget": budget,
+    }
+
+
+# Per-setting writers (reuse the daemon's validators; each raises ValueError on a bad value).
+_SETTERS = {
+    "launch_permission": legacy.set_launch_permission,
+    "terminal": legacy.set_terminal,
+    "budget": legacy.set_budget,
+}
+
+
 def _snapshot(sop_dir):
     """The live-mirror snapshots as SSE frames: the plate (waiting), what's in flight, parked
     results awaiting a decision, and recent runs (with liveness). Runs in a worker thread so it
@@ -302,6 +327,28 @@ def create_app(sop_dir, dist_dir=None):
     def api_pending(t: str = ""):
         check(t)
         return {"pending": _pending(sop_dir)}
+
+    @app.get("/api/settings")
+    def api_settings(t: str = ""):
+        check(t)
+        return {"settings": _settings(sop_dir)}
+
+    @app.post("/api/settings")
+    async def settings(request: Request):
+        # apply-on-change: one control per POST ({key, value}). Header-token gated. The setters
+        # write triggers.json (set_launch_permission shells nothing, but keep the to_thread for
+        # symmetry with future digest setters that shell out). The dangerous 'skip' permission is
+        # gated by an inline confirm in the SPA, not here -- the owner authoritatively owns config.
+        check(request.headers.get("x-smbos-token", ""))
+        body = await _body_obj(request)
+        setter = _SETTERS.get(str(body.get("key") or ""))
+        if setter is None:
+            raise HTTPException(status_code=400, detail="unknown setting")
+        try:
+            await asyncio.to_thread(setter, sop_dir, body.get("value"))
+        except ValueError as exc:  # bad posture / non-numeric or negative budget / bad terminal
+            raise HTTPException(status_code=400, detail=str(exc))
+        return {"settings": _settings(sop_dir)}  # echo the full new state so the SPA syncs
 
     @app.post("/api/resolve")
     async def resolve(request: Request):
