@@ -173,8 +173,10 @@ def test_resolve_pending_file_approve_discard_and_errors(tmp_path):
     assert "status: approved" in body and "approved via dashboard" in body
     (pend / "p2.md").write_text("---\nstatus: pending\n---\nresult", encoding="utf-8")
     assert lib.resolve_pending_file(tmp_path, "p2.md", "discard") == "discarded"
-    # only the basename is used, so a traversal attempt stays inside pending/
-    assert lib.resolve_pending_file(tmp_path, "../../etc/p1.md", "approve") == "approved"
+    # only the basename is used: a traversal name reduces to <basename> inside pending/, so one
+    # whose basename is absent raises rather than escaping to a real outside file (proves the guard)
+    with pytest.raises(FileNotFoundError):
+        lib.resolve_pending_file(tmp_path, "../../etc/hosts", "approve")
     with pytest.raises(ValueError):
         lib.resolve_pending_file(tmp_path, "p2.md", "bogus")
     with pytest.raises(FileNotFoundError):
