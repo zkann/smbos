@@ -662,7 +662,7 @@ def _make_sop(tmp_path, sid, extra="", status="active"):
 def test_run_gates_and_spawns(tmp_path, monkeypatch):
     spawned = []
     monkeypatch.setattr(dashboard_app, "_spawn_run",
-                        lambda sd, sid, inputs=None: spawned.append((sid, inputs)))
+                        lambda sd, sid, inputs=None, prepare=False: spawned.append((sid, inputs)))
     _make_sop(tmp_path, "weekly-report")
     app = dashboard_app.create_app(tmp_path)
     h = {"x-smbos-token": lib.dashboard_token(tmp_path)}
@@ -690,6 +690,22 @@ def test_run_refuses_draft_and_drift(tmp_path, monkeypatch):
         drift = client.post("/api/run", headers=h, json={"id": "edited"})
         assert drift.status_code == 409 and "outside" in drift.json()["detail"]
     assert spawned == []  # neither a draft nor a drifted SOP is ever spawned headless
+
+
+def test_run_prepare_allows_draft_in_the_cage(tmp_path, monkeypatch):
+    # a normal run of a draft is refused; mode=prepare is the supervised first run, allowed, and
+    # spawns run_sop in the tighter prepare cage (--prepare)
+    spawned = []
+    monkeypatch.setattr(dashboard_app, "_spawn_run",
+                        lambda sd, sid, inputs=None, prepare=False: spawned.append((sid, prepare)))
+    _make_sop(tmp_path, "wip", status="draft")
+    app = dashboard_app.create_app(tmp_path)
+    h = {"x-smbos-token": lib.dashboard_token(tmp_path)}
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.post("/api/run", headers=h, json={"id": "wip"}).status_code == 409
+        r = client.post("/api/run", headers=h, json={"id": "wip", "mode": "prepare"})
+        assert r.status_code == 200 and r.json()["status"] == "preparing"
+    assert spawned == [("wip", True)]  # spawned in prepare mode, not triggered
 
 
 def test_run_refuses_interactive_only(tmp_path, monkeypatch):

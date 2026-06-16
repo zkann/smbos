@@ -190,11 +190,14 @@ _SETTERS = {
 }
 
 
-def _gate_run(sop_dir, sop_id, inputs):
+def _gate_run(sop_dir, sop_id, inputs, prepare=False):
     """Native run gate (shared smbos_lib guards). Returns the sanitized sid or raises ValueError
     with an owner-facing message. run_sop re-enforces every one of these on the unattended side
     (the cage lives there); this is the early, clean 4xx + the design D2 rule that an
-    interactive_only SOP is refused here so the SPA offers Pick up instead of a headless run."""
+    interactive_only SOP is refused here so the SPA offers Pick up instead of a headless run.
+
+    `prepare` is the tighter prepare cage (run_sop --prepare): it's the supervised first run a
+    draft is allowed to do, so the draft refusal is skipped when prepare is requested."""
     sid = re.sub(r"[^a-z0-9-]", "", str(sop_id).lower())
     sop = lib.find_sop(sop_dir, sid) if sid else None
     if sop is None:
@@ -202,7 +205,7 @@ def _gate_run(sop_dir, sop_id, inputs):
     if lib.is_interactive_only(sop_dir, sid):
         raise ValueError("This one needs you in the session. Pick it up instead of running it headless.")
     status = (lib.frontmatter_field(sop, "status") or "").strip().lower()
-    if status not in ("active", "trusted"):  # run_sop also refuses drafts; give the early clean reason
+    if not prepare and status not in ("active", "trusted"):  # prepare IS how a draft runs first
         raise ValueError("This procedure is still a draft. It needs a supervised first run before it "
                          "can run on its own.")
     if lib.run_lock_held(sop_dir, sid):
@@ -215,11 +218,11 @@ def _gate_run(sop_dir, sop_id, inputs):
     return sid
 
 
-def _spawn_run(sop_dir, sid, inputs=None):
+def _spawn_run(sop_dir, sid, inputs=None, prepare=False):
     """Spawn the canonical runner (run_sop) for an SOP, fire-and-forget. Uses the SAME command
     builder the legacy daemon uses (lib.run_sop_command), so the app and the daemon invoke the
     runner identically. A seam tests stub so a run test never actually launches run_sop."""
-    cmd = lib.run_sop_command(sop_dir, sid, inputs=inputs)
+    cmd = lib.run_sop_command(sop_dir, sid, inputs=inputs, prepare=prepare)
     # close the parent's copy of the log fd after Popen dups it into the child (no parent fd leak)
     with (Path(sop_dir) / "trigger.log").open("a") as log:
         subprocess.Popen(cmd, stdout=log, stderr=log, start_new_session=True)
@@ -413,12 +416,13 @@ def create_app(sop_dir, dist_dir=None):
         check(request.headers.get("x-smbos-token", ""))
         body = await _body_obj(request)
         inputs = str(body.get("inputs") or "").strip() or None
+        prepare = str(body.get("mode") or "").strip().lower() == "prepare"  # the tighter prepare cage
         try:
-            sid = _gate_run(sop_dir, body.get("id", ""), inputs)
-        except ValueError as exc:  # refused: interactive_only / already running / drifted / needs inputs
+            sid = _gate_run(sop_dir, body.get("id", ""), inputs, prepare)
+        except ValueError as exc:  # refused: interactive_only / draft / running / drifted / needs inputs
             raise HTTPException(status_code=409, detail=str(exc))
-        _spawn_run(sop_dir, sid, inputs)
-        return {"status": "started", "sop": sid}
+        _spawn_run(sop_dir, sid, inputs=inputs, prepare=prepare)
+        return {"status": "preparing" if prepare else "started", "sop": sid}
 
     @app.post("/api/queue")
     async def queue(request: Request):
