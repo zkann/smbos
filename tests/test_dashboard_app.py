@@ -790,3 +790,15 @@ def test_snapshot_includes_queue_frame(tmp_path):
         client.post("/api/queue", headers={"x-smbos-token": token}, json={"id": "weekly-report"})
     joined = "".join(dashboard_app._snapshot(tmp_path))
     assert "event: queue" in joined and "weekly-report" in joined
+
+
+def test_dir_mtime_sig_tolerates_vanished_file(tmp_path, monkeypatch):
+    # a file removed between glob and stat (a concurrent dequeue) must be skipped, not raise out
+    # of the SSE signal sampler and tear down /events
+    qdir = tmp_path / "queue"
+    qdir.mkdir()
+    (qdir / "real.md").write_text("x", encoding="utf-8")
+    ghost = qdir / "ghost.md"  # globbed but never on disk -> stat() raises FileNotFoundError
+    monkeypatch.setattr(type(qdir), "glob", lambda self, pat: iter([ghost, qdir / "real.md"]))
+    sig = dashboard_app._dir_mtime_sig(qdir)
+    assert [name for name, _ in sig] == ["real.md"]  # ghost dropped, no crash

@@ -142,13 +142,24 @@ def _pending(sop_dir):
     return out
 
 
+def _dir_mtime_sig(d):
+    """A comparable (name, mtime) signature over d/*.md, tolerant of a file that vanishes between
+    glob and stat. A concurrent delete (a dequeue, a session removing a finished file) must NOT
+    raise out of the SSE signal sampler and tear down the /events stream."""
+    sig = []
+    for p in d.glob("*.md"):
+        try:
+            sig.append((p.name, p.stat().st_mtime_ns))
+        except OSError:  # removed between glob and stat -> just drop it from this sample
+            continue
+    return tuple(sorted(sig))
+
+
 def _pending_sig(sop_dir):
     """Change signature for parked results. They live in files (pending/), so data_version is
     blind to a resolve/new-park; the SSE loop watches this to re-emit the pending frame."""
     pdir = Path(sop_dir) / "pending"
-    if not pdir.is_dir():
-        return ()
-    return tuple(sorted((p.name, p.stat().st_mtime_ns) for p in pdir.glob("*.md")))
+    return _dir_mtime_sig(pdir) if pdir.is_dir() else ()
 
 
 def _queue(sop_dir):
@@ -175,9 +186,7 @@ def _queue(sop_dir):
 def _queue_sig(sop_dir):
     """Change signature for queued runs (file-based, like pending/), watched by the SSE loop."""
     qdir = Path(sop_dir) / "queue"
-    if not qdir.is_dir():
-        return ()
-    return tuple(sorted((p.name, p.stat().st_mtime_ns) for p in qdir.glob("*.md")))
+    return _dir_mtime_sig(qdir) if qdir.is_dir() else ()
 
 
 async def _body_obj(request):
