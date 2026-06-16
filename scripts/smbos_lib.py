@@ -8,6 +8,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import stat
 import sys
 import time
@@ -164,19 +165,62 @@ def month_spend(sop_dir):
     return total
 
 
-def notify(title, body):
-    """macOS notification; silent no-op elsewhere and on any failure."""
+def notify(title, body, open_url=None):
+    """macOS notification; silent no-op elsewhere and on any failure.
+
+    Prefers terminal-notifier when installed: it lets a click open `open_url` (the dashboard),
+    instead of osascript's `display notification`, which macOS attributes to Script Editor and
+    launches it on click (no way to set a click target). Falls back to osascript when
+    terminal-notifier is absent, so notifications still appear, just without the useful click.
+    """
     if sys.platform != "darwin":
         return False
-    esc = lambda s: str(s).replace("\\", "\\\\").replace('"', '\\"')
     try:
         import subprocess
+        tn = shutil.which("terminal-notifier")
+        if tn:
+            # No -group: each notification is independent, so a later "needs attention" never
+            # silently replaces an unseen "result waiting" in Notification Center.
+            cmd = [tn, "-title", str(title), "-message", str(body)]
+            if open_url:
+                cmd += ["-open", str(open_url)]  # click opens the dashboard
+            return subprocess.run(cmd, capture_output=True, timeout=10).returncode == 0
+        esc = lambda s: str(s).replace("\\", "\\\\").replace('"', '\\"')
         done = subprocess.run(["/usr/bin/osascript", "-e",
                                f'display notification "{esc(body)}" with title "{esc(title)}"'],
                               capture_output=True, timeout=10)
         return done.returncode == 0
-    except (OSError, Exception):
+    except Exception:
         return False
+
+
+def dashboard_port(sop_dir):
+    """Configured dashboard port: $SMBOS_DASHBOARD_PORT, then triggers.json dashboard_port, else
+    8765. Shared by the daemon, the app's cutover, and notification URLs so they always agree."""
+    env = os.environ.get("SMBOS_DASHBOARD_PORT")
+    if env and env.isdigit():
+        return int(env)
+    cfg = Path(sop_dir) / "triggers.json"
+    if cfg.exists():
+        try:
+            v = json.loads(cfg.read_text(encoding="utf-8")).get("dashboard_port")
+            if isinstance(v, int):
+                return v
+        except (OSError, ValueError):
+            pass
+    return 8765
+
+
+def dashboard_url(sop_dir):
+    """Stable local dashboard URL with its access token, what a notification click should open.
+
+    Returns None if the token can't be read or created (e.g. an unwritable or vanished sop_dir).
+    Callers pass it as an optional click target, and notify() is often called on error paths, so
+    a token hiccup must not turn a clean 'needs attention' exit into a traceback."""
+    try:
+        return "http://127.0.0.1:{}/?t={}".format(dashboard_port(sop_dir), dashboard_token(sop_dir))
+    except Exception:
+        return None
 
 
 def _flock(fd):

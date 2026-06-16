@@ -22,7 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import state_store
 from smbos_lib import (acquire_run_lock, append_run, clear_run_active,
-                       find_sop as lib_find_sop, frontmatter_field, is_drifted,
+                       dashboard_url, find_sop as lib_find_sop, frontmatter_field, is_drifted,
                        mark_run_active, month_spend, notify, release_run_lock,
                        resolve_sop_dir, split_frontmatter)
 
@@ -310,7 +310,8 @@ def main():
                           "note": "the 'claude' command was not found. Background runs launched "
                                   "by the dashboard get a minimal PATH; install claude on PATH or "
                                   "in ~/.local/bin so the runner can find it."})
-        notify("SmbOS: needs attention", f"{args.sop_id} couldn't start: the 'claude' command wasn't found.")
+        notify("SmbOS: needs attention", f"{args.sop_id} couldn't start: the 'claude' command wasn't found.",
+               open_url=dashboard_url(sop_dir))
         sys.exit("Refused (free): 'claude' executable not found on PATH or in known locations.")
 
     payload_path = None
@@ -396,7 +397,7 @@ def main():
         release_run_lock(lock)
         log_run(sop_dir, {**base, "result": "error", "cost_usd": 0, "note": "timeout after 900s"})
         _record_run_finish(sop_dir, run_row_id, "error", 0)
-        notify("SmbOS", f"{args.sop_id} took too long and was stopped.")
+        notify("SmbOS", f"{args.sop_id} took too long and was stopped.", open_url=dashboard_url(sop_dir))
         sys.exit("Run timed out.")
     except OSError as e:
         # never let an exec failure crash the runner silently (zero silent failures)
@@ -405,7 +406,8 @@ def main():
         log_run(sop_dir, {**base, "result": "error", "cost_usd": 0,
                           "note": f"could not start the claude run: {e}"})
         _record_run_finish(sop_dir, run_row_id, "error", 0)
-        notify("SmbOS: needs attention", f"{args.sop_id} could not start ({e.__class__.__name__}).")
+        notify("SmbOS: needs attention", f"{args.sop_id} could not start ({e.__class__.__name__}).",
+               open_url=dashboard_url(sop_dir))
         sys.exit(f"Could not start the run: {e}")
     finally:
         if args.prepare:
@@ -438,9 +440,12 @@ def main():
     _record_run_finish(sop_dir, run_row_id, result, cost)
     title = frontmatter_field(sop_path, "title") or args.sop_id
     if parked:
-        notify("SmbOS: result waiting for you", f"{title} finished preparing. Review it on the dashboard or in your next session.")
+        notify("SmbOS: result waiting for you",
+               f"{title} finished preparing. Review it on the dashboard or in your next session.",
+               open_url=dashboard_url(sop_dir))
     elif is_error:
-        notify("SmbOS: needs attention", f"{title} ran but produced nothing to review.")
+        notify("SmbOS: needs attention", f"{title} ran but produced nothing to review.",
+               open_url=dashboard_url(sop_dir))
     cost_s = f"${cost:.4f}" if isinstance(cost, (int, float)) else "unknown cost"
     print(f"[{result}] {args.sop_id} via {args.source} ({cost_s}). {summary}")
     sys.exit(1 if is_error else 0)

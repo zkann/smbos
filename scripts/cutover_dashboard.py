@@ -13,6 +13,7 @@ orchestrates the venv creation.
 """
 import os
 import plistlib
+import shutil
 import socket
 import subprocess
 import sys
@@ -223,6 +224,13 @@ def build_env(venv=VENV):
             return False, "{} failed: {}".format(cmd[0], (r.stderr or r.stdout).strip()[:400])
     if not (FRONTEND / "dist" / "index.html").exists():
         return False, "SPA build produced no dist/index.html"
+    # Best-effort: terminal-notifier lets a notification click open the dashboard (osascript
+    # notifications can't, they open Script Editor). Never fail the build for it.
+    if shutil.which("brew") and not shutil.which("terminal-notifier"):
+        try:
+            subprocess.run(["brew", "install", "terminal-notifier"], capture_output=True, timeout=300)
+        except (OSError, subprocess.SubprocessError):
+            pass
     return True, "environment built"
 
 

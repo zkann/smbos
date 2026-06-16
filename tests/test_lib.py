@@ -22,6 +22,25 @@ def test_dashboard_token_concurrent_creation_converges(tmp_path):
     assert (tmp_path / ".dashboard-token").read_text(encoding="utf-8").strip() == results[0]
 
 
+def test_dashboard_port_and_url(tmp_path, monkeypatch):
+    monkeypatch.delenv("SMBOS_DASHBOARD_PORT", raising=False)
+    assert lib.dashboard_port(tmp_path) == 8765  # default
+    (tmp_path / "triggers.json").write_text('{"dashboard_port": 9001}', encoding="utf-8")
+    assert lib.dashboard_port(tmp_path) == 9001  # configured
+    monkeypatch.setenv("SMBOS_DASHBOARD_PORT", "9100")
+    assert lib.dashboard_port(tmp_path) == 9100  # env wins
+    url = lib.dashboard_url(tmp_path)
+    assert url == "http://127.0.0.1:9100/?t={}".format(lib.dashboard_token(tmp_path))
+
+
+def test_dashboard_url_returns_none_on_token_failure(tmp_path, monkeypatch):
+    # notify() is called on error paths; a token-dir hiccup must yield None, not raise.
+    def boom(_):
+        raise PermissionError("sop dir unwritable")
+    monkeypatch.setattr(lib, "dashboard_token", boom)
+    assert lib.dashboard_url(tmp_path) is None
+
+
 def test_iter_sops_skips_runtime_dirs(library):
     for d in ["pending", "queue", "work", "payloads", "archive"]:
         sub = library / d
