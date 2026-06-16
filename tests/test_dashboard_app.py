@@ -576,3 +576,40 @@ def test_snapshot_includes_pending_frame(tmp_path):
     _park(tmp_path, "p.md", title="needs you")
     joined = "".join(dashboard_app._snapshot(tmp_path))
     assert "event: pending" in joined and "needs you" in joined
+
+
+def test_apply_item_unexpected_error_is_500(tmp_path, monkeypatch):
+    # a non-ValueError failure from apply_item maps to 500 (the bare except path)
+    monkeypatch.setattr(dashboard_app.legacy, "apply_item",
+                        lambda *a: (_ for _ in ()).throw(RuntimeError("boom")))
+    app = dashboard_app.create_app(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        r = client.post("/api/apply-item", headers={"x-smbos-token": lib.dashboard_token(tmp_path)},
+                        json={"file": "p.md", "index": 0})
+    assert r.status_code == 500
+
+
+def test_events_re_emit_on_pending_change(tmp_path, monkeypatch):
+    # a resolve is a FILE write (no DB change), so data_version is blind to it; the stream must
+    # still re-emit the pending frame off the pending signature. This is why _pending_sig exists.
+    monkeypatch.setattr(dashboard_app, "POLL_SECONDS", 0.01)
+    monkeypatch.setattr(dashboard_app, "HEARTBEAT_SECONDS", 1000.0)
+    _park(tmp_path, "p.md", title="first")
+
+    async def run():
+        gen = dashboard_app.event_stream(tmp_path, _ConnectedFor(50))
+        await gen.__anext__()                                  # consume the initial plate frame
+        lib.resolve_pending_file(tmp_path, "p.md", "approve")  # file write, no DB change
+        frames = []
+        try:
+            async for e in gen:
+                frames.append(e)
+                # the re-emitted pending frame after the change no longer carries the parked item
+                if e.startswith("event: pending\n") and "first" not in e:
+                    break
+        finally:
+            await gen.aclose()
+        return frames
+
+    frames = asyncio.run(asyncio.wait_for(run(), timeout=5))
+    assert any(e.startswith("event: pending\n") and "first" not in e for e in frames)
