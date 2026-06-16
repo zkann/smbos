@@ -127,6 +127,19 @@ def test_iterm_script_used(library, monkeypatch):
     assert 'tell application "Terminal"' in scripts[-1]
 
 
+def test_env_exports_in_command(library, monkeypatch):
+    scripts = []
+    monkeypatch.setattr(sv.subprocess, "run", lambda cmd, **kw: scripts.append(cmd[2]))
+    monkeypatch.setattr(sv.sys, "platform", "darwin")
+    monkeypatch.setattr(sv, "remember_folder_trust", lambda folder: None)
+    # env exports are shell-quoted and prepended immediately before `claude`
+    sv.open_terminal_with_claude(library, "x", permission="ask", env={"SOP_DIR": "/lib path"})
+    assert "SOP_DIR='/lib path' claude" in scripts[-1]
+    # no env -> no export prefix (backward compatible with existing callers)
+    sv.open_terminal_with_claude(library, "x", permission="ask")
+    assert "&& claude x" in scripts[-1] and "SOP_DIR=" not in scripts[-1]
+
+
 def test_launch_permission_config(library):
     import json
     assert sv.launch_permission(library) == "trust"  # default

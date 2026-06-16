@@ -362,6 +362,18 @@ def test_launch_preflight_blocks_cross_origin_post(tmp_path):
         assert "POST" not in legacy_origin.headers.get("access-control-allow-methods", "")
 
 
+def test_launch_session_exports_sop_dir(tmp_path, monkeypatch):
+    # the launched session must resolve the SAME library the dashboard mirrors (which may be a
+    # non-default --sop-dir), so _launch_session exports SOP_DIR=<abs sop_dir>, not just $HOME
+    import os
+    captured = {}
+    monkeypatch.setattr(dashboard_app.legacy, "open_terminal_with_claude",
+                        lambda folder, prompt, **kw: captured.update(folder=folder, **kw))
+    dashboard_app._launch_session(tmp_path, "pick up the task")
+    assert captured["env"]["SOP_DIR"] == str(tmp_path.resolve())  # absolute library path
+    assert captured["folder"] == os.path.expanduser("~")          # neutral cwd; SOP_DIR carries the lib
+
+
 def test_launch_moves_task_in_flight_and_primes_prompt(tmp_path, monkeypatch):
     seen = {}
     monkeypatch.setattr(dashboard_app, "_launch_session",

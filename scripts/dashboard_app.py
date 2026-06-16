@@ -110,12 +110,17 @@ def _launch_prompt(task):
 def _launch_session(sop_dir, prompt):
     """Open an interactive Claude session primed with `prompt`, reusing the legacy daemon's
     osascript launch (terminal detection, permission posture, shlex-escaping). A thin seam so
-    tests can stub the actual window-spawn. Launches in $HOME; the SessionStart SOP protocol
-    routes Claude to the right folder/procedure from there."""
+    tests can stub the actual window-spawn. Launches in $HOME, but exports SOP_DIR so the new
+    session resolves the SAME library the dashboard is mirroring (it may have been started with a
+    non-default --sop-dir); without it the session would fall back to ~/sops and load a different
+    library than the one whose plate it was launched from. The SessionStart SOP protocol routes
+    Claude to the right folder/procedure from there."""
+    sop_dir = Path(sop_dir)
     legacy.open_terminal_with_claude(
         str(Path.home()), prompt,
         terminal=legacy.preferred_terminal(sop_dir),
         permission=legacy.launch_permission(sop_dir),
+        env={"SOP_DIR": str(sop_dir.resolve())},
     )
 
 

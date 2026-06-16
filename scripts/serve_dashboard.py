@@ -650,11 +650,14 @@ def remember_folder_trust(folder):
 
 
 def open_terminal_with_claude(folder, prompt, terminal="terminal",
-                              permission=DEFAULT_LAUNCH_PERMISSION):
+                              permission=DEFAULT_LAUNCH_PERMISSION, env=None):
     """Open a terminal window in `folder` running claude with `prompt` (macOS).
 
     `permission` picks the launched session's posture (see LAUNCH_PERMISSION_FLAGS);
-    "trust" also remembers `folder` so the workspace trust dialog stops nagging."""
+    "trust" also remembers `folder` so the workspace trust dialog stops nagging. `env` is an
+    optional {NAME: value} of exports prepended to the claude command (e.g. SOP_DIR), so the
+    launched session resolves the SAME library the caller is operating on regardless of the
+    launch folder; keys are caller-controlled identifiers, values are shell-quoted."""
     if sys.platform != "darwin":
         raise ValueError("launching Claude from the dashboard only works on macOS")
     folder = Path(folder).expanduser()
@@ -663,7 +666,8 @@ def open_terminal_with_claude(folder, prompt, terminal="terminal",
     if permission == "trust":
         remember_folder_trust(folder)
     flags = LAUNCH_PERMISSION_FLAGS.get(permission, [])
-    claude_cmd = " ".join(["claude", *flags, shlex.quote(prompt)])
+    exports = [f"{k}={shlex.quote(str(v))}" for k, v in (env or {}).items()]
+    claude_cmd = " ".join([*exports, "claude", *flags, shlex.quote(prompt)])
     shell_cmd = "cd " + shlex.quote(str(folder)) + " && " + claude_cmd
     script = TERMINAL_SCRIPTS.get(terminal, TERMINAL_SCRIPTS["terminal"]).format(
         cmd=applescript_escape(shell_cmd))
