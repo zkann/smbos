@@ -69,5 +69,7 @@ ol.list li::before {
 
 .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--subtle-fg); flex: none; }
 .dot.live { background: var(--primary); box-shadow: 0 0 6px color-mix(in srgb, var(--primary) 70%, transparent); }
+.dot.stalled { background: var(--amber); box-shadow: 0 0 6px color-mix(in srgb, var(--amber) 60%, transparent); }
 .dot.done { background: var(--muted-fg); }
 .dot.err { background: var(--red); }
+.chip-stalled { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 35%, transparent); }

@@ -7,12 +7,17 @@ import { useEffect, useState } from 'react'
 const STALE_MS = 15000 // ~1.5 missed heartbeats (server beats every ~10s)
 const token = window.__SMBOS_TOKEN__ || ''
 
-// running = open run (no end recorded); done/error from the result. (Stalled detection needs
-// flock-derived liveness in the API; a follow-up.)
-function runState(r) {
-  if (r.result === 'error') return 'err'
-  if (r.result) return 'done'
-  return 'live'
+// The server annotates each run with a flock-derived `state` (running/stalled/done/error): a
+// run hard-killed without recording its finish reads as 'stalled' rather than a false 'running'.
+function runDot(r) {
+  if (r.state === 'running') return 'live'
+  if (r.state === 'stalled') return 'stalled'
+  if (r.state === 'error' || r.result === 'error') return 'err'
+  return 'done'
+}
+function runLabel(r) {
+  if (r.result) return r.result          // recorded outcome: ok / parked / error / ...
+  return r.state === 'stalled' ? 'stalled' : 'running'
 }
 
 export default function App() {
@@ -147,13 +152,16 @@ export default function App() {
           <p className="empty">No runs yet.</p>
         ) : (
           <ul className="list">
-            {runs.map((r, i) => (
-              <li key={r.id ?? i}>
-                <span className={`dot ${runState(r)}`} aria-hidden="true"></span>
-                <span className="subj">{r.sop_id}</span>
-                <span className="chip">{r.result || 'running'}</span>
-              </li>
-            ))}
+            {runs.map((r, i) => {
+              const dot = runDot(r)
+              return (
+                <li key={r.id ?? i}>
+                  <span className={`dot ${dot}`} aria-hidden="true"></span>
+                  <span className="subj">{r.sop_id}</span>
+                  <span className={`chip${dot === 'stalled' ? ' chip-stalled' : ''}`}>{runLabel(r)}</span>
+                </li>
+              )
+            })}
           </ul>
         )}
       </section>
