@@ -142,13 +142,51 @@ def _pending(sop_dir):
     return out
 
 
+def _dir_mtime_sig(d):
+    """A comparable (name, mtime) signature over d/*.md, tolerant of a file that vanishes between
+    glob and stat. A concurrent delete (a dequeue, a session removing a finished file) must NOT
+    raise out of the SSE signal sampler and tear down the /events stream."""
+    sig = []
+    for p in d.glob("*.md"):
+        try:
+            sig.append((p.name, p.stat().st_mtime_ns))
+        except OSError:  # removed between glob and stat -> just drop it from this sample
+            continue
+    return tuple(sorted(sig))
+
+
 def _pending_sig(sop_dir):
     """Change signature for parked results. They live in files (pending/), so data_version is
     blind to a resolve/new-park; the SSE loop watches this to re-emit the pending frame."""
     pdir = Path(sop_dir) / "pending"
-    if not pdir.is_dir():
-        return ()
-    return tuple(sorted((p.name, p.stat().st_mtime_ns) for p in pdir.glob("*.md")))
+    return _dir_mtime_sig(pdir) if pdir.is_dir() else ()
+
+
+def _queue(sop_dir):
+    """Queued runs (status: queued), for the 'Coming up' panel. Mirrors collect_queued.
+
+    Lifecycle note: nothing auto-drains the queue. A queued run is written by queue_run and
+    leaves only via /api/dequeue (Cancel) or by the owner picking it up to run; there is no
+    automatic slot/runner, so 'Coming up' is a queued to-do list, not an auto-run schedule."""
+    out = []
+    qdir = Path(sop_dir) / "queue"
+    if qdir.is_dir():
+        for p in sorted(qdir.glob("*.md")):
+            try:
+                m = lib.parse_frontmatter(p.read_text(encoding="utf-8"))
+            except OSError:
+                continue
+            if (m.get("status") or "").strip() != "queued":
+                continue
+            out.append({"file": p.name, "sop": m.get("sop", p.stem),
+                        "project": Path(m["project"]).name if m.get("project") else ""})
+    return out
+
+
+def _queue_sig(sop_dir):
+    """Change signature for queued runs (file-based, like pending/), watched by the SSE loop."""
+    qdir = Path(sop_dir) / "queue"
+    return _dir_mtime_sig(qdir) if qdir.is_dir() else ()
 
 
 async def _body_obj(request):
@@ -237,6 +275,7 @@ def _snapshot(sop_dir):
         _sse("plate", json.dumps(ss.plate(sop_dir))),
         _sse("inflight", json.dumps(ss.in_flight(sop_dir))),
         _sse("pending", json.dumps(_pending(sop_dir))),
+        _sse("queue", json.dumps(_queue(sop_dir))),
         _sse("runs", json.dumps(_runs_with_liveness(sop_dir))),
     ]
 
@@ -291,9 +330,9 @@ async def event_stream(sop_dir, request):
     # stall the loop. Liveness (a flock release on a dying run) writes nothing to the DB, so
     # data_version alone would miss a run going stalled; we watch it separately.
     def _signals():
-        # liveness (flock) and parked results (pending/ files) both change without a DB write,
-        # so data_version alone would miss them; sample both off the event loop.
-        return _liveness_sig(sop_dir), _pending_sig(sop_dir)
+        # run liveness (flock) and the file-based work (pending/ + queue/) all change without a DB
+        # write, so data_version alone would miss them; sample them off the event loop.
+        return _liveness_sig(sop_dir), _pending_sig(sop_dir), _queue_sig(sop_dir)
 
     with ss.connect(sop_dir) as conn:
         last_dv = ss.data_version(conn)
@@ -423,6 +462,25 @@ def create_app(sop_dir, dist_dir=None):
             raise HTTPException(status_code=409, detail=str(exc))
         _spawn_run(sop_dir, sid, inputs=inputs, prepare=prepare)
         return {"status": "preparing" if prepare else "started", "sop": sid}
+
+    @app.get("/api/queue")
+    def api_queue(t: str = ""):
+        check(t)
+        return {"queue": _queue(sop_dir)}
+
+    @app.post("/api/dequeue")
+    async def dequeue(request: Request):
+        # cancel a queued run by removing its queue/ file (basename only, so no traversal).
+        check(request.headers.get("x-smbos-token", ""))
+        body = await _body_obj(request)
+        target = Path(sop_dir) / "queue" / Path(str(body.get("file") or "")).name
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail="no such queued run")
+        try:
+            target.unlink()
+        except OSError:
+            raise HTTPException(status_code=500, detail="could not cancel the queued run")
+        return {"status": "dequeued"}
 
     @app.post("/api/queue")
     async def queue(request: Request):
