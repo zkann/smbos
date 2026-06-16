@@ -157,9 +157,12 @@ def _rollback(plist, prior, why, port=PORT):
         return False, "{}; no prior daemon to roll back to".format(why)
     plist.write_text(prior, encoding="utf-8")
     r = _launchctl("load", plist, "-w")
-    _kickstart()  # same as the forward path: a bare load may not actually start the daemon
-    if r.returncode == 0 and wait_port_busy(port):
-        return False, "{}; rolled back to the legacy daemon".format(why)
+    if r.returncode == 0:
+        # only after a clean load: kickstart -k on a failed/stale load could restart the bad
+        # app job (it kills the running instance first) and leave the wrong server on the port.
+        _kickstart()
+        if wait_port_busy(port):
+            return False, "{}; rolled back to the legacy daemon".format(why)
     return False, ("{}; ROLLBACK INCOMPLETE: the dashboard on {} may be down. "
                    "Reload it with: launchctl load -w {}".format(why, port, plist))
 

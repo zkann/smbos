@@ -127,10 +127,12 @@ def test_migrate_honors_a_configured_nondefault_port(monkeypatch, tmp_path):
 
 def test_migrate_warns_when_rollback_load_fails(monkeypatch, tmp_path):
     # health fails -> rollback, but the legacy `load` errors (already-loaded/throttled label).
-    plist, _ = _stub_migrate(monkeypatch, tmp_path, prior="<LEGACY/>", health=False,
-                             rollback_load_rc=1)
+    plist, calls = _stub_migrate(monkeypatch, tmp_path, prior="<LEGACY/>", health=False,
+                                 rollback_load_rc=1)
     ok, msg = cut.migrate(tmp_path / "sops")
     assert not ok and "ROLLBACK INCOMPLETE" in msg  # never claim a recovery we didn't get
+    # a failed restore load must NOT be followed by kickstart -k (it could revive the bad job)
+    assert calls[-1][0] == "load"
 
 
 def test_migrate_warns_when_port_stays_dark_after_rollback(monkeypatch, tmp_path):
