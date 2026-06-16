@@ -645,3 +645,7 @@ def test_settings_read_and_write(tmp_path):
         assert client.post("/api/settings", headers=h,
                            json={"key": "launch_permission", "value": 123}).status_code == 400
         assert client.post("/api/settings", headers=h, content=b"not json").status_code == 400
+        # non-finite budget (parses as float but breaks JSON + reads) is rejected, not persisted
+        assert client.post("/api/settings", headers=h, json={"key": "budget", "value": "nan"}).status_code == 400
+        assert client.post("/api/settings", headers=h, json={"key": "budget", "value": "inf"}).status_code == 400
+        assert client.get("/api/settings", params={"t": token}).json()["settings"]["budget"] == 40.0

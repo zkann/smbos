@@ -13,6 +13,7 @@ stays with Claude's propose/approve flow. Binds 127.0.0.1 only, random port,
 per-run token. Stdlib only, no network beyond localhost. Ctrl-C to stop.
 """
 import json
+import math
 import os
 import plistlib
 import re
@@ -327,6 +328,8 @@ def set_budget(sop_dir, amount):
         amt = round(float(amount), 2)
     except (TypeError, ValueError):
         raise ValueError("budget must be a number")
+    if not math.isfinite(amt):  # float('nan')/('inf') parse fine but would break JSON + reads
+        raise ValueError("budget must be a finite number")
     if amt < 0:
         raise ValueError("budget cannot be negative")
     save_triggers(sop_dir, lambda d: d.__setitem__("monthly_budget_usd", amt))

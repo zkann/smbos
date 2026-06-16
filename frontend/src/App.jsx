@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 // Live-mirror dashboard. Subscribes to the SSE stream (/events) and renders the command-center
 // plate + what's in flight + run history. The whole job is to be trusted as current, so a
@@ -105,8 +105,12 @@ export default function App() {
   }, [])
 
   // apply-on-change write of one setting; the response echoes the full new config to resync. On
-  // failure, re-fetch so a rejected value snaps the control back to what actually persisted.
+  // failure, re-fetch so a rejected value snaps the control back to what actually persisted. A
+  // monotonic seq discards a stale echo: two near-simultaneous saves can resolve out of order, and
+  // applying the earlier one last would overwrite the newer state.
+  const latestSave = useRef(0)
   async function saveSetting(key, value) {
+    const seq = ++latestSave.current
     try {
       const res = await fetch('/api/settings', {
         method: 'POST',
@@ -115,14 +119,20 @@ export default function App() {
       })
       if (!res.ok) throw new Error(String(res.status))
       const d = await res.json()
+      if (seq !== latestSave.current) return  // a newer save superseded this; ignore its echo
       setSettings(d.settings)
       setBudgetInput(String(d.settings.budget))
       setConfirmSkip(false)  // clear AFTER the write lands, not before (see onConfirmSkip)
     } catch (_) {
+      if (seq !== latestSave.current) return
       setConfirmSkip(false)
       fetch(`/api/settings?t=${encodeURIComponent(token)}`)
         .then((r) => (r.ok ? r.json() : null))
-        .then((d) => { if (d) { setSettings(d.settings); setBudgetInput(String(d.settings.budget)) } })
+        .then((d) => {
+          if (d && seq === latestSave.current) {
+            setSettings(d.settings); setBudgetInput(String(d.settings.budget))
+          }
+        })
         .catch(() => {})
     }
   }
