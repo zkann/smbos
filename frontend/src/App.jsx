@@ -41,6 +41,11 @@ export default function App() {
   const [settings, setSettings] = useState(null)
   const [budgetInput, setBudgetInput] = useState('')
   const [confirmSkip, setConfirmSkip] = useState(false)
+  // the SOP library (fetched once on mount; the server re-gates at run time). procBusy: sop id ->
+  // 'running'|'preparing'|'queuing'|'launching'|'error'. procInputs: sop id -> the inputs text.
+  const [procedures, setProcedures] = useState([])
+  const [procBusy, setProcBusy] = useState({})
+  const [procInputs, setProcInputs] = useState({})
 
   useEffect(() => {
     // NOTE: do NOT strip ?t= from the URL. The page itself is token-gated (GET / requires ?t=
@@ -110,13 +115,41 @@ export default function App() {
     return () => { es.close(); clearInterval(timer) }
   }, [])
 
-  // settings: fetch once on mount (config, not streamed)
+  // settings + the procedures library: fetched once on mount (config/catalog, not streamed; the
+  // server re-gates a run at request time, so a stale list is safe)
   useEffect(() => {
     fetch(`/api/settings?t=${encodeURIComponent(token)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d) { setSettings(d.settings); setBudgetInput(String(d.settings.budget)) } })
       .catch(() => {})
+    fetch(`/api/procedures?t=${encodeURIComponent(token)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) setProcedures(d.procedures) })
+      .catch(() => {})
   }, [])
+
+  // POST a procedure action (run/queue/prepare/pick-up) with the header token. busyVal marks the
+  // row in flight; success clears it (the action's effect shows in Recent runs / a new session),
+  // an error leaves a retry.
+  async function procPost(url, body, sid, busyVal) {
+    setProcBusy((s) => ({ ...s, [sid]: busyVal }))
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-SMBOS-Token': token },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error(String(res.status))
+      setProcBusy((s) => { const n = { ...s }; delete n[sid]; return n })
+    } catch (_) {
+      setProcBusy((s) => ({ ...s, [sid]: 'error' }))
+    }
+  }
+  const runSop = (id, opts = {}) =>
+    procPost('/api/run', { id, inputs: opts.inputs || undefined, mode: opts.prepare ? 'prepare' : undefined },
+      id, opts.prepare ? 'preparing' : 'running')
+  const queueSop = (id) => procPost('/api/queue', { id }, id, 'queuing')
+  const launchSop = (id) => procPost('/api/launch-sop', { id }, id, 'launching')
 
   // apply-on-change write of one setting; the response echoes the full new config to resync. On
   // failure, re-fetch so a rejected value snaps the control back to what actually persisted. A
@@ -372,6 +405,49 @@ export default function App() {
           </ul>
         )}
       </section>
+
+      {procedures.length > 0 && (
+        <details className="panel procedures">
+          <summary className="overline">Procedures</summary>
+          <ol className="list">
+            {procedures.map((p, i) => {
+              const b = procBusy[p.id]
+              const err = b === 'error'
+              return (
+                <li key={p.id ?? i}>
+                  <span className="subj">{p.title}{p.draft ? ' · draft' : ''}</span>
+                  {p.interactive ? (
+                    <button className={`act${err ? ' act-err' : ''}`} onClick={() => launchSop(p.id)}
+                      disabled={b === 'launching'}>
+                      {b === 'launching' ? 'launching…' : err ? 'retry' : 'Pick up ▶'}
+                    </button>
+                  ) : p.draft ? (
+                    <button className={`act${err ? ' act-err' : ''}`} onClick={() => runSop(p.id, { prepare: true })}
+                      disabled={b === 'preparing'}>
+                      {b === 'preparing' ? 'preparing…' : err ? 'retry' : 'Prepare'}
+                    </button>
+                  ) : (
+                    <>
+                      {p.needs_inputs && (
+                        <input className="proc-inputs" placeholder="inputs…" value={procInputs[p.id] || ''}
+                          onChange={(e) => setProcInputs((s) => ({ ...s, [p.id]: e.target.value }))} />
+                      )}
+                      <button className="act act-primary" onClick={() => runSop(p.id, { inputs: procInputs[p.id] })}
+                        disabled={b === 'running'}>
+                        {b === 'running' ? 'running…' : err ? 'retry' : 'Run'}
+                      </button>
+                      <button className={`act${err ? ' act-err' : ''}`} onClick={() => queueSop(p.id)}
+                        disabled={b === 'queuing'}>
+                        {b === 'queuing' ? 'queuing…' : 'Queue'}
+                      </button>
+                    </>
+                  )}
+                </li>
+              )
+            })}
+          </ol>
+        </details>
+      )}
 
       {settings && (
         <details className="panel settings">
