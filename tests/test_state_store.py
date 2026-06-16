@@ -285,3 +285,45 @@ def test_migration_rollback_is_atomic(tmp_path, monkeypatch):
     finally:
         raw.close()
     assert "task" not in tables  # the earlier CREATEs in the same txn were rolled back
+
+
+def test_in_flight_lists_only_in_flight_ordered(tmp_path):
+    a = ss.record_task(tmp_path, "ops", "x", "low", priority=1)
+    b = ss.record_task(tmp_path, "ops", "x", "high", priority=5)
+    ss.record_task(tmp_path, "ops", "x", "stays waiting", priority=9)
+    ss.set_task_status(tmp_path, a, "in_flight")
+    ss.set_task_status(tmp_path, b, "in_flight")
+    rows = ss.in_flight(tmp_path)
+    assert [r["subject"] for r in rows] == ["high", "low"]  # priority DESC, same order as plate
+    assert all(r["status"] == "in_flight" for r in rows)
+    # the high-priority waiting task is on the plate, NOT in the in-flight list
+    assert "stays waiting" in [t["subject"] for t in ss.plate(tmp_path)]
+    assert "stays waiting" not in [r["subject"] for r in rows]
+
+
+def test_get_task_returns_row_or_none(tmp_path):
+    tid = ss.record_task(tmp_path, "ops", "x", "hello", priority=2)
+    row = ss.get_task(tmp_path, tid)
+    assert row["id"] == tid and row["subject"] == "hello" and row["status"] == "waiting"
+    assert ss.get_task(tmp_path, 999999) is None
+    assert ss.get_task(tmp_path, str(tid))["id"] == tid    # request ids arrive as strings
+    assert ss.get_task(tmp_path, float(tid))["id"] == tid  # an integral float is fine
+
+
+def test_get_task_rejects_non_integer_id(tmp_path):
+    with ss.connect(tmp_path):
+        pass
+    # bool and a non-integral float must NOT silently truncate to some other task's id
+    for bad in ("not-an-int", None, [1], 1.5, True):
+        with pytest.raises(ss.StateStoreError):
+            ss.get_task(tmp_path, bad)
+
+
+def test_claim_task_is_single_winner(tmp_path):
+    tid = ss.record_task(tmp_path, "ops", "x", "claim me")
+    assert ss.claim_task(tmp_path, tid) is True            # waiting -> in_flight, this call won
+    assert ss.get_task(tmp_path, tid)["status"] == "in_flight"
+    assert ss.claim_task(tmp_path, tid) is False           # a second claim loses (already in flight)
+    assert ss.claim_task(tmp_path, 999999) is False        # no such row, no transition
+    with pytest.raises(ss.StateStoreError):
+        ss.claim_task(tmp_path, "not-an-int")

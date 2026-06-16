@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 
 // Live-mirror dashboard. Subscribes to the SSE stream (/events) and renders the command-center
-// plate + run history. The whole job is to be trusted as current, so a dead/quiet stream
-// surfaces a staleness banner.
+// plate + what's in flight + run history. The whole job is to be trusted as current, so a
+// dead/quiet stream surfaces a staleness banner. Each plate item can be picked up: that POSTs
+// /api/launch, which opens a Claude session primed for the task and moves it to "in flight".
 const STALE_MS = 15000 // ~1.5 missed heartbeats (server beats every ~10s)
 const token = window.__SMBOS_TOKEN__ || ''
 
@@ -16,8 +17,12 @@ function runState(r) {
 
 export default function App() {
   const [plate, setPlate] = useState([])
+  const [inflight, setInflight] = useState([])
   const [runs, setRuns] = useState([])
   const [stale, setStale] = useState(false)
+  // per-task launch state: id -> 'launching' | 'error'. A successful launch clears via the SSE
+  // plate frame moving the item to in-flight; an error stays visible so the row offers a retry.
+  const [launch, setLaunch] = useState({})
 
   useEffect(() => {
     // NOTE: do NOT strip ?t= from the URL. The page itself is token-gated (GET / requires ?t=
@@ -33,8 +38,25 @@ export default function App() {
       fresh()
     }
 
+    // the plate frame also prunes launch state: an id no longer on the plate (it succeeded into
+    // in-flight, or resolved elsewhere) shouldn't keep a stale 'launching'/'error' on a row
+    // that's gone. An errored id that's still waiting stays, so the row keeps its retry.
+    const onPlate = (e) => {
+      let next
+      try { next = JSON.parse(e.data) } catch (_) { fresh(); return }
+      setPlate(next)
+      const ids = new Set(next.map((t) => t.id))
+      setLaunch((s) => {
+        const n = {}
+        for (const k of Object.keys(s)) if (ids.has(Number(k))) n[k] = s[k]
+        return n
+      })
+      fresh()
+    }
+
     const es = new EventSource(`/events?t=${encodeURIComponent(token)}`)
-    es.addEventListener('plate', onFrame(setPlate))
+    es.addEventListener('plate', onPlate)
+    es.addEventListener('inflight', onFrame(setInflight))
     es.addEventListener('runs', onFrame(setRuns))
     es.addEventListener('heartbeat', fresh)
     es.onerror = () => setStale(true) // surface the drop; EventSource auto-reconnects
@@ -42,6 +64,38 @@ export default function App() {
 
     return () => { es.close(); clearInterval(timer) }
   }, [])
+
+  // Pick up a task: open a primed Claude session for it. The token rides in a custom header (a
+  // cross-origin POST with one forces a CORS preflight the server's GET-only policy blocks).
+  async function pickUp(id) {
+    if (id == null) return
+    setLaunch((s) => ({ ...s, [id]: 'launching' }))
+    // bound the request: the server spawns osascript (up to ~20s); without a ceiling a stuck
+    // launch would leave the button disabled+'launching…' forever with no recovery but reload.
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 25000)
+    try {
+      const res = await fetch('/api/launch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-SMBOS-Token': token },
+        body: JSON.stringify({ task_id: id }),
+        signal: ctrl.signal,
+      })
+      if (!res.ok) throw new Error(String(res.status))
+      // success: the SSE plate frame will drop this item (it's now in flight); clear local state
+      setLaunch((s) => { const n = { ...s }; delete n[id]; return n })
+    } catch (_) {
+      setLaunch((s) => ({ ...s, [id]: 'error' }))
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  function pickupLabel(id) {
+    if (launch[id] === 'launching') return 'launching…'
+    if (launch[id] === 'error') return 'retry'
+    return 'Pick up ▶'
+  }
 
   return (
     <main>
@@ -59,11 +113,33 @@ export default function App() {
               <li key={t.id ?? i}>
                 <span className="subj">{t.subject}</span>
                 <span className={`chip chip-${t.status}`}>{t.status}</span>
+                <button
+                  className={`pickup${launch[t.id] === 'error' ? ' pickup-err' : ''}`}
+                  onClick={() => pickUp(t.id)}
+                  disabled={t.id == null || launch[t.id] === 'launching'}
+                >
+                  {pickupLabel(t.id)}
+                </button>
               </li>
             ))}
           </ol>
         )}
       </section>
+
+      {inflight.length > 0 && (
+        <section className="panel">
+          <div className="overline">In flight</div>
+          <ol className="list">
+            {inflight.map((t, i) => (
+              <li key={t.id ?? i}>
+                <span className="dot live" aria-hidden="true"></span>
+                <span className="subj">{t.subject}</span>
+                <span className="chip chip-inflight">in flight</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
 
       <section className="panel">
         <div className="overline">Recent runs</div>

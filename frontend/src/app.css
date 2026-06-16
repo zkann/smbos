@@ -50,6 +50,22 @@ ol.list li::before {
   border: 1px solid var(--border); border-radius: 999px; padding: 4px 8px;
 }
 .chip-waiting { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 35%, transparent); }
+.chip-inflight { color: var(--primary); border-color: color-mix(in srgb, var(--primary) 35%, transparent); }
+
+/* Pick up: the per-row invoke affordance. Always visible (keyboard-focusable), quiet until
+   hovered/focused so it doesn't compete with the task text. */
+.pickup {
+  flex: none; font: 11px/1 ui-monospace, monospace; letter-spacing: 0.04em;
+  color: var(--muted-fg); background: var(--card-raised); cursor: pointer;
+  border: 1px solid var(--border); border-radius: 999px; padding: 5px 11px;
+  transition: color 120ms, border-color 120ms, background 120ms;
+}
+.pickup:hover:not(:disabled), .pickup:focus-visible:not(:disabled) {
+  color: var(--primary); border-color: color-mix(in srgb, var(--primary) 50%, transparent);
+  background: color-mix(in srgb, var(--primary) 10%, var(--card-raised));
+}
+.pickup:disabled { opacity: 0.6; cursor: default; }
+.pickup-err { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent); }
 
 .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--subtle-fg); flex: none; }
 .dot.live { background: var(--primary); box-shadow: 0 0 6px color-mix(in srgb, var(--primary) 70%, transparent); }

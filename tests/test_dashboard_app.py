@@ -173,9 +173,11 @@ def test_events_generator_stops_on_disconnect(tmp_path):
         return events
 
     events = asyncio.run(asyncio.wait_for(drain(), timeout=5))
-    # initial snapshot is two frames (plate + runs), then the disconnected client ends it
-    assert len(events) == 2
-    assert events[0].startswith("event: plate\n") and events[1].startswith("event: runs\n")
+    # initial snapshot is three frames (plate + inflight + runs), then the disconnect ends it
+    assert len(events) == 3
+    assert events[0].startswith("event: plate\n")
+    assert events[1].startswith("event: inflight\n")
+    assert events[2].startswith("event: runs\n")
 
 
 def test_runs_requires_token(tmp_path):
@@ -200,14 +202,15 @@ def test_events_initial_snapshot_includes_runs(tmp_path):
     rid = ss.start_run(tmp_path, "weekly-report", surface="cron")
     ss.finish_run(tmp_path, rid, result="ok")
 
-    async def first_two():
+    async def first_three():
         gen = dashboard_app.event_stream(tmp_path, _FakeRequest())
-        out = [await gen.__anext__(), await gen.__anext__()]
+        out = [await gen.__anext__(), await gen.__anext__(), await gen.__anext__()]
         await gen.aclose()
         return out
 
-    plate_frame, runs_frame = asyncio.run(first_two())
+    plate_frame, inflight_frame, runs_frame = asyncio.run(first_three())
     assert plate_frame.startswith("event: plate\n")
+    assert inflight_frame.startswith("event: inflight\n")
     assert runs_frame.startswith("event: runs\n") and "weekly-report" in runs_frame
 
 
@@ -293,3 +296,133 @@ def test_rejects_non_loopback_host(tmp_path):
         assert bad.status_code == 403
         good = client.get("/api/plate", params={"t": token}, headers={"host": "127.0.0.1:8766"})
         assert good.status_code == 200
+
+
+# --- /api/inflight + /api/launch (the invoke half) -------------------------------------
+
+def _seed_task(tmp_path, subject="Do the thing", priority=5):
+    return ss.record_task(tmp_path, "ops", "invoice", subject, priority=priority)
+
+
+def test_inflight_endpoint(tmp_path):
+    tid = _seed_task(tmp_path, subject="being worked")
+    ss.set_task_status(tmp_path, tid, "in_flight")
+    app = dashboard_app.create_app(tmp_path)
+    token = lib.dashboard_token(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.get("/api/inflight").status_code == 401  # token gated
+        r = client.get("/api/inflight", params={"t": token})
+    assert r.status_code == 200
+    assert [t["subject"] for t in r.json()["inflight"]] == ["being worked"]
+
+
+def test_snapshot_has_plate_inflight_runs(tmp_path):
+    w = _seed_task(tmp_path, subject="waiting one")
+    f = _seed_task(tmp_path, subject="flight one")
+    ss.set_task_status(tmp_path, f, "in_flight")
+    joined = "".join(dashboard_app._snapshot(tmp_path))
+    assert "event: plate" in joined and "event: inflight" in joined and "event: runs" in joined
+    assert "waiting one" in joined and "flight one" in joined
+
+
+def test_launch_requires_token_header(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(dashboard_app, "_launch_session", lambda *a: calls.append(a))
+    tid = _seed_task(tmp_path)
+    app = dashboard_app.create_app(tmp_path)
+    token = lib.dashboard_token(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.post("/api/launch", json={"task_id": tid}).status_code == 401  # no header
+        assert client.post("/api/launch", json={"task_id": tid},
+                           headers={"x-smbos-token": "wrong"}).status_code == 401
+        # the ?t= query param does NOT authorize a POST (the write endpoint wants the header)
+        assert client.post("/api/launch", params={"t": token},
+                           json={"task_id": tid}).status_code == 401
+    assert calls == []  # never launched without a valid header token
+
+
+def test_launch_preflight_blocks_cross_origin_post(tmp_path):
+    # the CSRF model: the custom X-SMBOS-Token header makes the POST preflighted; a disallowed
+    # origin gets no Access-Control-Allow-Origin, and POST is not an allowed method even for the
+    # permitted legacy origin -- so a browser on another page can't reach this spawner. TestClient
+    # doesn't enforce CORS, but CORSMiddleware DOES answer the preflight, so this part is testable.
+    app = dashboard_app.create_app(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        evil = client.options("/api/launch", headers={
+            "Origin": "http://evil.example",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "x-smbos-token",
+        })
+        assert evil.headers.get("access-control-allow-origin") != "http://evil.example"
+        legacy_origin = client.options("/api/launch", headers={
+            "Origin": "http://127.0.0.1:8765",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "x-smbos-token",
+        })
+        assert "POST" not in legacy_origin.headers.get("access-control-allow-methods", "")
+
+
+def test_launch_moves_task_in_flight_and_primes_prompt(tmp_path, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(dashboard_app, "_launch_session",
+                        lambda sop_dir, prompt: seen.update(prompt=prompt, sop_dir=sop_dir))
+    tid = _seed_task(tmp_path, subject="Send the Acme invoice")
+    app = dashboard_app.create_app(tmp_path)
+    token = lib.dashboard_token(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        r = client.post("/api/launch", headers={"x-smbos-token": token}, json={"task_id": tid})
+    assert r.status_code == 200 and r.json() == {"status": "launched", "task_id": tid}
+    # prompt is derived from the STORED subject, never the request body
+    assert "Send the Acme invoice" in seen["prompt"]
+    assert ss.get_task(tmp_path, tid)["status"] == "in_flight"
+    assert tid not in [t["id"] for t in ss.plate(tmp_path)]
+    assert tid in [t["id"] for t in ss.in_flight(tmp_path)]
+
+
+def test_launch_rejects_bad_body_and_missing_task(tmp_path, monkeypatch):
+    monkeypatch.setattr(dashboard_app, "_launch_session", lambda *a: None)
+    app = dashboard_app.create_app(tmp_path)
+    h = {"x-smbos-token": lib.dashboard_token(tmp_path)}
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.post("/api/launch", headers=h, json={"task_id": "nope"}).status_code == 400
+        assert client.post("/api/launch", headers=h, json={"task_id": 999999}).status_code == 404
+        assert client.post("/api/launch", headers=h, content=b"not json").status_code == 400
+        assert client.post("/api/launch", headers=h, json=["a list"]).status_code == 400
+
+
+def test_launch_refuses_task_not_on_plate(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(dashboard_app, "_launch_session", lambda *a: calls.append(a))
+    tid = _seed_task(tmp_path)
+    ss.set_task_status(tmp_path, tid, "in_flight")  # already picked up
+    app = dashboard_app.create_app(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        r = client.post("/api/launch", headers={"x-smbos-token": lib.dashboard_token(tmp_path)},
+                        json={"task_id": tid})
+    assert r.status_code == 409 and calls == []  # didn't double-launch
+
+
+def test_launch_failure_leaves_task_on_plate(tmp_path, monkeypatch):
+    def boom(sop_dir, prompt):
+        raise RuntimeError("osascript blew up")
+    monkeypatch.setattr(dashboard_app, "_launch_session", boom)
+    tid = _seed_task(tmp_path)
+    app = dashboard_app.create_app(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        r = client.post("/api/launch", headers={"x-smbos-token": lib.dashboard_token(tmp_path)},
+                        json={"task_id": tid})
+    assert r.status_code == 500
+    assert ss.get_task(tmp_path, tid)["status"] == "waiting"  # not stranded in_flight
+
+
+def test_launch_non_macos_is_clean_400(tmp_path, monkeypatch):
+    def not_mac(sop_dir, prompt):
+        raise ValueError("launching Claude from the dashboard only works on macOS")
+    monkeypatch.setattr(dashboard_app, "_launch_session", not_mac)
+    tid = _seed_task(tmp_path)
+    app = dashboard_app.create_app(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        r = client.post("/api/launch", headers={"x-smbos-token": lib.dashboard_token(tmp_path)},
+                        json={"task_id": tid})
+    assert r.status_code == 400 and "macOS" in r.json()["detail"]
+    assert ss.get_task(tmp_path, tid)["status"] == "waiting"
