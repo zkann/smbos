@@ -152,8 +152,11 @@ def _pending_sig(sop_dir):
 
 
 def _queue(sop_dir):
-    """Queued runs awaiting a slot (status: queued), for the 'Coming up' panel. Mirrors
-    generate_dashboard.collect_queued and adds the request time so the panel can show when."""
+    """Queued runs (status: queued), for the 'Coming up' panel. Mirrors collect_queued.
+
+    Lifecycle note: nothing auto-drains the queue. A queued run is written by queue_run and
+    leaves only via /api/dequeue (Cancel) or by the owner picking it up to run; there is no
+    automatic slot/runner, so 'Coming up' is a queued to-do list, not an auto-run schedule."""
     out = []
     qdir = Path(sop_dir) / "queue"
     if qdir.is_dir():
@@ -165,8 +168,7 @@ def _queue(sop_dir):
             if (m.get("status") or "").strip() != "queued":
                 continue
             out.append({"file": p.name, "sop": m.get("sop", p.stem),
-                        "project": Path(m["project"]).name if m.get("project") else "",
-                        "requested": m.get("requested", "")})
+                        "project": Path(m["project"]).name if m.get("project") else ""})
     return out
 
 

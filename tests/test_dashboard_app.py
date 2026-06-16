@@ -763,8 +763,23 @@ def test_queue_read_and_dequeue(tmp_path):
         assert client.post("/api/dequeue", headers=h, json={"file": f}).status_code == 200
         assert client.get("/api/queue", params={"t": token}).json()["queue"] == []  # gone
         assert client.post("/api/dequeue", headers=h, json={"file": f}).status_code == 404  # already gone
-        # basename only: a traversal name can't escape queue/
-        assert client.post("/api/dequeue", headers=h, json={"file": "../../etc/hosts"}).status_code == 404
+        # basename only: a traversal name resolves inside queue/, so a sentinel OUTSIDE it is
+        # untouched (proves the basename guard, not just "the file happened to be absent")
+        sentinel = tmp_path / "sentinel.md"
+        sentinel.write_text("keep me", encoding="utf-8")
+        assert client.post("/api/dequeue", headers=h, json={"file": "../sentinel.md"}).status_code == 404
+        assert sentinel.exists()
+
+
+def test_queue_skips_malformed_files(tmp_path):
+    # _queue must not crash on a queue/ file with no frontmatter / a non-queued status
+    qdir = tmp_path / "queue"
+    qdir.mkdir()
+    (qdir / "garbage.md").write_text("no frontmatter here\n", encoding="utf-8")
+    (qdir / "done.md").write_text("---\nsop: x\nstatus: started\n---\n", encoding="utf-8")
+    (qdir / "real.md").write_text("---\nsop: weekly-report\nstatus: queued\n---\n", encoding="utf-8")
+    rows = dashboard_app._queue(tmp_path)
+    assert [r["sop"] for r in rows] == ["weekly-report"]  # only the queued one, no crash
 
 
 def test_snapshot_includes_queue_frame(tmp_path):
