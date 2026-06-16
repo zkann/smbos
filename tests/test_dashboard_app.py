@@ -613,3 +613,39 @@ def test_events_re_emit_on_pending_change(tmp_path, monkeypatch):
 
     frames = asyncio.run(asyncio.wait_for(run(), timeout=5))
     assert any(e.startswith("event: pending\n") and "first" not in e for e in frames)
+
+
+# --- settings: /api/settings read + apply-on-change write (cutover PR3b) ---
+
+def test_settings_read_and_write(tmp_path):
+    app = dashboard_app.create_app(tmp_path)
+    token = lib.dashboard_token(tmp_path)
+    h = {"x-smbos-token": token}
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.get("/api/settings").status_code == 401   # token gated
+        s = client.get("/api/settings", params={"t": token}).json()["settings"]
+        assert s["launch_permission"] == "trust"                # default posture
+        assert "terminal" in s and s["budget"] == 0.0
+        # write is header gated (?t= doesn't authorize the POST)
+        assert client.post("/api/settings", json={"key": "launch_permission", "value": "skip"}).status_code == 401
+        r = client.post("/api/settings", headers=h, json={"key": "launch_permission", "value": "skip"})
+        assert r.status_code == 200 and r.json()["settings"]["launch_permission"] == "skip"
+        assert client.post("/api/settings", headers=h,
+                           json={"key": "budget", "value": 40}).json()["settings"]["budget"] == 40.0
+        assert client.post("/api/settings", headers=h,
+                           json={"key": "terminal", "value": "iterm"}).json()["settings"]["terminal"] == "iterm"
+        # bad value -> 400; negative budget -> 400; unknown key -> 400
+        assert client.post("/api/settings", headers=h,
+                           json={"key": "launch_permission", "value": "bogus"}).status_code == 400
+        assert client.post("/api/settings", headers=h, json={"key": "budget", "value": -5}).status_code == 400
+        assert client.post("/api/settings", headers=h, json={"key": "nope", "value": "x"}).status_code == 400
+        # non-string / null values must funnel through the setters' coercion to 400, never a 500
+        assert client.post("/api/settings", headers=h, json={"key": "budget", "value": None}).status_code == 400
+        assert client.post("/api/settings", headers=h, json={"key": "budget", "value": [1]}).status_code == 400
+        assert client.post("/api/settings", headers=h,
+                           json={"key": "launch_permission", "value": 123}).status_code == 400
+        assert client.post("/api/settings", headers=h, content=b"not json").status_code == 400
+        # non-finite budget (parses as float but breaks JSON + reads) is rejected, not persisted
+        assert client.post("/api/settings", headers=h, json={"key": "budget", "value": "nan"}).status_code == 400
+        assert client.post("/api/settings", headers=h, json={"key": "budget", "value": "inf"}).status_code == 400
+        assert client.get("/api/settings", params={"t": token}).json()["settings"]["budget"] == 40.0

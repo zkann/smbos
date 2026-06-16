@@ -3,8 +3,9 @@
 :root {
   --background: #09090b; --card: #0f0f12; --card-raised: #17171b; --border: #27272a;
   --foreground: #fafafa; --muted-fg: #a1a1aa; --subtle-fg: #85858f;
-  --primary: #22c55e; --amber: #f59e0b; --red: #f87171;
-  --chip-bg: #18181b; --radius: 12px;
+  --primary: #22c55e; --primary-hover: #1eb554; --amber: #f59e0b; --red: #f87171;
+  --chip-bg: #18181b; --input: #2b2b30; --border-strong: #3f3f46; --ring: #22c55e;
+  --radius: 12px;
 }
 * { box-sizing: border-box; }
 body {
@@ -77,6 +78,25 @@ ol.list > li::before {
 .act-primary:hover:not(:disabled), .act-primary:focus-visible:not(:disabled) {
   background: var(--primary-hover); border-color: var(--primary-hover);
 }
+.act-danger { color: #fafafa; background: var(--red); border-color: var(--red); }
+
+/* Settings disclosure (DESIGN.md: native controls, 1px --input border, visible labels, ring focus) */
+.settings summary { cursor: pointer; list-style: none; }
+.settings summary::-webkit-details-marker { display: none; }
+.settings[open] summary { margin-bottom: 14px; }
+.setrow { display: flex; align-items: center; gap: 10px; padding: 7px 0; }
+.setrow label { flex: 1; color: var(--muted-fg); font-size: 13px; }
+.setrow .prefix { color: var(--muted-fg); margin-left: auto; }
+.setrow select, .setrow input {
+  font: inherit; font-size: 13px; color: var(--foreground); background: transparent;
+  border: 1px solid var(--input); border-radius: 6px; padding: 6px 9px; min-width: 200px;
+}
+.setrow input[type="number"] { min-width: 96px; text-align: right; }
+.setrow select:focus-visible, .setrow input:focus-visible {
+  outline: 2px solid var(--ring); outline-offset: 2px; border-color: var(--border-strong);
+}
+.setwarn { display: block; color: var(--red); font-size: 12px; padding: 4px 0; }
+.setwarn-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; flex-wrap: wrap; }
 
 /* Pick up: the per-row invoke affordance. Always visible (keyboard-focusable), quiet until
    hovered/focused so it doesn't compete with the task text. */

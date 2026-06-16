@@ -161,6 +161,34 @@ async def _body_obj(request):
     return body
 
 
+def _settings(sop_dir):
+    """Current owner config for the Settings panel, reusing the daemon's config readers
+    (they read triggers.json). Digest controls are deferred to the launchd-cutover PR."""
+    budget = 0.0
+    try:
+        tj = json.loads((Path(sop_dir) / "triggers.json").read_text(encoding="utf-8"))
+        if isinstance(tj, dict):
+            parsed = float(tj.get("monthly_budget_usd") or 0)
+            # float('nan'/'inf') parses without raising; clamp so a bad stored value can't break
+            # JSON serialization of this response (set_budget rejects them, but be defensive)
+            budget = parsed if (math.isfinite(parsed) and parsed >= 0) else 0.0
+    except (OSError, ValueError, TypeError):
+        pass
+    return {
+        "launch_permission": legacy.launch_permission(sop_dir),  # trust / ask / skip
+        "terminal": legacy.preferred_terminal(sop_dir),          # terminal / iterm
+        "budget": budget,
+    }
+
+
+# Per-setting writers (reuse the daemon's validators; each raises ValueError on a bad value).
+_SETTERS = {
+    "launch_permission": legacy.set_launch_permission,
+    "terminal": legacy.set_terminal,
+    "budget": legacy.set_budget,
+}
+
+
 def _snapshot(sop_dir):
     """The live-mirror snapshots as SSE frames: the plate (waiting), what's in flight, parked
     results awaiting a decision, and recent runs (with liveness). Runs in a worker thread so it
@@ -255,6 +283,12 @@ def create_app(sop_dir, dist_dir=None):
     sop_dir = Path(sop_dir)
     dist_dir = Path(dist_dir) if dist_dir is not None else DIST_DIR
     token = lib.dashboard_token(sop_dir)
+    # Serialize settings writes: the reused setters do an unlocked read-modify-replace of the whole
+    # triggers.json, so two concurrent apply-on-change POSTs (e.g. a terminal select that also blurs
+    # the budget field) could each read the old file and the later replace drop the earlier setting.
+    # Created lazily on first use: asyncio.Lock() binds to the running loop, and on Python 3.9
+    # constructing one with no running loop raises "no current event loop" (the system py CI catches).
+    settings_lock = None
     app = FastAPI(title="SmbOS dashboard", docs_url=None, redoc_url=None)
 
     # Scoped CORS: only the legacy dashboard origin may consume the stream cross-origin during
@@ -302,6 +336,34 @@ def create_app(sop_dir, dist_dir=None):
     def api_pending(t: str = ""):
         check(t)
         return {"pending": _pending(sop_dir)}
+
+    @app.get("/api/settings")
+    def api_settings(t: str = ""):
+        check(t)
+        return {"settings": _settings(sop_dir)}
+
+    @app.post("/api/settings")
+    async def settings(request: Request):
+        # apply-on-change: one control per POST ({key, value}). Header-token gated. The setters
+        # write triggers.json (set_launch_permission shells nothing, but keep the to_thread for
+        # symmetry with future digest setters that shell out). The dangerous 'skip' permission is
+        # gated by an inline confirm in the SPA, not here -- the owner authoritatively owns config.
+        check(request.headers.get("x-smbos-token", ""))
+        body = await _body_obj(request)
+        setter = _SETTERS.get(str(body.get("key") or ""))
+        if setter is None:
+            raise HTTPException(status_code=400, detail="unknown setting")
+        nonlocal settings_lock
+        if settings_lock is None:  # first request: a loop is running, so this is py3.9-safe
+            settings_lock = asyncio.Lock()
+        async with settings_lock:  # one read-modify-replace of triggers.json at a time
+            try:
+                await asyncio.to_thread(setter, sop_dir, body.get("value"))
+            except ValueError as exc:  # bad posture / non-numeric or negative budget / bad terminal
+                raise HTTPException(status_code=400, detail=str(exc))
+            except OSError:            # triggers.json write failed (perms / disk) -- server-side
+                raise HTTPException(status_code=500, detail="could not save the setting")
+            return {"settings": _settings(sop_dir)}  # echo the full new state so the SPA syncs
 
     @app.post("/api/resolve")
     async def resolve(request: Request):

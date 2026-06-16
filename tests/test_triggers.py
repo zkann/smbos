@@ -57,3 +57,14 @@ def test_costs_report(library):
     out = run(["costs"], library).stdout
     assert "This month: $0.60" in out
     assert "a: 2 runs" in out and "1 errors" in out
+
+
+def test_list_tolerates_config_only_registry(library):
+    # the dashboard's settings panel can create triggers.json with only config keys (no triggers
+    # array); a list/sync must not KeyError on that partial file (cutover regression guard)
+    (library / "triggers.json").write_text('{"launch_permission": "trust"}\n', encoding="utf-8")
+    r = run(["list"], library)
+    assert r.returncode == 0, r.stderr
+    # add still works against the seeded-empty triggers list
+    add = run(["add", "weekly-metrics-report", "cron(57 8 * * 1)"], library)
+    assert add.returncode == 0, add.stderr
