@@ -210,14 +210,16 @@ def notify(title, body, open_url=None):
 def dashboard_port(sop_dir):
     """Configured dashboard port: $SMBOS_DASHBOARD_PORT, then triggers.json dashboard_port, else
     8765. Shared by the daemon, the app's cutover, and notification URLs so they always agree."""
+    def _valid(p):
+        return type(p) is int and 1 <= p <= 65535  # reject bool, 0, and out-of-range
     env = os.environ.get("SMBOS_DASHBOARD_PORT")
-    if env and env.isdigit():
+    if env and env.isdigit() and _valid(int(env)):
         return int(env)
     cfg = Path(sop_dir) / "triggers.json"
     if cfg.exists():
         try:
             v = json.loads(cfg.read_text(encoding="utf-8")).get("dashboard_port")
-            if isinstance(v, int):
+            if _valid(v):
                 return v
         except (OSError, ValueError):
             pass

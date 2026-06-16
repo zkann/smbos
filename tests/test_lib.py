@@ -1,3 +1,4 @@
+import json
 import threading
 
 from conftest import make_sop
@@ -31,6 +32,11 @@ def test_dashboard_port_and_url(tmp_path, monkeypatch):
     assert lib.dashboard_port(tmp_path) == 9100  # env wins
     url = lib.dashboard_url(tmp_path)
     assert url == "http://127.0.0.1:9100/?t={}".format(lib.dashboard_token(tmp_path))
+    # out-of-range / wrong-type values fall back to the default rather than break binding
+    monkeypatch.delenv("SMBOS_DASHBOARD_PORT", raising=False)
+    for bad in (0, 70000, -1, True):
+        (tmp_path / "triggers.json").write_text(json.dumps({"dashboard_port": bad}), encoding="utf-8")
+        assert lib.dashboard_port(tmp_path) == 8765
 
 
 def test_terminal_notifier_falls_back_to_brew_paths(monkeypatch):
