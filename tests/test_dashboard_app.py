@@ -653,10 +653,10 @@ def test_settings_read_and_write(tmp_path):
 
 # --- /api/run + /api/queue: native gate -> Popen run_sop (cutover PR4) ---
 
-def _make_sop(tmp_path, sid, extra=""):
+def _make_sop(tmp_path, sid, extra="", status="active"):
     d = tmp_path / "ops"
     d.mkdir(parents=True, exist_ok=True)
-    (d / f"{sid}.md").write_text(f"---\nid: {sid}\nstatus: active\n{extra}---\n# {sid}\nbody\n", encoding="utf-8")
+    (d / f"{sid}.md").write_text(f"---\nid: {sid}\nstatus: {status}\n{extra}---\n# {sid}\nbody\n", encoding="utf-8")
 
 
 def test_run_gates_and_spawns(tmp_path, monkeypatch):
@@ -671,7 +671,25 @@ def test_run_gates_and_spawns(tmp_path, monkeypatch):
         r = client.post("/api/run", headers=h, json={"id": "weekly-report"})
         assert r.status_code == 200 and r.json() == {"status": "started", "sop": "weekly-report"}
         assert spawned == [("weekly-report", None)]
+        # inputs thread through to the spawn (not dropped)
+        client.post("/api/run", headers=h, json={"id": "weekly-report", "inputs": "sources: Stripe"})
+        assert spawned[-1] == ("weekly-report", "sources: Stripe")
         assert client.post("/api/run", headers=h, json={"id": "nope"}).status_code == 409  # unknown task
+
+
+def test_run_refuses_draft_and_drift(tmp_path, monkeypatch):
+    spawned = []
+    monkeypatch.setattr(dashboard_app, "_spawn_run", lambda *a, **k: spawned.append(a))
+    _make_sop(tmp_path, "wip", status="draft")
+    _make_sop(tmp_path, "edited", extra="content_hash: deadbeef\n")  # stamped hash won't match body
+    app = dashboard_app.create_app(tmp_path)
+    h = {"x-smbos-token": lib.dashboard_token(tmp_path)}
+    with TestClient(app, base_url="http://localhost") as client:
+        draft = client.post("/api/run", headers=h, json={"id": "wip"})
+        assert draft.status_code == 409 and "draft" in draft.json()["detail"].lower()
+        drift = client.post("/api/run", headers=h, json={"id": "edited"})
+        assert drift.status_code == 409 and "outside" in drift.json()["detail"]
+    assert spawned == []  # neither a draft nor a drifted SOP is ever spawned headless
 
 
 def test_run_refuses_interactive_only(tmp_path, monkeypatch):

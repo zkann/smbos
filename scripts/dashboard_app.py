@@ -196,10 +196,15 @@ def _gate_run(sop_dir, sop_id, inputs):
     (the cage lives there); this is the early, clean 4xx + the design D2 rule that an
     interactive_only SOP is refused here so the SPA offers Pick up instead of a headless run."""
     sid = re.sub(r"[^a-z0-9-]", "", str(sop_id).lower())
-    if not sid or lib.find_sop(sop_dir, sid) is None:
+    sop = lib.find_sop(sop_dir, sid) if sid else None
+    if sop is None:
         raise ValueError("unknown task")
     if lib.is_interactive_only(sop_dir, sid):
         raise ValueError("This one needs you in the session. Pick it up instead of running it headless.")
+    status = (lib.frontmatter_field(sop, "status") or "").strip().lower()
+    if status not in ("active", "trusted"):  # run_sop also refuses drafts; give the early clean reason
+        raise ValueError("This procedure is still a draft. It needs a supervised first run before it "
+                         "can run on its own.")
     if lib.run_lock_held(sop_dir, sid):
         raise ValueError("This procedure is already running. Its result will appear when it finishes.")
     if lib.has_unrecorded_changes(sop_dir, sid):
@@ -215,8 +220,9 @@ def _spawn_run(sop_dir, sid, inputs=None):
     builder the legacy daemon uses (lib.run_sop_command), so the app and the daemon invoke the
     runner identically. A seam tests stub so a run test never actually launches run_sop."""
     cmd = lib.run_sop_command(sop_dir, sid, inputs=inputs)
-    log = (Path(sop_dir) / "trigger.log").open("a")
-    subprocess.Popen(cmd, stdout=log, stderr=log, start_new_session=True)
+    # close the parent's copy of the log fd after Popen dups it into the child (no parent fd leak)
+    with (Path(sop_dir) / "trigger.log").open("a") as log:
+        subprocess.Popen(cmd, stdout=log, stderr=log, start_new_session=True)
     return cmd
 
 
@@ -320,6 +326,10 @@ def create_app(sop_dir, dist_dir=None):
     # Created lazily on first use: asyncio.Lock() binds to the running loop, and on Python 3.9
     # constructing one with no running loop raises "no current event loop" (the system py CI catches).
     settings_lock = None
+    # The folder the dashboard was launched from, captured ONCE at startup (mirrors the legacy
+    # daemon's LAUNCH_CWD): a queued folder-less SOP inherits it. Read live, Path.cwd() would be the
+    # same value (the server never chdir's), but binding it once is explicit and future-proof.
+    launch_cwd = str(Path.cwd())
     app = FastAPI(title="SmbOS dashboard", docs_url=None, redoc_url=None)
 
     # Scoped CORS: only the legacy dashboard origin may consume the stream cross-origin during
@@ -419,7 +429,7 @@ def create_app(sop_dir, dist_dir=None):
             sid, project = lib.queue_run(
                 sop_dir, body.get("id", ""),
                 inputs=str(body.get("inputs") or "").strip() or None,
-                scope=str(body.get("scope") or "here"), launch_cwd=str(Path.cwd()))
+                scope=str(body.get("scope") or "here"), launch_cwd=launch_cwd)
         except ValueError as exc:  # unknown task
             raise HTTPException(status_code=400, detail=str(exc))
         return {"status": "queued", "sop": sid,
