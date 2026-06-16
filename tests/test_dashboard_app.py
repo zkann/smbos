@@ -173,11 +173,12 @@ def test_events_generator_stops_on_disconnect(tmp_path):
         return events
 
     events = asyncio.run(asyncio.wait_for(drain(), timeout=5))
-    # initial snapshot is three frames (plate + inflight + runs), then the disconnect ends it
-    assert len(events) == 3
+    # initial snapshot is four frames (plate + inflight + pending + runs), then the disconnect ends it
+    assert len(events) == 4
     assert events[0].startswith("event: plate\n")
     assert events[1].startswith("event: inflight\n")
-    assert events[2].startswith("event: runs\n")
+    assert events[2].startswith("event: pending\n")
+    assert events[3].startswith("event: runs\n")
 
 
 def test_runs_requires_token(tmp_path):
@@ -256,15 +257,16 @@ def test_events_initial_snapshot_includes_runs(tmp_path):
     rid = ss.start_run(tmp_path, "weekly-report", surface="cron")
     ss.finish_run(tmp_path, rid, result="ok")
 
-    async def first_three():
+    async def first_four():
         gen = dashboard_app.event_stream(tmp_path, _FakeRequest())
-        out = [await gen.__anext__(), await gen.__anext__(), await gen.__anext__()]
+        out = [await gen.__anext__() for _ in range(4)]
         await gen.aclose()
         return out
 
-    plate_frame, inflight_frame, runs_frame = asyncio.run(first_three())
+    plate_frame, inflight_frame, pending_frame, runs_frame = asyncio.run(first_four())
     assert plate_frame.startswith("event: plate\n")
     assert inflight_frame.startswith("event: inflight\n")
+    assert pending_frame.startswith("event: pending\n")
     assert runs_frame.startswith("event: runs\n") and "weekly-report" in runs_frame
 
 
@@ -500,3 +502,114 @@ def test_launch_non_macos_is_clean_400(tmp_path, monkeypatch):
                         json={"task_id": tid})
     assert r.status_code == 400 and "macOS" in r.json()["detail"]
     assert ss.get_task(tmp_path, tid)["status"] == "waiting"
+
+
+# --- parked results: /api/pending, /api/resolve, /api/apply-item (cutover PR3a) ---
+
+def _park(tmp_path, name, sop="weekly-report", status="pending", title="draft ready", candidates=None):
+    import json as _j
+    pend = tmp_path / "pending"
+    pend.mkdir(exist_ok=True)
+    body = f"---\nsop: {sop}\nstatus: {status}\n---\n# Pending: {title}\n\nresult body\n"
+    if candidates:
+        body += "\n## Candidates\n```json\n" + _j.dumps(candidates) + "\n```\n"
+    (pend / name).write_text(body, encoding="utf-8")
+    return name
+
+
+def test_pending_read_filters_and_trims(tmp_path):
+    _park(tmp_path, "p1.md", sop="weekly-report", title="prepared draft")
+    _park(tmp_path, "p2.md", sop="triage", status="approved")  # resolved -> excluded
+    _park(tmp_path, "p3.md", sop="leads", title="3 to pick",
+          candidates=[{"title": "A"}, {"title": "B"}])
+    app = dashboard_app.create_app(tmp_path)
+    token = lib.dashboard_token(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.get("/api/pending").status_code == 401  # token gated
+        r = client.get("/api/pending", params={"t": token})
+    assert r.status_code == 200
+    items = {it["file"]: it for it in r.json()["pending"]}
+    assert set(items) == {"p1.md", "p3.md"}              # approved p2 filtered out
+    assert items["p1.md"]["title"] == "prepared draft" and items["p1.md"]["candidates"] == []
+    assert len(items["p3.md"]["candidates"]) == 2         # multi-candidate surfaced
+    assert "content" not in items["p1.md"]                # artifact body does not leak to the API
+
+
+def test_resolve_approve_discard_and_errors(tmp_path):
+    _park(tmp_path, "p.md")
+    app = dashboard_app.create_app(tmp_path)
+    token = lib.dashboard_token(tmp_path)
+    h = {"x-smbos-token": token}
+    with TestClient(app, base_url="http://localhost") as client:
+        # header gated; ?t= does not authorize the POST
+        assert client.post("/api/resolve", json={"file": "p.md", "decision": "approve"}).status_code == 401
+        r = client.post("/api/resolve", headers=h, json={"file": "p.md", "decision": "approve"})
+        assert r.status_code == 200 and r.json()["status"] == "approved"
+        # resolved -> leaves the pending read
+        assert client.get("/api/pending", params={"t": token}).json()["pending"] == []
+        assert client.post("/api/resolve", headers=h,
+                           json={"file": "gone.md", "decision": "approve"}).status_code == 404
+        _park(tmp_path, "q.md")
+        assert client.post("/api/resolve", headers=h,
+                           json={"file": "q.md", "decision": "bogus"}).status_code == 400
+
+
+def test_apply_item_launches_and_bad_index(tmp_path, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(dashboard_app.legacy, "apply_item",
+                        lambda sd, f, i: (seen.update(file=f, index=i), "launched")[1])
+    app = dashboard_app.create_app(tmp_path)
+    h = {"x-smbos-token": lib.dashboard_token(tmp_path)}
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.post("/api/apply-item", json={"file": "p.md", "index": 0}).status_code == 401  # no header
+        r = client.post("/api/apply-item", headers=h, json={"file": "p.md", "index": 1})
+        assert r.status_code == 200 and r.json()["status"] == "launched"
+        assert seen == {"file": "p.md", "index": 1}
+        # a ValueError from apply_item (bad index / non-macOS) maps to 400
+        monkeypatch.setattr(dashboard_app.legacy, "apply_item",
+                            lambda *a: (_ for _ in ()).throw(ValueError("bad item index")))
+        assert client.post("/api/apply-item", headers=h,
+                           json={"file": "p.md", "index": 9}).status_code == 400
+
+
+def test_snapshot_includes_pending_frame(tmp_path):
+    _park(tmp_path, "p.md", title="needs you")
+    joined = "".join(dashboard_app._snapshot(tmp_path))
+    assert "event: pending" in joined and "needs you" in joined
+
+
+def test_apply_item_unexpected_error_is_500(tmp_path, monkeypatch):
+    # a non-ValueError failure from apply_item maps to 500 (the bare except path)
+    monkeypatch.setattr(dashboard_app.legacy, "apply_item",
+                        lambda *a: (_ for _ in ()).throw(RuntimeError("boom")))
+    app = dashboard_app.create_app(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        r = client.post("/api/apply-item", headers={"x-smbos-token": lib.dashboard_token(tmp_path)},
+                        json={"file": "p.md", "index": 0})
+    assert r.status_code == 500
+
+
+def test_events_re_emit_on_pending_change(tmp_path, monkeypatch):
+    # a resolve is a FILE write (no DB change), so data_version is blind to it; the stream must
+    # still re-emit the pending frame off the pending signature. This is why _pending_sig exists.
+    monkeypatch.setattr(dashboard_app, "POLL_SECONDS", 0.01)
+    monkeypatch.setattr(dashboard_app, "HEARTBEAT_SECONDS", 1000.0)
+    _park(tmp_path, "p.md", title="first")
+
+    async def run():
+        gen = dashboard_app.event_stream(tmp_path, _ConnectedFor(50))
+        await gen.__anext__()                                  # consume the initial plate frame
+        lib.resolve_pending_file(tmp_path, "p.md", "approve")  # file write, no DB change
+        frames = []
+        try:
+            async for e in gen:
+                frames.append(e)
+                # the re-emitted pending frame after the change no longer carries the parked item
+                if e.startswith("event: pending\n") and "first" not in e:
+                    break
+        finally:
+            await gen.aclose()
+        return frames
+
+    frames = asyncio.run(asyncio.wait_for(run(), timeout=5))
+    assert any(e.startswith("event: pending\n") and "first" not in e for e in frames)

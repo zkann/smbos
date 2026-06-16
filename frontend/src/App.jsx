@@ -23,11 +23,15 @@ function runLabel(r) {
 export default function App() {
   const [plate, setPlate] = useState([])
   const [inflight, setInflight] = useState([])
+  const [pending, setPending] = useState([])
   const [runs, setRuns] = useState([])
   const [stale, setStale] = useState(false)
   // per-task launch state: id -> 'launching' | 'error'. A successful launch clears via the SSE
   // plate frame moving the item to in-flight; an error stays visible so the row offers a retry.
   const [launch, setLaunch] = useState({})
+  // per parked-result action state: file -> 'approve'|'discard'|'error', or `${file}#${i}` ->
+  // 'applying'|'error'. Success clears via the SSE pending frame dropping the resolved item.
+  const [pend, setPend] = useState({})
 
   useEffect(() => {
     // NOTE: do NOT strip ?t= from the URL. The page itself is token-gated (GET / requires ?t=
@@ -59,9 +63,25 @@ export default function App() {
       fresh()
     }
 
+    // the pending frame prunes parked-result action state for files that resolved away (same
+    // reason as onPlate's launch prune); an errored action on a file that's still pending stays.
+    const onPending = (e) => {
+      let next
+      try { next = JSON.parse(e.data) } catch (_) { fresh(); return }
+      setPending(next)
+      const files = new Set(next.map((it) => it.file))
+      setPend((s) => {
+        const n = {}
+        for (const k of Object.keys(s)) if (files.has(k.split('#')[0])) n[k] = s[k]
+        return n
+      })
+      fresh()
+    }
+
     const es = new EventSource(`/events?t=${encodeURIComponent(token)}`)
     es.addEventListener('plate', onPlate)
     es.addEventListener('inflight', onFrame(setInflight))
+    es.addEventListener('pending', onPending)
     es.addEventListener('runs', onFrame(setRuns))
     es.addEventListener('heartbeat', fresh)
     es.onerror = () => setStale(true) // surface the drop; EventSource auto-reconnects
@@ -102,6 +122,37 @@ export default function App() {
     return 'Pick up ▶'
   }
 
+  // POST a JSON body with the header token (same CSRF posture as Pick up). `busyVal` marks the
+  // row in flight. On success: resolve clears the key (the SSE pending frame then drops the whole
+  // item), but apply-item only LAUNCHES a session, it doesn't resolve the file, so there's no SSE
+  // removal; it sets a sticky `successVal` ('applied') instead, so the button can't be re-clicked
+  // into a duplicate launch. An error leaves a retry.
+  async function postAction(url, body, busyKey, busyVal, successVal) {
+    setPend((s) => ({ ...s, [busyKey]: busyVal }))
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 25000)
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-SMBOS-Token': token },
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+      })
+      if (!res.ok) throw new Error(String(res.status))
+      setPend((s) => {
+        if (successVal) return { ...s, [busyKey]: successVal }
+        const n = { ...s }; delete n[busyKey]; return n
+      })
+    } catch (_) {
+      setPend((s) => ({ ...s, [busyKey]: 'error' }))
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  const resolve = (file, decision) => postAction('/api/resolve', { file, decision }, file, decision)
+  const applyItem = (file, index) =>
+    postAction('/api/apply-item', { file, index }, `${file}#${index}`, 'applying', 'applied')
+
   return (
     <main>
       {stale && <div className="banner" role="status">Reconnecting, data may be stale</div>}
@@ -130,6 +181,56 @@ export default function App() {
           </ol>
         )}
       </section>
+
+      {pending.length > 0 && (
+        <section className="panel">
+          <div className="overline">Needs your eyes</div>
+          <ol className="list">
+            {pending.map((it, i) => (
+              <li key={it.file ?? i} className="pending-li">
+                <div className="pending-head">
+                  <span className="subj">{it.title}</span>
+                  <span className="chip chip-pending">pending</span>
+                  {it.candidates.length === 0 ? (
+                    <>
+                      <button className="act act-primary" onClick={() => resolve(it.file, 'approve')}
+                        disabled={pend[it.file] === 'approve' || pend[it.file] === 'discard'}>
+                        {pend[it.file] === 'approve' ? 'approving…' : 'Approve'}
+                      </button>
+                      <button className={`act${pend[it.file] === 'error' ? ' act-err' : ''}`}
+                        onClick={() => resolve(it.file, 'discard')}
+                        disabled={pend[it.file] === 'approve' || pend[it.file] === 'discard'}>
+                        {pend[it.file] === 'discard' ? 'discarding…' : pend[it.file] === 'error' ? 'retry' : 'Reject'}
+                      </button>
+                    </>
+                  ) : (
+                    <span className="chip">{it.candidates.length} to pick</span>
+                  )}
+                </div>
+                {it.candidates.length > 0 && (
+                  <ul className="candidates">
+                    {it.candidates.map((c, j) => {
+                      const key = `${it.file}#${j}`
+                      return (
+                        <li key={j}>
+                          <span className="subj cand">{c.title}</span>
+                          <button className={`act${pend[key] === 'error' ? ' act-err' : ''}`}
+                            onClick={() => applyItem(it.file, j)}
+                            disabled={pend[key] === 'applying' || pend[key] === 'applied'}>
+                            {pend[key] === 'applying' ? 'applying…'
+                              : pend[key] === 'applied' ? 'applied ✓'
+                              : pend[key] === 'error' ? 'retry' : 'Apply'}
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
 
       {inflight.length > 0 && (
         <section className="panel">

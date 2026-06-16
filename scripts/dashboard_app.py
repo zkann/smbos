@@ -22,6 +22,7 @@ import asyncio
 import json
 import math
 import os
+import re
 import secrets
 import sys
 from datetime import datetime, timezone
@@ -32,9 +33,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # allow `python3 scripts/dashboard_app.py`
+import generate_dashboard as gd  # collect_pending/collect_queued/parse_candidates (parked-result reads)
 import smbos_lib as lib
 import state_store as ss
-import serve_dashboard as legacy  # reuse the daemon's osascript launch (escaping + permission posture)
+import serve_dashboard as legacy  # reuse the daemon's osascript launch + apply_item (launch-coupled)
 
 def _positive_env(name, default):
     """A positive, FINITE float from env, falling back to `default` for missing/non-numeric/
@@ -119,12 +121,54 @@ def _liveness_sig(sop_dir):
     return tuple(sorted((r.get("sop", ""), r.get("state", "")) for r in lib.active_runs(sop_dir)))
 
 
+def _pending(sop_dir):
+    """Parked results still awaiting a decision (status: pending), as API-safe rows.
+
+    Drops the artifact body (the launched session reads that from disk) and keeps only what the
+    'Needs your eyes' panel needs: the file id, the source SOP, a human title (from the body's
+    '# Pending: X' heading), the candidate list (empty for a single approve/discard), and the
+    downstream SOP for an apply. Resolved files (approved/discarded) are filtered out so they
+    leave the list."""
+    out = []
+    for it in gd.collect_pending(sop_dir):
+        meta = lib.parse_frontmatter(it["content"])
+        if (meta.get("status") or "").strip() != "pending":
+            continue
+        m = re.search(r"^#\s+(?:Pending:\s*)?(.+)$", it["content"], re.M)
+        title = m.group(1).strip() if m else (meta.get("sop") or it["path"])
+        out.append({"file": it["path"], "sop": meta.get("sop", ""), "title": title,
+                    "candidates": it["candidates"], "next": it["next"]})
+    return out
+
+
+def _pending_sig(sop_dir):
+    """Change signature for parked results. They live in files (pending/), so data_version is
+    blind to a resolve/new-park; the SSE loop watches this to re-emit the pending frame."""
+    pdir = Path(sop_dir) / "pending"
+    if not pdir.is_dir():
+        return ()
+    return tuple(sorted((p.name, p.stat().st_mtime_ns) for p in pdir.glob("*.md")))
+
+
+async def _body_obj(request):
+    """Parse a POST body as a JSON object or raise 400. Shared by the action endpoints."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="body must be a JSON object")
+    return body
+
+
 def _snapshot(sop_dir):
-    """The live-mirror snapshots as SSE frames: the plate (waiting), what's in flight, and
-    recent runs (with liveness). Runs in a worker thread so it never blocks the event loop."""
+    """The live-mirror snapshots as SSE frames: the plate (waiting), what's in flight, parked
+    results awaiting a decision, and recent runs (with liveness). Runs in a worker thread so it
+    never blocks the event loop."""
     return [
         _sse("plate", json.dumps(ss.plate(sop_dir))),
         _sse("inflight", json.dumps(ss.in_flight(sop_dir))),
+        _sse("pending", json.dumps(_pending(sop_dir))),
         _sse("runs", json.dumps(_runs_with_liveness(sop_dir))),
     ]
 
@@ -178,10 +222,15 @@ async def event_stream(sop_dir, request):
     # the liveness read open their own files and are offloaded to a thread so a slow read can't
     # stall the loop. Liveness (a flock release on a dying run) writes nothing to the DB, so
     # data_version alone would miss a run going stalled; we watch it separately.
+    def _signals():
+        # liveness (flock) and parked results (pending/ files) both change without a DB write,
+        # so data_version alone would miss them; sample both off the event loop.
+        return _liveness_sig(sop_dir), _pending_sig(sop_dir)
+
     with ss.connect(sop_dir) as conn:
         last_dv = ss.data_version(conn)
-        last_live = await asyncio.to_thread(_liveness_sig, sop_dir)
-        for frame in await asyncio.to_thread(_snapshot, sop_dir):  # initial: plate, inflight, runs
+        last_sig = await asyncio.to_thread(_signals)
+        for frame in await asyncio.to_thread(_snapshot, sop_dir):  # initial: plate, inflight, pending, runs
             yield frame
         since_beat = 0.0
         while True:
@@ -190,10 +239,10 @@ async def event_stream(sop_dir, request):
             await asyncio.sleep(POLL_SECONDS)
             since_beat += POLL_SECONDS
             dv = ss.data_version(conn)
-            live = await asyncio.to_thread(_liveness_sig, sop_dir)
-            if dv != last_dv or live != last_live:
-                last_dv, last_live = dv, live
-                for frame in await asyncio.to_thread(_snapshot, sop_dir):  # plate, inflight, runs on change
+            sig = await asyncio.to_thread(_signals)
+            if dv != last_dv or sig != last_sig:
+                last_dv, last_sig = dv, sig
+                for frame in await asyncio.to_thread(_snapshot, sop_dir):  # all frames on any change
                     yield frame
             if since_beat >= HEARTBEAT_SECONDS:
                 since_beat = 0.0
@@ -248,6 +297,42 @@ def create_app(sop_dir, dist_dir=None):
     def api_runs(t: str = ""):
         check(t)
         return {"runs": _runs_with_liveness(sop_dir)}
+
+    @app.get("/api/pending")
+    def api_pending(t: str = ""):
+        check(t)
+        return {"pending": _pending(sop_dir)}
+
+    @app.post("/api/resolve")
+    async def resolve(request: Request):
+        # header token (CSRF: forces a preflight the GET-only CORS blocks); a quick file write,
+        # not a spawn, so it runs inline. The SSE pending signature reflects it within ~1s.
+        check(request.headers.get("x-smbos-token", ""))
+        body = await _body_obj(request)
+        try:
+            status = lib.resolve_pending_file(sop_dir, str(body.get("file") or ""),
+                                              str(body.get("decision") or ""))
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="no such pending item")
+        except ValueError as exc:  # decision not approve/discard
+            raise HTTPException(status_code=400, detail=str(exc))
+        return {"status": status}
+
+    @app.post("/api/apply-item")
+    async def apply_item(request: Request):
+        # acts on one candidate from a parked result by launching the source SOP's next: SOP.
+        # legacy.apply_item is launch-coupled (osascript) and not yet relocated, so it's reused
+        # via the legacy import (as /api/launch does) and offloaded to a thread (it shells out).
+        check(request.headers.get("x-smbos-token", ""))
+        body = await _body_obj(request)
+        try:
+            msg = await asyncio.to_thread(legacy.apply_item, sop_dir,
+                                          str(body.get("file") or ""), body.get("index"))
+        except ValueError as exc:  # bad index / no candidates / no next SOP / non-macOS launch
+            raise HTTPException(status_code=400, detail=str(exc))
+        except Exception:
+            raise HTTPException(status_code=500, detail="could not apply the item")
+        return {"status": msg}
 
     @app.post("/api/launch")
     async def launch(request: Request):
