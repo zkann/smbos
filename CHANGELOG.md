@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.25.0 (2026-06-16)
+
+- The live dashboard is now a single-page app served by a small local web service, replacing the generated-HTML daemon. It updates in real time as runs start and finish, with no refresh, and adds per-procedure controls: run or queue a SOP, prepare a draft, or pick up an interactive one. Alongside are panels for parked results waiting on you, what's coming up, recent runs, and settings. The URL and token are unchanged.
+- Installing the always-on dashboard is now `cutover_dashboard.py <sop-dir> install`. The first run builds a small virtualenv for the app and its web bundle, then takes over the same LaunchAgent and port (8765). The switch health-checks the new server and rolls back to the previous one if it does not answer, so the port is never left dark. `serve_dashboard.py install` now points you at this command.
+- This dashboard app is the one part of SmbOS that carries dependencies (fastapi/uvicorn and a built web bundle). Everything else, the SOP runner, importer, MCP server, and shared library, stays stdlib-only and runs on the system Python.
+
 ## 0.24.0 (2026-06-15)
 
 - The live dashboard can run as an always-on background service with a URL that never changes. `serve_dashboard.py <sop-dir> install` registers a macOS LaunchAgent that starts at login, restarts itself if it stops, and auto-restarts when the plugin updates, bound to a fixed port (8765 by default, configurable) with a token persisted 0600. Bookmark the URL once and it keeps working across sessions, reboots, and updates. `url` prints it, `rotate` mints a new token (invalidating the old URL), `uninstall` removes the service. A manual launch reuses the running one (found via the deterministic URL or a recorded actual port) instead of starting a second, and clears its record on clean shutdown. macOS only for the service; the per-session server is unchanged elsewhere.
