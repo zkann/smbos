@@ -348,6 +348,8 @@ def create_app(sop_dir, dist_dir=None):
             await asyncio.to_thread(setter, sop_dir, body.get("value"))
         except ValueError as exc:  # bad posture / non-numeric or negative budget / bad terminal
             raise HTTPException(status_code=400, detail=str(exc))
+        except OSError:            # triggers.json write failed (perms / disk) -- server-side
+            raise HTTPException(status_code=500, detail="could not save the setting")
         return {"settings": _settings(sop_dir)}  # echo the full new state so the SPA syncs
 
     @app.post("/api/resolve")

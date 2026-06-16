@@ -639,3 +639,9 @@ def test_settings_read_and_write(tmp_path):
                            json={"key": "launch_permission", "value": "bogus"}).status_code == 400
         assert client.post("/api/settings", headers=h, json={"key": "budget", "value": -5}).status_code == 400
         assert client.post("/api/settings", headers=h, json={"key": "nope", "value": "x"}).status_code == 400
+        # non-string / null values must funnel through the setters' coercion to 400, never a 500
+        assert client.post("/api/settings", headers=h, json={"key": "budget", "value": None}).status_code == 400
+        assert client.post("/api/settings", headers=h, json={"key": "budget", "value": [1]}).status_code == 400
+        assert client.post("/api/settings", headers=h,
+                           json={"key": "launch_permission", "value": 123}).status_code == 400
+        assert client.post("/api/settings", headers=h, content=b"not json").status_code == 400

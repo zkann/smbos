@@ -117,7 +117,9 @@ export default function App() {
       const d = await res.json()
       setSettings(d.settings)
       setBudgetInput(String(d.settings.budget))
+      setConfirmSkip(false)  // clear AFTER the write lands, not before (see onConfirmSkip)
     } catch (_) {
+      setConfirmSkip(false)
       fetch(`/api/settings?t=${encodeURIComponent(token)}`)
         .then((r) => (r.ok ? r.json() : null))
         .then((d) => { if (d) { setSettings(d.settings); setBudgetInput(String(d.settings.budget)) } })
@@ -131,6 +133,10 @@ export default function App() {
     if (v === 'skip') setConfirmSkip(true)
     else { setConfirmSkip(false); saveSetting('launch_permission', v) }
   }
+  // confirm the dangerous skip. Keep confirmSkip TRUE through the round-trip so the select stays
+  // on 'skip' (with the warning) instead of snapping back to the old value mid-flight; saveSetting
+  // clears it once the write lands (success -> settings shows skip; failure -> reverts to persisted).
+  const onConfirmSkip = () => saveSetting('launch_permission', 'skip')
 
   // Pick up a task: open a primed Claude session for it. The token rides in a custom header (a
   // cross-origin POST with one forces a CORS preflight the server's GET-only policy blocks).
@@ -324,8 +330,7 @@ export default function App() {
           {confirmSkip && (
             <div className="setwarn-row">
               <span className="setwarn">Skips every check. This removes a safeguard.</span>
-              <button className="act act-danger"
-                onClick={() => { setConfirmSkip(false); saveSetting('launch_permission', 'skip') }}>
+              <button className="act act-danger" onClick={onConfirmSkip}>
                 Yes, skip every check
               </button>
               <button className="act" onClick={() => setConfirmSkip(false)}>Cancel</button>
