@@ -353,7 +353,7 @@ def test_launch_preflight_blocks_cross_origin_post(tmp_path):
             "Access-Control-Request-Method": "POST",
             "Access-Control-Request-Headers": "x-smbos-token",
         })
-        assert evil.headers.get("access-control-allow-origin") != "http://evil.example"
+        assert evil.headers.get("access-control-allow-origin") is None  # no ACAO at all for a disallowed origin
         legacy_origin = client.options("/api/launch", headers={
             "Origin": "http://127.0.0.1:8765",
             "Access-Control-Request-Method": "POST",
