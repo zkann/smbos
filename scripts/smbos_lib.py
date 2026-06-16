@@ -165,6 +165,19 @@ def month_spend(sop_dir):
     return total
 
 
+def _terminal_notifier():
+    """Locate terminal-notifier even under a minimal PATH. run_sop's dashboard-launched runs
+    and the launchd/cron digest both get a bare PATH, so shutil.which alone misses a brew
+    install; fall back to the two standard brew prefixes so the click target works there too."""
+    found = shutil.which("terminal-notifier")
+    if found:
+        return found
+    for cand in ("/opt/homebrew/bin/terminal-notifier", "/usr/local/bin/terminal-notifier"):
+        if os.path.exists(cand):
+            return cand
+    return None
+
+
 def notify(title, body, open_url=None):
     """macOS notification; silent no-op elsewhere and on any failure.
 
@@ -177,7 +190,7 @@ def notify(title, body, open_url=None):
         return False
     try:
         import subprocess
-        tn = shutil.which("terminal-notifier")
+        tn = _terminal_notifier()
         if tn:
             # No -group: each notification is independent, so a later "needs attention" never
             # silently replaces an unseen "result waiting" in Notification Center.

@@ -33,6 +33,17 @@ def test_dashboard_port_and_url(tmp_path, monkeypatch):
     assert url == "http://127.0.0.1:9100/?t={}".format(lib.dashboard_token(tmp_path))
 
 
+def test_terminal_notifier_falls_back_to_brew_paths(monkeypatch):
+    # Under a minimal PATH (run_sop background runs, launchd digest), shutil.which misses a brew
+    # install; the known-path fallback must still find it so the click target works.
+    monkeypatch.setattr(lib.shutil, "which", lambda name: None)
+    monkeypatch.setattr(lib.os.path, "exists",
+                        lambda p: p == "/opt/homebrew/bin/terminal-notifier")
+    assert lib._terminal_notifier() == "/opt/homebrew/bin/terminal-notifier"
+    monkeypatch.setattr(lib.os.path, "exists", lambda p: False)
+    assert lib._terminal_notifier() is None
+
+
 def test_dashboard_url_returns_none_on_token_failure(tmp_path, monkeypatch):
     # notify() is called on error paths; a token-dir hiccup must yield None, not raise.
     def boom(_):
