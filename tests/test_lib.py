@@ -251,3 +251,17 @@ def test_append_suggestion(tmp_path):
     (d / "INDEX.md").write_text("# idx\n", encoding="utf-8")
     with pytest.raises(FileNotFoundError):
         lib.append_suggestion(d, "INDEX.md", "x")
+
+
+def test_run_sop_command_builder(tmp_path):
+    # the shared builder both the daemon and the app use to invoke run_sop (parity gate)
+    cmd = lib.run_sop_command(tmp_path, "weekly-report", inputs="sources: Stripe")
+    assert cmd[1].endswith("run_sop.py")
+    assert cmd[2] == "weekly-report"
+    assert cmd[cmd.index("--source") + 1] == "dashboard"
+    assert cmd[cmd.index("--sop-dir") + 1] == str(tmp_path)
+    assert cmd[cmd.index("--inputs") + 1] == "sources: Stripe"
+    bare = lib.run_sop_command(tmp_path, "x")
+    assert "--inputs" not in bare and "--prepare" not in bare
+    assert "--prepare" in lib.run_sop_command(tmp_path, "x", prepare=True)
+    assert lib.run_sop_command(tmp_path, "x", source="cron")[4] == "cron"

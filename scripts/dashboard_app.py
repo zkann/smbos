@@ -24,6 +24,7 @@ import math
 import os
 import re
 import secrets
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -187,6 +188,36 @@ _SETTERS = {
     "terminal": legacy.set_terminal,
     "budget": legacy.set_budget,
 }
+
+
+def _gate_run(sop_dir, sop_id, inputs):
+    """Native run gate (shared smbos_lib guards). Returns the sanitized sid or raises ValueError
+    with an owner-facing message. run_sop re-enforces every one of these on the unattended side
+    (the cage lives there); this is the early, clean 4xx + the design D2 rule that an
+    interactive_only SOP is refused here so the SPA offers Pick up instead of a headless run."""
+    sid = re.sub(r"[^a-z0-9-]", "", str(sop_id).lower())
+    if not sid or lib.find_sop(sop_dir, sid) is None:
+        raise ValueError("unknown task")
+    if lib.is_interactive_only(sop_dir, sid):
+        raise ValueError("This one needs you in the session. Pick it up instead of running it headless.")
+    if lib.run_lock_held(sop_dir, sid):
+        raise ValueError("This procedure is already running. Its result will appear when it finishes.")
+    if lib.has_unrecorded_changes(sop_dir, sid):
+        raise ValueError("This procedure was changed outside the normal save flow. Review it first.")
+    needed = lib.required_inputs(sop_dir, sid)
+    if needed and not inputs:
+        raise ValueError(f"This task needs information before it can run: {needed}.")
+    return sid
+
+
+def _spawn_run(sop_dir, sid, inputs=None):
+    """Spawn the canonical runner (run_sop) for an SOP, fire-and-forget. Uses the SAME command
+    builder the legacy daemon uses (lib.run_sop_command), so the app and the daemon invoke the
+    runner identically. A seam tests stub so a run test never actually launches run_sop."""
+    cmd = lib.run_sop_command(sop_dir, sid, inputs=inputs)
+    log = (Path(sop_dir) / "trigger.log").open("a")
+    subprocess.Popen(cmd, stdout=log, stderr=log, start_new_session=True)
+    return cmd
 
 
 def _snapshot(sop_dir):
@@ -364,6 +395,35 @@ def create_app(sop_dir, dist_dir=None):
             except OSError:            # triggers.json write failed (perms / disk) -- server-side
                 raise HTTPException(status_code=500, detail="could not save the setting")
             return {"settings": _settings(sop_dir)}  # echo the full new state so the SPA syncs
+
+    @app.post("/api/run")
+    async def run(request: Request):
+        # gate natively (shared guards), then fire-and-forget Popen run_sop -- run_sop owns the
+        # full cage (interactive_only/draft/lock/inputs/permission). Header-token gated.
+        check(request.headers.get("x-smbos-token", ""))
+        body = await _body_obj(request)
+        inputs = str(body.get("inputs") or "").strip() or None
+        try:
+            sid = _gate_run(sop_dir, body.get("id", ""), inputs)
+        except ValueError as exc:  # refused: interactive_only / already running / drifted / needs inputs
+            raise HTTPException(status_code=409, detail=str(exc))
+        _spawn_run(sop_dir, sid, inputs)
+        return {"status": "started", "sop": sid}
+
+    @app.post("/api/queue")
+    async def queue(request: Request):
+        # enqueue a run for later (writes queue/), reusing the relocated queue_run.
+        check(request.headers.get("x-smbos-token", ""))
+        body = await _body_obj(request)
+        try:
+            sid, project = lib.queue_run(
+                sop_dir, body.get("id", ""),
+                inputs=str(body.get("inputs") or "").strip() or None,
+                scope=str(body.get("scope") or "here"), launch_cwd=str(Path.cwd()))
+        except ValueError as exc:  # unknown task
+            raise HTTPException(status_code=400, detail=str(exc))
+        return {"status": "queued", "sop": sid,
+                "project": Path(project).name if project else ""}
 
     @app.post("/api/resolve")
     async def resolve(request: Request):

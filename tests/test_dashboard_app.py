@@ -649,3 +649,66 @@ def test_settings_read_and_write(tmp_path):
         assert client.post("/api/settings", headers=h, json={"key": "budget", "value": "nan"}).status_code == 400
         assert client.post("/api/settings", headers=h, json={"key": "budget", "value": "inf"}).status_code == 400
         assert client.get("/api/settings", params={"t": token}).json()["settings"]["budget"] == 40.0
+
+
+# --- /api/run + /api/queue: native gate -> Popen run_sop (cutover PR4) ---
+
+def _make_sop(tmp_path, sid, extra=""):
+    d = tmp_path / "ops"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{sid}.md").write_text(f"---\nid: {sid}\nstatus: active\n{extra}---\n# {sid}\nbody\n", encoding="utf-8")
+
+
+def test_run_gates_and_spawns(tmp_path, monkeypatch):
+    spawned = []
+    monkeypatch.setattr(dashboard_app, "_spawn_run",
+                        lambda sd, sid, inputs=None: spawned.append((sid, inputs)))
+    _make_sop(tmp_path, "weekly-report")
+    app = dashboard_app.create_app(tmp_path)
+    h = {"x-smbos-token": lib.dashboard_token(tmp_path)}
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.post("/api/run", json={"id": "weekly-report"}).status_code == 401  # header gate
+        r = client.post("/api/run", headers=h, json={"id": "weekly-report"})
+        assert r.status_code == 200 and r.json() == {"status": "started", "sop": "weekly-report"}
+        assert spawned == [("weekly-report", None)]
+        assert client.post("/api/run", headers=h, json={"id": "nope"}).status_code == 409  # unknown task
+
+
+def test_run_refuses_interactive_only(tmp_path, monkeypatch):
+    spawned = []
+    monkeypatch.setattr(dashboard_app, "_spawn_run", lambda *a, **k: spawned.append(a))
+    _make_sop(tmp_path, "triage", extra="interactive_only: true\n")
+    app = dashboard_app.create_app(tmp_path)
+    h = {"x-smbos-token": lib.dashboard_token(tmp_path)}
+    with TestClient(app, base_url="http://localhost") as client:
+        r = client.post("/api/run", headers=h, json={"id": "triage"})
+    assert r.status_code == 409 and "Pick it up" in r.json()["detail"]
+    assert spawned == []  # never spawned a headless run for an interactive_only SOP
+
+
+def test_run_refuses_locked_and_missing_inputs(tmp_path, monkeypatch):
+    monkeypatch.setattr(dashboard_app, "_spawn_run", lambda *a, **k: None)
+    _make_sop(tmp_path, "report", extra="run_inputs: which client\n")
+    _make_sop(tmp_path, "busy")
+    app = dashboard_app.create_app(tmp_path)
+    h = {"x-smbos-token": lib.dashboard_token(tmp_path)}
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.post("/api/run", headers=h, json={"id": "report"}).status_code == 409  # needs inputs
+        assert client.post("/api/run", headers=h, json={"id": "report", "inputs": "Acme"}).status_code == 200
+        lock = lib.acquire_run_lock(tmp_path, "busy")  # hold the SOP's run lock
+        try:
+            assert client.post("/api/run", headers=h, json={"id": "busy"}).status_code == 409  # already running
+        finally:
+            lib.release_run_lock(lock)
+
+
+def test_queue_enqueues(tmp_path):
+    _make_sop(tmp_path, "weekly-report")
+    app = dashboard_app.create_app(tmp_path)
+    h = {"x-smbos-token": lib.dashboard_token(tmp_path)}
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.post("/api/queue", json={"id": "weekly-report"}).status_code == 401  # header gate
+        r = client.post("/api/queue", headers=h, json={"id": "weekly-report"})
+        assert r.status_code == 200 and r.json()["status"] == "queued" and r.json()["sop"] == "weekly-report"
+        assert any((tmp_path / "queue").glob("*.md"))
+        assert client.post("/api/queue", headers=h, json={"id": "nope"}).status_code == 400  # unknown task
