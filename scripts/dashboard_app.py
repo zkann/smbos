@@ -280,6 +280,10 @@ def create_app(sop_dir, dist_dir=None):
     sop_dir = Path(sop_dir)
     dist_dir = Path(dist_dir) if dist_dir is not None else DIST_DIR
     token = lib.dashboard_token(sop_dir)
+    # Serialize settings writes: the reused setters do an unlocked read-modify-replace of the whole
+    # triggers.json, so two concurrent apply-on-change POSTs (e.g. a terminal select that also blurs
+    # the budget field) could each read the old file and the later replace drop the earlier setting.
+    settings_lock = asyncio.Lock()
     app = FastAPI(title="SmbOS dashboard", docs_url=None, redoc_url=None)
 
     # Scoped CORS: only the legacy dashboard origin may consume the stream cross-origin during
@@ -344,13 +348,14 @@ def create_app(sop_dir, dist_dir=None):
         setter = _SETTERS.get(str(body.get("key") or ""))
         if setter is None:
             raise HTTPException(status_code=400, detail="unknown setting")
-        try:
-            await asyncio.to_thread(setter, sop_dir, body.get("value"))
-        except ValueError as exc:  # bad posture / non-numeric or negative budget / bad terminal
-            raise HTTPException(status_code=400, detail=str(exc))
-        except OSError:            # triggers.json write failed (perms / disk) -- server-side
-            raise HTTPException(status_code=500, detail="could not save the setting")
-        return {"settings": _settings(sop_dir)}  # echo the full new state so the SPA syncs
+        async with settings_lock:  # one read-modify-replace of triggers.json at a time
+            try:
+                await asyncio.to_thread(setter, sop_dir, body.get("value"))
+            except ValueError as exc:  # bad posture / non-numeric or negative budget / bad terminal
+                raise HTTPException(status_code=400, detail=str(exc))
+            except OSError:            # triggers.json write failed (perms / disk) -- server-side
+                raise HTTPException(status_code=500, detail="could not save the setting")
+            return {"settings": _settings(sop_dir)}  # echo the full new state so the SPA syncs
 
     @app.post("/api/resolve")
     async def resolve(request: Request):

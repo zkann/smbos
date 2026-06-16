@@ -39,7 +39,12 @@ def sop_dir():
 def load(d):
     cfg = d / "triggers.json"
     if cfg.exists():
-        return json.loads(cfg.read_text(encoding="utf-8"))
+        reg = json.loads(cfg.read_text(encoding="utf-8"))
+        # triggers.json is shared with config-only writers (the dashboard's settings panel can
+        # create it with just launch_permission/terminal/budget and no triggers array); tolerate
+        # a partial file so a settings-first library doesn't KeyError every list/add/sync command.
+        reg.setdefault("triggers", [])
+        return reg
     return {"monthly_budget_usd": DEFAULT_BUDGET, "triggers": []}
 
 
