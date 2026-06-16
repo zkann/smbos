@@ -24,8 +24,11 @@ export default function App() {
   const [plate, setPlate] = useState([])
   const [inflight, setInflight] = useState([])
   const [pending, setPending] = useState([])
+  const [queued, setQueued] = useState([])
   const [runs, setRuns] = useState([])
   const [stale, setStale] = useState(false)
+  // per queued-run cancel state: file -> 'canceling' | 'error'. Clears via the SSE queue frame.
+  const [qbusy, setQbusy] = useState({})
   // per-task launch state: id -> 'launching' | 'error'. A successful launch clears via the SSE
   // plate frame moving the item to in-flight; an error stays visible so the row offers a retry.
   const [launch, setLaunch] = useState({})
@@ -84,10 +87,21 @@ export default function App() {
       fresh()
     }
 
+    // the queue frame prunes cancel state for runs that left the queue (canceled or started)
+    const onQueue = (e) => {
+      let next
+      try { next = JSON.parse(e.data) } catch (_) { fresh(); return }
+      setQueued(next)
+      const files = new Set(next.map((q) => q.file))
+      setQbusy((s) => { const n = {}; for (const k of Object.keys(s)) if (files.has(k)) n[k] = s[k]; return n })
+      fresh()
+    }
+
     const es = new EventSource(`/events?t=${encodeURIComponent(token)}`)
     es.addEventListener('plate', onPlate)
     es.addEventListener('inflight', onFrame(setInflight))
     es.addEventListener('pending', onPending)
+    es.addEventListener('queue', onQueue)
     es.addEventListener('runs', onFrame(setRuns))
     es.addEventListener('heartbeat', fresh)
     es.onerror = () => setStale(true) // surface the drop; EventSource auto-reconnects
@@ -211,6 +225,22 @@ export default function App() {
   const applyItem = (file, index) =>
     postAction('/api/apply-item', { file, index }, `${file}#${index}`, 'applying', 'applied')
 
+  // cancel a queued run; the SSE queue frame drops it on success, an error leaves a retry.
+  async function dequeue(file) {
+    setQbusy((s) => ({ ...s, [file]: 'canceling' }))
+    try {
+      const res = await fetch('/api/dequeue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-SMBOS-Token': token },
+        body: JSON.stringify({ file }),
+      })
+      if (!res.ok) throw new Error(String(res.status))
+      setQbusy((s) => { const n = { ...s }; delete n[file]; return n })
+    } catch (_) {
+      setQbusy((s) => ({ ...s, [file]: 'error' }))
+    }
+  }
+
   return (
     <main>
       {stale && <div className="banner" role="status">Reconnecting, data may be stale</div>}
@@ -299,6 +329,24 @@ export default function App() {
                 <span className="dot live" aria-hidden="true"></span>
                 <span className="subj">{t.subject}</span>
                 <span className="chip chip-inflight">in flight</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
+      {queued.length > 0 && (
+        <section className="panel">
+          <div className="overline">Coming up</div>
+          <ol className="list">
+            {queued.map((q, i) => (
+              <li key={q.file ?? i}>
+                <span className="subj">{q.sop}{q.project ? ` · ${q.project}` : ''}</span>
+                <span className="chip">queued</span>
+                <button className={`act${qbusy[q.file] === 'error' ? ' act-err' : ''}`}
+                  onClick={() => dequeue(q.file)} disabled={qbusy[q.file] === 'canceling'}>
+                  {qbusy[q.file] === 'canceling' ? 'canceling…' : qbusy[q.file] === 'error' ? 'retry' : 'Cancel'}
+                </button>
               </li>
             ))}
           </ol>

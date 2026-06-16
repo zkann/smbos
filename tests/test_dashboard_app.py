@@ -173,12 +173,13 @@ def test_events_generator_stops_on_disconnect(tmp_path):
         return events
 
     events = asyncio.run(asyncio.wait_for(drain(), timeout=5))
-    # initial snapshot is four frames (plate + inflight + pending + runs), then the disconnect ends it
-    assert len(events) == 4
+    # initial snapshot is five frames (plate + inflight + pending + queue + runs), then disconnect ends it
+    assert len(events) == 5
     assert events[0].startswith("event: plate\n")
     assert events[1].startswith("event: inflight\n")
     assert events[2].startswith("event: pending\n")
-    assert events[3].startswith("event: runs\n")
+    assert events[3].startswith("event: queue\n")
+    assert events[4].startswith("event: runs\n")
 
 
 def test_runs_requires_token(tmp_path):
@@ -257,17 +258,16 @@ def test_events_initial_snapshot_includes_runs(tmp_path):
     rid = ss.start_run(tmp_path, "weekly-report", surface="cron")
     ss.finish_run(tmp_path, rid, result="ok")
 
-    async def first_four():
+    async def first_five():
         gen = dashboard_app.event_stream(tmp_path, _FakeRequest())
-        out = [await gen.__anext__() for _ in range(4)]
+        out = [await gen.__anext__() for _ in range(5)]
         await gen.aclose()
         return out
 
-    plate_frame, inflight_frame, pending_frame, runs_frame = asyncio.run(first_four())
-    assert plate_frame.startswith("event: plate\n")
-    assert inflight_frame.startswith("event: inflight\n")
-    assert pending_frame.startswith("event: pending\n")
-    assert runs_frame.startswith("event: runs\n") and "weekly-report" in runs_frame
+    frames = asyncio.run(first_five())
+    assert [f.split("\n", 1)[0] for f in frames] == [
+        "event: plate", "event: inflight", "event: pending", "event: queue", "event: runs"]
+    assert "weekly-report" in frames[4]  # the runs frame
 
 
 class _ConnectedFor:
@@ -746,3 +746,32 @@ def test_queue_enqueues(tmp_path):
         assert r.status_code == 200 and r.json()["status"] == "queued" and r.json()["sop"] == "weekly-report"
         assert any((tmp_path / "queue").glob("*.md"))
         assert client.post("/api/queue", headers=h, json={"id": "nope"}).status_code == 400  # unknown task
+
+
+def test_queue_read_and_dequeue(tmp_path):
+    _make_sop(tmp_path, "weekly-report")
+    app = dashboard_app.create_app(tmp_path)
+    token = lib.dashboard_token(tmp_path)
+    h = {"x-smbos-token": token}
+    with TestClient(app, base_url="http://localhost") as client:
+        client.post("/api/queue", headers=h, json={"id": "weekly-report"})  # enqueue (PR4)
+        assert client.get("/api/queue").status_code == 401                  # read is token gated
+        q = client.get("/api/queue", params={"t": token}).json()["queue"]
+        assert len(q) == 1 and q[0]["sop"] == "weekly-report"
+        f = q[0]["file"]
+        assert client.post("/api/dequeue", json={"file": f}).status_code == 401  # header gated
+        assert client.post("/api/dequeue", headers=h, json={"file": f}).status_code == 200
+        assert client.get("/api/queue", params={"t": token}).json()["queue"] == []  # gone
+        assert client.post("/api/dequeue", headers=h, json={"file": f}).status_code == 404  # already gone
+        # basename only: a traversal name can't escape queue/
+        assert client.post("/api/dequeue", headers=h, json={"file": "../../etc/hosts"}).status_code == 404
+
+
+def test_snapshot_includes_queue_frame(tmp_path):
+    _make_sop(tmp_path, "weekly-report")
+    app = dashboard_app.create_app(tmp_path)
+    token = lib.dashboard_token(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        client.post("/api/queue", headers={"x-smbos-token": token}, json={"id": "weekly-report"})
+    joined = "".join(dashboard_app._snapshot(tmp_path))
+    assert "event: queue" in joined and "weekly-report" in joined
