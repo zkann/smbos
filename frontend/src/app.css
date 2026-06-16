@@ -80,10 +80,17 @@ ol.list > li::before {
 }
 .act-danger { color: #fafafa; background: var(--red); border-color: var(--red); }
 
-/* Settings disclosure (DESIGN.md: native controls, 1px --input border, visible labels, ring focus) */
-.settings summary { cursor: pointer; list-style: none; }
-.settings summary::-webkit-details-marker { display: none; }
-.settings[open] summary { margin-bottom: 14px; }
+/* Settings + Procedures disclosures (DESIGN.md: native controls, 1px --input border, ring focus) */
+.settings summary, .procedures summary { cursor: pointer; list-style: none; }
+.settings summary::-webkit-details-marker, .procedures summary::-webkit-details-marker { display: none; }
+.settings[open] summary, .procedures[open] summary { margin-bottom: 14px; }
+.proc-inputs {
+  flex: none; font: inherit; font-size: 13px; color: var(--foreground); background: transparent;
+  border: 1px solid var(--input); border-radius: 6px; padding: 5px 9px; min-width: 160px;
+}
+.proc-inputs:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-color: var(--border-strong); }
+.procedures .list li { flex-wrap: wrap; }
+.proc-err { flex-basis: 100%; color: var(--red); font-size: 12px; padding-top: 4px; }
 .setrow { display: flex; align-items: center; gap: 10px; padding: 7px 0; }
 .setrow label { flex: 1; color: var(--muted-fg); font-size: 13px; }
 .setrow .prefix { color: var(--muted-fg); margin-left: auto; }

@@ -802,3 +802,46 @@ def test_dir_mtime_sig_tolerates_vanished_file(tmp_path, monkeypatch):
     monkeypatch.setattr(type(qdir), "glob", lambda self, pat: iter([ghost, qdir / "real.md"]))
     sig = dashboard_app._dir_mtime_sig(qdir)
     assert [name for name, _ in sig] == ["real.md"]  # ghost dropped, no crash
+
+
+# --- /api/procedures + /api/launch-sop: the Procedures view (cutover PR procedures) ---
+
+def test_procedures_read(tmp_path):
+    _make_sop(tmp_path, "weekly-report")                              # active, headless, no inputs
+    _make_sop(tmp_path, "triage", extra="interactive_only: true\n")  # interactive -> Pick up
+    _make_sop(tmp_path, "wip", status="draft")                        # draft -> Prepare
+    _make_sop(tmp_path, "billing", extra="run_inputs: which client\n")
+    app = dashboard_app.create_app(tmp_path)
+    token = lib.dashboard_token(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.get("/api/procedures").status_code == 401  # token gated
+        procs = {p["id"]: p for p in
+                 client.get("/api/procedures", params={"t": token}).json()["procedures"]}
+    assert procs["triage"]["interactive"] is True
+    assert procs["wip"]["draft"] is True
+    assert procs["billing"]["needs_inputs"] is True
+    assert procs["weekly-report"]["draft"] is False and procs["weekly-report"]["interactive"] is False
+
+
+def test_launch_sop(tmp_path, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(dashboard_app.legacy, "launch",
+                        lambda sd, payload, env=None: (seen.update(payload=payload, env=env), "launched")[1])
+    _make_sop(tmp_path, "triage", extra="interactive_only: true\n")
+    app = dashboard_app.create_app(tmp_path)
+    h = {"x-smbos-token": lib.dashboard_token(tmp_path)}
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.post("/api/launch-sop", json={"id": "triage"}).status_code == 401  # header gate
+        r = client.post("/api/launch-sop", headers=h, json={"id": "triage"})
+        assert r.status_code == 200 and r.json()["sop"] == "triage"
+        assert seen["payload"] == {"kind": "sop", "id": "triage"}  # the browser sends only the id
+        assert seen["env"]["SOP_DIR"] == str(tmp_path.resolve())   # the library is exported
+        assert client.post("/api/launch-sop", headers=h, json={"id": "nope"}).status_code == 404
+
+
+def test_procedures_skips_unreadable_sop(tmp_path):
+    # one non-UTF-8 / unreadable SOP must not 500 the whole /api/procedures list
+    _make_sop(tmp_path, "good")
+    (tmp_path / "ops" / "bad.md").write_bytes(b"---\nid: bad\n---\n\xff\xfe not utf-8\n")
+    rows = dashboard_app._procedures(tmp_path)
+    assert [r["id"] for r in rows] == ["good"]  # bad skipped, no crash

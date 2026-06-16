@@ -582,8 +582,11 @@ def open_terminal_with_claude(folder, prompt, terminal="terminal",
     subprocess.run(["osascript", "-e", script], check=True, capture_output=True, timeout=20)
 
 
-def launch(sop_dir, payload):
+def launch(sop_dir, payload, env=None):
     """Map a validated launch request to a Terminal+Claude window.
+
+    `env` is forwarded to open_terminal_with_claude (e.g. SOP_DIR) so a session launched for a
+    non-default library resolves that library, not whatever ~/sops it would default to.
 
     The browser only sends identifiers; folders and prompts are derived
     server-side from the owner's own files, never from request strings.
@@ -623,7 +626,7 @@ def launch(sop_dir, payload):
     else:
         raise ValueError("unknown launch kind")
     open_terminal_with_claude(folder, prompt, terminal=preferred_terminal(sop_dir),
-                              permission=launch_permission(sop_dir))
+                              permission=launch_permission(sop_dir), env=env)
     return "launched"
 
 

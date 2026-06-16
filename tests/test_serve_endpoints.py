@@ -62,7 +62,7 @@ def test_append_suggestion_placement(library):
 def test_launch_routing(library, monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(sv, "open_terminal_with_claude",
-                        lambda folder, prompt, terminal="terminal", permission="trust":
+                        lambda folder, prompt, terminal="terminal", permission="trust", env=None:
                             calls.append((str(folder), prompt, permission)))
     (library / "triggers.json").write_text('{"launch_permission": "skip"}')
     proj = tmp_path / "projA"
@@ -277,7 +277,7 @@ def test_declared_folder_routes_the_launch(library, monkeypatch, tmp_path):
     from conftest import make_sop
     calls = []
     monkeypatch.setattr(sv, "open_terminal_with_claude",
-                        lambda folder, prompt, terminal="terminal", permission="trust":
+                        lambda folder, prompt, terminal="terminal", permission="trust", env=None:
                             calls.append(str(folder)))
     proj = tmp_path / "acme"
     proj.mkdir()
@@ -428,7 +428,7 @@ def test_apply_item(library, monkeypatch, tmp_path):
     from conftest import make_sop
     calls = []
     monkeypatch.setattr(sv, "open_terminal_with_claude",
-                        lambda folder, prompt, terminal="terminal", permission="trust":
+                        lambda folder, prompt, terminal="terminal", permission="trust", env=None:
                             calls.append((str(folder), prompt)))
     monkeypatch.setattr(sv, "LAUNCH_CWD", str(tmp_path))
     make_sop(library, id="research-list", status="active", extra="next: handle-item\n")

@@ -174,7 +174,7 @@ def _queue(sop_dir):
         for p in sorted(qdir.glob("*.md")):
             try:
                 m = lib.parse_frontmatter(p.read_text(encoding="utf-8"))
-            except OSError:
+            except (OSError, UnicodeDecodeError):  # skip an unreadable queue file, don't drop the list
                 continue
             if (m.get("status") or "").strip() != "queued":
                 continue
@@ -187,6 +187,27 @@ def _queue_sig(sop_dir):
     """Change signature for queued runs (file-based, like pending/), watched by the SSE loop."""
     qdir = Path(sop_dir) / "queue"
     return _dir_mtime_sig(qdir) if qdir.is_dir() else ()
+
+
+def _procedures(sop_dir):
+    """The SOP library for the Procedures view: each SOP with the facts the UI needs to pick its
+    action (Pick up for interactive_only, Prepare for a draft, Run/Queue otherwise). The server
+    re-gates at run time, so this read doesn't need drift/lock state."""
+    out = []
+    for p in lib.iter_sops(sop_dir):
+        try:
+            m = lib.parse_frontmatter(p.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):  # one unreadable SOP must not drop the whole list
+            continue
+        sid = m.get("id") or p.stem
+        out.append({
+            "id": sid,
+            "title": m.get("title") or sid,
+            "draft": (m.get("status") or "").strip().lower() not in ("active", "trusted"),
+            "interactive": (m.get("interactive_only") or "").strip().lower() in ("true", "yes", "1"),
+            "needs_inputs": bool(m.get("run_inputs")),
+        })
+    return sorted(out, key=lambda x: x["title"].lower())
 
 
 async def _body_obj(request):
@@ -424,6 +445,32 @@ def create_app(sop_dir, dist_dir=None):
     def api_settings(t: str = ""):
         check(t)
         return {"settings": _settings(sop_dir)}
+
+    @app.get("/api/procedures")
+    def api_procedures(t: str = ""):
+        check(t)
+        return {"procedures": _procedures(sop_dir)}
+
+    @app.post("/api/launch-sop")
+    async def launch_sop(request: Request):
+        # Pick up an interactive procedure: open a session primed to run it. Reuses the legacy
+        # launch (kind=sop), which derives the folder + prompt server-side from the SOP file --
+        # the browser sends only the id, never a prompt. Launch-coupled, so offloaded to a thread.
+        check(request.headers.get("x-smbos-token", ""))
+        body = await _body_obj(request)
+        sid = re.sub(r"[^a-z0-9-]", "", str(body.get("id") or "").lower())
+        if not sid or lib.find_sop(sop_dir, sid) is None:
+            raise HTTPException(status_code=404, detail="unknown task")
+        try:
+            # export SOP_DIR so the picked-up procedure resolves THIS library (the app may run
+            # with a non-default --sop-dir), same as the task Pick-up's _launch_session
+            await asyncio.to_thread(legacy.launch, sop_dir, {"kind": "sop", "id": sid},
+                                    {"SOP_DIR": str(Path(sop_dir).resolve())})
+        except ValueError as exc:  # non-macOS / missing folder
+            raise HTTPException(status_code=400, detail=str(exc))
+        except Exception:
+            raise HTTPException(status_code=500, detail="could not open a session")
+        return {"status": "launched", "sop": sid}
 
     @app.post("/api/settings")
     async def settings(request: Request):
