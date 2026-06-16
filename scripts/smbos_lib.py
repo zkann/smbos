@@ -241,24 +241,24 @@ def run_lock_held(sop_dir, sop_id):
 def required_inputs(sop_dir, sid):
     """The SOP's `run_inputs:` frontmatter value (what a run must be given), or None.
 
-    A run gate: an SOP that declares run_inputs cannot run until they're supplied.
+    A run gate: an SOP that declares run_inputs cannot run until they're supplied. Resolves
+    the SOP via find_sop (stem or frontmatter id, archive/runtime dirs skipped).
     """
-    for p in Path(sop_dir).rglob(f"{sid}.md"):
-        m = re.search(r"^run_inputs: *(.+)$", p.read_text(encoding="utf-8")[:900], re.M)
-        return m.group(1).strip() if m else None
-    return None
+    p = find_sop(sop_dir, sid)
+    return frontmatter_field(p, "run_inputs") if p else None
 
 
 def has_unrecorded_changes(sop_dir, sid):
     """True if the SOP file drifted from its recorded version (edited outside the save flow).
 
     A run gate: a drifted SOP must be reviewed/re-stamped before it runs, so a silent
-    edit can't change what an unattended run does.
+    edit can't change what an unattended run does. Resolves the SOP via find_sop.
     """
-    for p in Path(sop_dir).rglob(f"{sid}.md"):
-        meta, body = split_frontmatter(p.read_text(encoding="utf-8"))
-        return is_drifted(meta, body)
-    return False
+    p = find_sop(sop_dir, sid)
+    if p is None:
+        return False
+    meta, body = split_frontmatter(p.read_text(encoding="utf-8"))
+    return is_drifted(meta, body)
 
 
 def resolve_pending_file(sop_dir, rel_name, decision):
