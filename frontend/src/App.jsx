@@ -122,9 +122,12 @@ export default function App() {
     return 'Pick up ▶'
   }
 
-  // POST a JSON body with the header token (same CSRF posture as Pick up). `busyKey`/`busyVal`
-  // mark the row in flight; success clears via the SSE pending frame, an error leaves a retry.
-  async function postAction(url, body, busyKey, busyVal) {
+  // POST a JSON body with the header token (same CSRF posture as Pick up). `busyVal` marks the
+  // row in flight. On success: resolve clears the key (the SSE pending frame then drops the whole
+  // item), but apply-item only LAUNCHES a session, it doesn't resolve the file, so there's no SSE
+  // removal; it sets a sticky `successVal` ('applied') instead, so the button can't be re-clicked
+  // into a duplicate launch. An error leaves a retry.
+  async function postAction(url, body, busyKey, busyVal, successVal) {
     setPend((s) => ({ ...s, [busyKey]: busyVal }))
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), 25000)
@@ -136,7 +139,10 @@ export default function App() {
         signal: ctrl.signal,
       })
       if (!res.ok) throw new Error(String(res.status))
-      setPend((s) => { const n = { ...s }; delete n[busyKey]; return n })
+      setPend((s) => {
+        if (successVal) return { ...s, [busyKey]: successVal }
+        const n = { ...s }; delete n[busyKey]; return n
+      })
     } catch (_) {
       setPend((s) => ({ ...s, [busyKey]: 'error' }))
     } finally {
@@ -145,7 +151,7 @@ export default function App() {
   }
   const resolve = (file, decision) => postAction('/api/resolve', { file, decision }, file, decision)
   const applyItem = (file, index) =>
-    postAction('/api/apply-item', { file, index }, `${file}#${index}`, 'applying')
+    postAction('/api/apply-item', { file, index }, `${file}#${index}`, 'applying', 'applied')
 
   return (
     <main>
@@ -209,8 +215,11 @@ export default function App() {
                         <li key={j}>
                           <span className="subj cand">{c.title}</span>
                           <button className={`act${pend[key] === 'error' ? ' act-err' : ''}`}
-                            onClick={() => applyItem(it.file, j)} disabled={pend[key] === 'applying'}>
-                            {pend[key] === 'applying' ? 'applying…' : pend[key] === 'error' ? 'retry' : 'Apply'}
+                            onClick={() => applyItem(it.file, j)}
+                            disabled={pend[key] === 'applying' || pend[key] === 'applied'}>
+                            {pend[key] === 'applying' ? 'applying…'
+                              : pend[key] === 'applied' ? 'applied ✓'
+                              : pend[key] === 'error' ? 'retry' : 'Apply'}
                           </button>
                         </li>
                       )
