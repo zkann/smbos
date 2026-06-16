@@ -152,10 +152,15 @@ def _rollback(plist, prior, why, port=PORT):
                    "Reload it with: launchctl load -w {}".format(why, port, plist))
 
 
-def migrate(sop_dir, python_exec=None, port=PORT):
+def migrate(sop_dir, python_exec=None, port=None):
     """Flip the label from the legacy daemon to the app. Returns (ok, message). On any
-    failure the label is restored to exactly what ran before, so 8765 is never left dark."""
+    failure the label is restored to exactly what ran before, so the port is never left dark.
+
+    The port defaults to whatever the legacy daemon serves for this sop_dir (its configured
+    dashboard_port, 8765 if unset), so an owner who moved the bookmark off 8765 keeps it."""
     sop_dir = Path(sop_dir)
+    if port is None:
+        port = legacy.dashboard_port(sop_dir)
     python_exec = Path(python_exec or venv_python())
     if not python_exec.exists():
         return False, "no venv interpreter at {} (run the build step first)".format(python_exec)

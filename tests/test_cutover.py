@@ -51,7 +51,7 @@ class _Result:
 
 def _stub_migrate(monkeypatch, tmp_path, *, prior=None, health=True, port_free=True,
                   compat=(True, ""), venv_exists=True, rollback_load_rc=0,
-                  rollback_port_busy=True):
+                  rollback_port_busy=True, configured_port=8765):
     """Wire migrate()'s collaborators to mocks and capture every launchctl call.
 
     The launchctl stub distinguishes the forward `load` (always ok) from the rollback `load`
@@ -61,6 +61,7 @@ def _stub_migrate(monkeypatch, tmp_path, *, prior=None, health=True, port_free=T
     if prior is not None:
         plist.write_text(prior, encoding="utf-8")
     monkeypatch.setattr(legacy, "plist_path", lambda: plist)
+    monkeypatch.setattr(legacy, "dashboard_port", lambda sd: configured_port)
 
     venv = tmp_path / "python"
     if venv_exists:
@@ -111,6 +112,15 @@ def test_migrate_rolls_back_when_port_never_frees(monkeypatch, tmp_path):
     ok, msg = cut.migrate(tmp_path / "sops")
     assert not ok and "never freed" in msg
     assert plist.read_text(encoding="utf-8") == "<LEGACY/>"
+
+
+def test_migrate_honors_a_configured_nondefault_port(monkeypatch, tmp_path):
+    # An owner who moved the bookmark off 8765 (dashboard_port in triggers.json) keeps it.
+    plist, _ = _stub_migrate(monkeypatch, tmp_path, configured_port=9123)
+    ok, msg = cut.migrate(tmp_path / "sops")
+    assert ok and "9123" in msg
+    d = _parse(plist.read_text(encoding="utf-8"))
+    assert d["ProgramArguments"][d["ProgramArguments"].index("--port") + 1] == "9123"
 
 
 def test_migrate_warns_when_rollback_load_fails(monkeypatch, tmp_path):
