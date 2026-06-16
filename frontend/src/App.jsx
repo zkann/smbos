@@ -159,7 +159,7 @@ export default function App() {
   const runSop = (id, opts = {}) =>
     procPost('/api/run', { id, inputs: opts.inputs || undefined, mode: opts.prepare ? 'prepare' : undefined },
       id, opts.prepare ? 'preparing' : 'running')
-  const queueSop = (id) => procPost('/api/queue', { id }, id, 'queuing')
+  const queueSop = (id) => procPost('/api/queue', { id, inputs: procInputs[id] || undefined }, id, 'queuing')
   const launchSop = (id) => procPost('/api/launch-sop', { id }, id, 'launching')
 
   // apply-on-change write of one setting; the response echoes the full new config to resync. On

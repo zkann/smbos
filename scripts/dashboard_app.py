@@ -462,7 +462,10 @@ def create_app(sop_dir, dist_dir=None):
         if not sid or lib.find_sop(sop_dir, sid) is None:
             raise HTTPException(status_code=404, detail="unknown task")
         try:
-            await asyncio.to_thread(legacy.launch, sop_dir, {"kind": "sop", "id": sid})
+            # export SOP_DIR so the picked-up procedure resolves THIS library (the app may run
+            # with a non-default --sop-dir), same as the task Pick-up's _launch_session
+            await asyncio.to_thread(legacy.launch, sop_dir, {"kind": "sop", "id": sid},
+                                    {"SOP_DIR": str(Path(sop_dir).resolve())})
         except ValueError as exc:  # non-macOS / missing folder
             raise HTTPException(status_code=400, detail=str(exc))
         except Exception:

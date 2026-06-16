@@ -826,7 +826,7 @@ def test_procedures_read(tmp_path):
 def test_launch_sop(tmp_path, monkeypatch):
     seen = {}
     monkeypatch.setattr(dashboard_app.legacy, "launch",
-                        lambda sd, payload: (seen.update(payload), "launched")[1])
+                        lambda sd, payload, env=None: (seen.update(payload=payload, env=env), "launched")[1])
     _make_sop(tmp_path, "triage", extra="interactive_only: true\n")
     app = dashboard_app.create_app(tmp_path)
     h = {"x-smbos-token": lib.dashboard_token(tmp_path)}
@@ -834,7 +834,8 @@ def test_launch_sop(tmp_path, monkeypatch):
         assert client.post("/api/launch-sop", json={"id": "triage"}).status_code == 401  # header gate
         r = client.post("/api/launch-sop", headers=h, json={"id": "triage"})
         assert r.status_code == 200 and r.json()["sop"] == "triage"
-        assert seen == {"kind": "sop", "id": "triage"}  # the browser sends only the id
+        assert seen["payload"] == {"kind": "sop", "id": "triage"}  # the browser sends only the id
+        assert seen["env"]["SOP_DIR"] == str(tmp_path.resolve())   # the library is exported
         assert client.post("/api/launch-sop", headers=h, json={"id": "nope"}).status_code == 404
 
 
