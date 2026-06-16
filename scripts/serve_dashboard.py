@@ -20,7 +20,6 @@ import secrets
 import shlex
 import subprocess
 import sys
-from datetime import date, datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
