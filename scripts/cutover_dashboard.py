@@ -11,6 +11,7 @@ python the legacy daemon used). build_env() creates that venv and the SPA bundle
 does the flip. This module itself stays stdlib-only so it runs on the system python that
 orchestrates the venv creation.
 """
+import os
 import plistlib
 import socket
 import subprocess
@@ -131,6 +132,16 @@ def _launchctl(action, plist, *flags):
                           capture_output=True, text=True)
 
 
+def _kickstart(label=None):
+    """Force launchd to (re)spawn the job NOW. `launchctl load -w` immediately after an
+    unload of the same label registers the job but does not reliably start the process, so
+    every load in this flow is followed by a kickstart to actually bring the port up."""
+    label = label or legacy.AGENT_LABEL
+    return subprocess.run(
+        ["launchctl", "kickstart", "-k", "gui/{}/{}".format(os.getuid(), label)],
+        capture_output=True, text=True)
+
+
 def _rollback(plist, prior, why, port=PORT):
     """Restore whatever ran under the label before we touched it, then report the failure.
 
@@ -146,8 +157,12 @@ def _rollback(plist, prior, why, port=PORT):
         return False, "{}; no prior daemon to roll back to".format(why)
     plist.write_text(prior, encoding="utf-8")
     r = _launchctl("load", plist, "-w")
-    if r.returncode == 0 and wait_port_busy(port):
-        return False, "{}; rolled back to the legacy daemon".format(why)
+    if r.returncode == 0:
+        # only after a clean load: kickstart -k on a failed/stale load could restart the bad
+        # app job (it kills the running instance first) and leave the wrong server on the port.
+        _kickstart()
+        if wait_port_busy(port):
+            return False, "{}; rolled back to the legacy daemon".format(why)
     return False, ("{}; ROLLBACK INCOMPLETE: the dashboard on {} may be down. "
                    "Reload it with: launchctl load -w {}".format(why, port, plist))
 
@@ -179,6 +194,7 @@ def migrate(sop_dir, python_exec=None, port=None):
     r = _launchctl("load", plist, "-w")
     if r.returncode != 0:
         return _rollback(plist, prior, (r.stderr or "launchctl load failed").strip(), port)
+    _kickstart()  # load alone leaves the job registered-but-not-running; force it up
     if not health_ok(sop_dir, port):
         return _rollback(plist, prior, "new dashboard did not answer on {}".format(port), port)
     return True, "cut over to the FastAPI dashboard on {}".format(port)

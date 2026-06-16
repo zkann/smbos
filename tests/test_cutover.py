@@ -80,6 +80,8 @@ def _stub_migrate(monkeypatch, tmp_path, *, prior=None, health=True, port_free=T
         return _Result(0)
 
     monkeypatch.setattr(cut, "_launchctl", fake_launchctl)
+    monkeypatch.setattr(cut, "_kickstart",
+                        lambda *a, **k: calls.append(("kickstart", ())) or _Result(0))
     monkeypatch.setattr(cut, "compat_ok", lambda px: compat)
     monkeypatch.setattr(cut, "wait_port_free", lambda *a, **k: port_free)
     monkeypatch.setattr(cut, "wait_port_busy", lambda *a, **k: rollback_port_busy)
@@ -95,8 +97,8 @@ def test_migrate_happy_path_writes_app_plist_and_loads(monkeypatch, tmp_path):
     assert "8765" in msg
     d = _parse(plist.read_text(encoding="utf-8"))
     assert str(cut.APP) in d["ProgramArguments"]
-    # legacy stopped before the app started.
-    assert [a for a, _ in calls] == ["unload", "load"]
+    # legacy stopped, app loaded, then kickstarted (a bare load may not start the process).
+    assert [a for a, _ in calls] == ["unload", "load", "kickstart"]
 
 
 def test_migrate_rolls_back_to_legacy_on_failed_health(monkeypatch, tmp_path):
@@ -104,7 +106,7 @@ def test_migrate_rolls_back_to_legacy_on_failed_health(monkeypatch, tmp_path):
     ok, msg = cut.migrate(tmp_path / "sops")
     assert not ok and "rolled back to the legacy daemon" in msg
     assert plist.read_text(encoding="utf-8") == "<LEGACY/>"  # prior restored verbatim
-    assert calls[-1][0] == "load"  # legacy reloaded last
+    assert [a for a, _ in calls[-2:]] == ["load", "kickstart"]  # legacy reloaded + started
 
 
 def test_migrate_rolls_back_when_port_never_frees(monkeypatch, tmp_path):
@@ -125,10 +127,12 @@ def test_migrate_honors_a_configured_nondefault_port(monkeypatch, tmp_path):
 
 def test_migrate_warns_when_rollback_load_fails(monkeypatch, tmp_path):
     # health fails -> rollback, but the legacy `load` errors (already-loaded/throttled label).
-    plist, _ = _stub_migrate(monkeypatch, tmp_path, prior="<LEGACY/>", health=False,
-                             rollback_load_rc=1)
+    plist, calls = _stub_migrate(monkeypatch, tmp_path, prior="<LEGACY/>", health=False,
+                                 rollback_load_rc=1)
     ok, msg = cut.migrate(tmp_path / "sops")
     assert not ok and "ROLLBACK INCOMPLETE" in msg  # never claim a recovery we didn't get
+    # a failed restore load must NOT be followed by kickstart -k (it could revive the bad job)
+    assert calls[-1][0] == "load"
 
 
 def test_migrate_warns_when_port_stays_dark_after_rollback(monkeypatch, tmp_path):
