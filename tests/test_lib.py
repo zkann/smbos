@@ -181,3 +181,73 @@ def test_resolve_pending_file_approve_discard_and_errors(tmp_path):
         lib.resolve_pending_file(tmp_path, "p2.md", "bogus")
     with pytest.raises(FileNotFoundError):
         lib.resolve_pending_file(tmp_path, "gone.md", "approve")
+
+
+# --- relocated stateful helpers (cutover PR2: queue_run/append_suggestion/sop_declared_folder) ---
+
+def _sop(d, sid, extra=""):
+    (d / "ops").mkdir(parents=True, exist_ok=True)
+    (d / "ops" / f"{sid}.md").write_text(f"---\nid: {sid}\n{extra}---\nbody\n", encoding="utf-8")
+
+
+def test_is_interactive_only(tmp_path):
+    d = tmp_path / "sops"
+    _sop(d, "live", "interactive_only: true\n")
+    _sop(d, "yesish", "interactive_only: YES\n")
+    _sop(d, "headless", "interactive_only: false\n")
+    _sop(d, "plain")
+    assert lib.is_interactive_only(d, "live") is True
+    assert lib.is_interactive_only(d, "yesish") is True   # case-insensitive
+    assert lib.is_interactive_only(d, "headless") is False
+    assert lib.is_interactive_only(d, "plain") is False
+    assert lib.is_interactive_only(d, "missing") is False
+
+
+def test_sop_declared_folder(tmp_path):
+    d = tmp_path / "sops"
+    proj = tmp_path / "project"; proj.mkdir()
+    _sop(d, "client", f"folder: {proj}\n")
+    _sop(d, "ghost", f"folder: {tmp_path}/nope\n")  # declared dir doesn't exist
+    _sop(d, "nofolder")
+    assert lib.sop_declared_folder(d, "client") == str(proj.resolve())
+    assert lib.sop_declared_folder(d, "ghost") is None      # nonexistent dir -> None
+    assert lib.sop_declared_folder(d, "nofolder") is None
+    assert lib.sop_declared_folder(d, "missing") is None
+
+
+def test_queue_run_folder_logic(tmp_path):
+    import pytest
+    d = tmp_path / "sops"
+    _sop(d, "report")
+    proj = tmp_path / "proj"; proj.mkdir()
+    _sop(d, "client", f"folder: {proj}\n")
+    # scope here + a real launch_cwd -> that folder; anywhere -> none; home/sop_dir -> none
+    assert lib.queue_run(d, "report", scope="here", launch_cwd="/some/projA")[1] == "/some/projA"
+    assert lib.queue_run(d, "report", scope="anywhere", launch_cwd="/some/projA")[1] == ""
+    assert lib.queue_run(d, "report", scope="here", launch_cwd=str(d))[1] == ""
+    assert lib.queue_run(d, "report", scope="here", launch_cwd=None)[1] == ""
+    # a declared folder overrides launch_cwd
+    assert lib.queue_run(d, "client", scope="here", launch_cwd="/some/projA")[1] == str(proj.resolve())
+    # writes a queue file; unknown sop raises
+    assert any((d / "queue").glob("*.md"))
+    with pytest.raises(ValueError):
+        lib.queue_run(d, "no-such-sop")
+
+
+def test_append_suggestion(tmp_path):
+    import pytest
+    d = tmp_path / "sops"
+    (d / "ops").mkdir(parents=True)
+    sop = d / "ops" / "proc.md"
+    sop.write_text("---\nid: proc\n---\nbody\n\n## Changelog\n- v1\n", encoding="utf-8")
+    lib.append_suggestion(d, "ops/proc.md", "tighten the close step")
+    text = sop.read_text(encoding="utf-8")
+    assert lib.NOTES_HEADING in text and "tighten the close step" in text
+    # the note lands before the Changelog
+    assert text.index(lib.NOTES_HEADING) < text.index("## Changelog")
+    # a path escaping the SOP dir is refused; a non-SOP target is refused
+    with pytest.raises(PermissionError):
+        lib.append_suggestion(d, "../../etc/hosts", "x")
+    (d / "INDEX.md").write_text("# idx\n", encoding="utf-8")
+    with pytest.raises(FileNotFoundError):
+        lib.append_suggestion(d, "INDEX.md", "x")

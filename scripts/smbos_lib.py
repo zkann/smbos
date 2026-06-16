@@ -18,6 +18,7 @@ SKIP_NAMES = {"INDEX.md", "_template.md", "DIGEST.md"}  # DIGEST.md is generated
 # Directories under the SOP root that hold runtime state, never SOPs.
 RUNTIME_DIRS = {"pending", "payloads", "triggers", "queue", "work", "active-runs"}
 ARCHIVE_DIR = "archive"
+NOTES_HEADING = "## Notes for next revision"  # where a dashboard suggestion is appended in an SOP
 
 
 def resolve_sop_dir(explicit=None, use_cwd=False, exit_on_missing=True):
@@ -279,6 +280,99 @@ def resolve_pending_file(sop_dir, rel_name, decision):
     p.write_text(text + f"\n> {new_status} via dashboard on "
                  f"{datetime.now(timezone.utc).isoformat()}\n", encoding="utf-8")
     return new_status
+
+
+def is_interactive_only(sop_dir, sid):
+    """True if the SOP is `interactive_only` (needs a live-session connector, no headless run).
+
+    A run gate: interactive_only SOPs are refused by the unattended runner, so the dashboard
+    offers Pick up (an interactive session) instead of Run. Matches run_sop's truthy set.
+    """
+    p = find_sop(sop_dir, sid)
+    if p is None:
+        return False
+    return (frontmatter_field(p, "interactive_only") or "").strip().lower() in ("true", "yes", "1")
+
+
+def sop_declared_folder(sop_dir, sid):
+    """An SOP's canonical `folder:` (expanded to an absolute path), or None.
+
+    When set, queued tasks and launches for that SOP route there regardless of where the
+    dashboard was launched (e.g. a client SOP always runs in its project folder).
+    """
+    match = next(iter(Path(sop_dir).rglob(f"{sid}.md")), None) if sid else None
+    if match is None:
+        return None
+    raw = parse_frontmatter(match.read_text(encoding="utf-8")).get("folder")
+    if not raw:
+        return None
+    folder = Path(os.path.expanduser(os.path.expandvars(raw.strip()))).resolve()
+    return str(folder) if folder.is_dir() else None
+
+
+def queue_run(sop_dir, sop_id, inputs=None, scope="here", launch_cwd=None):
+    """Enqueue a run by writing a queue/ task file. Returns (sid, project folder).
+
+    `launch_cwd` is the folder the dashboard was launched from (daemon process state, so it's
+    passed in rather than read from a global). The run's project folder resolves as: explicit
+    'anywhere' -> none; else the SOP's declared folder; else launch_cwd (unless it's home or the
+    SOP dir, which mean 'no particular project'); else none.
+    """
+    sid = re.sub(r"[^a-z0-9-]", "", str(sop_id).lower())
+    if not sid or not any(Path(sop_dir).rglob(f"{sid}.md")):
+        raise ValueError("unknown task")
+    qdir = Path(sop_dir) / "queue"
+    qdir.mkdir(exist_ok=True)
+    now = datetime.now(timezone.utc)
+    declared = sop_declared_folder(sop_dir, sid)
+    if scope == "anywhere":
+        project = ""  # owner explicitly chose any folder
+    elif declared:
+        project = declared  # the SOP knows its home (e.g. a client SOP -> its project folder)
+    elif not launch_cwd or launch_cwd in (str(Path.home()), str(sop_dir)):
+        project = ""
+    else:
+        project = launch_cwd
+    body = (f"---\nsop: {sid}\nrequested: {now.isoformat()}\nsource: dashboard\n"
+            f"project: {project}\nstatus: queued\n---\n")
+    if inputs:
+        body += f"\nOwner's notes for the run:\n{str(inputs)[:2000]}\n"
+    (qdir / f"{now.strftime('%Y%m%dT%H%M%S')}-{sid}.md").write_text(body, encoding="utf-8")
+    return sid, project
+
+
+def append_suggestion(sop_dir, rel_path, text):
+    """Append a one-line owner suggestion to an SOP's "Notes for next revision" section.
+
+    `rel_path` must resolve INSIDE sop_dir and name a real .md SOP (not the index/template);
+    a path that escapes raises PermissionError, a non-SOP raises FileNotFoundError.
+    """
+    root = Path(sop_dir).resolve()
+    target = (root / rel_path).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError:
+        raise PermissionError("path escapes the SOP directory")
+    if target.suffix != ".md" or target.name in SKIP_NAMES or not target.is_file():
+        raise FileNotFoundError("not an SOP file")
+    bullet = "- ({}, via dashboard) {}".format(date.today().isoformat(), " ".join(text.split()))
+    content = target.read_text(encoding="utf-8")
+    if NOTES_HEADING in content:
+        head, _, tail = content.partition(NOTES_HEADING)
+        nxt = tail.find("\n## ")
+        if nxt == -1:
+            content = head + NOTES_HEADING + tail.rstrip() + "\n" + bullet + "\n"
+        else:
+            section, rest = tail[:nxt], tail[nxt:]
+            content = head + NOTES_HEADING + section.rstrip() + "\n" + bullet + "\n" + rest
+    else:
+        block = "\n" + NOTES_HEADING + "\n\n" + bullet + "\n"
+        cl = content.find("\n## Changelog")
+        if cl == -1:
+            content = content.rstrip() + "\n" + block
+        else:
+            content = content[:cl] + block + content[cl:]
+    target.write_text(content, encoding="utf-8")
 
 
 # --- Run-lifecycle markers ---------------------------------------------------
