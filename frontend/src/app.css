@@ -39,7 +39,8 @@ h1 { font-size: 20px; font-weight: 650; margin: 0; }
 }
 .list li:first-child { border-top: none; }
 ol.list { counter-reset: rank; }
-ol.list li::before {
+/* direct children only: rank the plate / parked-result items, not nested candidate sub-rows */
+ol.list > li::before {
   counter-increment: rank; content: counter(rank);
   font: 11px/1 ui-monospace, monospace; color: var(--subtle-fg); min-width: 14px;
 }
@@ -51,6 +52,31 @@ ol.list li::before {
 }
 .chip-waiting { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 35%, transparent); }
 .chip-inflight { color: var(--primary); border-color: color-mix(in srgb, var(--primary) 35%, transparent); }
+.chip-pending { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 35%, transparent); }
+
+/* Needs-your-eyes rows stack: a header row (title + badge + decision), then candidate sub-rows */
+.pending-li { flex-direction: column; align-items: stretch; gap: 8px; }
+.pending-head { display: flex; align-items: center; gap: 10px; }
+.candidates { list-style: none; margin: 0 0 0 18px; padding: 0; }
+.candidates li { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--border); }
+.cand { color: var(--muted-fg); }
+
+/* Decision buttons (Approve/Reject/Apply): outline recipe like .pickup; primary = green solid */
+.act {
+  flex: none; font: 11px/1 ui-monospace, monospace; letter-spacing: 0.04em;
+  color: var(--muted-fg); background: var(--card-raised); cursor: pointer;
+  border: 1px solid var(--border); border-radius: 999px; padding: 5px 11px;
+  transition: color 120ms, border-color 120ms, background 120ms;
+}
+.act:hover:not(:disabled), .act:focus-visible:not(:disabled) {
+  color: var(--foreground); border-color: var(--border-strong);
+}
+.act:disabled { opacity: 0.6; cursor: default; }
+.act-err { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent); }
+.act-primary { color: #052e16; background: var(--primary); border-color: var(--primary); }
+.act-primary:hover:not(:disabled), .act-primary:focus-visible:not(:disabled) {
+  background: var(--primary-hover); border-color: var(--primary-hover);
+}
 
 /* Pick up: the per-row invoke affordance. Always visible (keyboard-focusable), quiet until
    hovered/focused so it doesn't compete with the task text. */
