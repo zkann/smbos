@@ -20,7 +20,6 @@ import secrets
 import shlex
 import subprocess
 import sys
-from datetime import date, datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -28,12 +27,13 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from generate_dashboard import SKIP_NAMES, build_html, parse_candidates, resolve_sop_dir, sop_next
 from smbos_lib import find_sop as lib_find_sop
-from smbos_lib import (dashboard_token, frontmatter_field, has_unrecorded_changes,
-                       is_drifted, parse_frontmatter, required_inputs,
-                       resolve_pending_file, run_lock_held, split_frontmatter)
+from smbos_lib import (NOTES_HEADING, append_suggestion, dashboard_token, frontmatter_field,
+                       has_unrecorded_changes, is_drifted, is_interactive_only, parse_frontmatter,
+                       required_inputs, resolve_pending_file, run_lock_held,
+                       sop_declared_folder, split_frontmatter)
+from smbos_lib import queue_run as _queue_run
 
 MAX_TEXT = 2000
-NOTES_HEADING = "## Notes for next revision"
 # Where the dashboard was launched from; a queued task inherits this as its target
 # project, so the right Claude Code session picks it up. Home dir means run-anywhere.
 LAUNCH_CWD = str(Path.cwd())
@@ -200,72 +200,9 @@ def restart_agent():
                     "gui/{}/{}".format(uid, AGENT_LABEL)], capture_output=True)
 
 
-def append_suggestion(sop_dir, rel_path, text):
-    root = sop_dir.resolve()
-    target = (root / rel_path).resolve()
-    try:
-        target.relative_to(root)
-    except ValueError:
-        raise PermissionError("path escapes the SOP directory")
-    if target.suffix != ".md" or target.name in SKIP_NAMES or not target.is_file():
-        raise FileNotFoundError("not an SOP file")
-
-    bullet = "- ({}, via dashboard) {}".format(date.today().isoformat(), " ".join(text.split()))
-    content = target.read_text(encoding="utf-8")
-    if NOTES_HEADING in content:
-        head, _, tail = content.partition(NOTES_HEADING)
-        nxt = tail.find("\n## ")
-        if nxt == -1:
-            content = head + NOTES_HEADING + tail.rstrip() + "\n" + bullet + "\n"
-        else:
-            section, rest = tail[:nxt], tail[nxt:]
-            content = head + NOTES_HEADING + section.rstrip() + "\n" + bullet + "\n" + rest
-    else:
-        block = "\n" + NOTES_HEADING + "\n\n" + bullet + "\n"
-        cl = content.find("\n## Changelog")
-        if cl == -1:
-            content = content.rstrip() + "\n" + block
-        else:
-            content = content[:cl] + block + content[cl:]
-    target.write_text(content, encoding="utf-8")
-
-
-def sop_declared_folder(sop_dir, sid):
-    """An SOP's canonical `folder:` (expanded), or None. When set, queued tasks
-    and launches for that SOP route there regardless of where the dashboard was
-    launched, e.g. a client SOP always runs in its project folder."""
-    match = next(iter(sop_dir.rglob(f"{sid}.md")), None) if sid else None
-    if match is None:
-        return None
-    raw = parse_frontmatter(match.read_text(encoding="utf-8")).get("folder")
-    if not raw:
-        return None
-    folder = Path(os.path.expanduser(os.path.expandvars(raw.strip()))).resolve()
-    return str(folder) if folder.is_dir() else None
-
-
 def queue_run(sop_dir, sop_id, inputs=None, scope="here"):
-    sid = re.sub(r"[^a-z0-9-]", "", str(sop_id).lower())
-    if not sid or not any(sop_dir.rglob(f"{sid}.md")):
-        raise ValueError("unknown task")
-    qdir = sop_dir / "queue"
-    qdir.mkdir(exist_ok=True)
-    now = datetime.now(timezone.utc)
-    declared = sop_declared_folder(sop_dir, sid)
-    if scope == "anywhere":
-        project = ""  # owner explicitly chose any folder
-    elif declared:
-        project = declared  # the SOP knows its home (e.g. a client SOP -> its project folder)
-    elif LAUNCH_CWD in (str(Path.home()), str(sop_dir)):
-        project = ""
-    else:
-        project = LAUNCH_CWD
-    body = (f"---\nsop: {sid}\nrequested: {now.isoformat()}\nsource: dashboard\n"
-            f"project: {project}\nstatus: queued\n---\n")
-    if inputs:
-        body += f"\nOwner's notes for the run:\n{str(inputs)[:2000]}\n"
-    (qdir / f"{now.strftime('%Y%m%dT%H%M%S')}-{sid}.md").write_text(body, encoding="utf-8")
-    return sid, project
+    """Daemon adapter: bind this process's launch cwd, then delegate to the pure lib helper."""
+    return _queue_run(sop_dir, sop_id, inputs=inputs, scope=scope, launch_cwd=LAUNCH_CWD)
 
 
 def start_run(sop_dir, sop_id, inputs=None, prepare=False):
