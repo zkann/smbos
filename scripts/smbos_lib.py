@@ -262,6 +262,20 @@ def has_unrecorded_changes(sop_dir, sid):
     return is_drifted(meta, body)
 
 
+def run_sop_command(sop_dir, sid, inputs=None, prepare=False, source="dashboard"):
+    """The argv to spawn run_sop.py for one SOP run. Shared so the legacy daemon and the FastAPI
+    app invoke the canonical runner IDENTICALLY (the cutover parity gate): both gate the request
+    their own way, but the actual run goes through one command builder and one runner.
+    """
+    runner = Path(__file__).resolve().parent / "run_sop.py"
+    cmd = [sys.executable, str(runner), sid, "--source", source, "--sop-dir", str(sop_dir)]
+    if prepare:
+        cmd.append("--prepare")
+    if inputs:
+        cmd += ["--inputs", str(inputs)[:2000]]
+    return cmd
+
+
 def resolve_pending_file(sop_dir, rel_name, decision):
     """Approve or discard a parked result (a `pending/` file awaiting the owner's call).
 

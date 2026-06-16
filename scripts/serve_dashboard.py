@@ -31,7 +31,7 @@ from smbos_lib import find_sop as lib_find_sop
 from smbos_lib import (NOTES_HEADING, append_suggestion, dashboard_token, frontmatter_field,
                        has_unrecorded_changes, is_drifted, is_interactive_only, parse_frontmatter,
                        required_inputs, resolve_pending_file, run_lock_held,
-                       sop_declared_folder, split_frontmatter)
+                       run_sop_command, sop_declared_folder, split_frontmatter)
 from smbos_lib import queue_run as _queue_run
 
 MAX_TEXT = 2000
@@ -220,12 +220,7 @@ def start_run(sop_dir, sop_id, inputs=None, prepare=False):
     if needed and not inputs:
         raise ValueError(f"This task needs information before it can run: {needed}. "
                          "Fill in the box above the Run button.")
-    runner = Path(__file__).resolve().parent / "run_sop.py"
-    cmd = [sys.executable, str(runner), sid, "--source", "dashboard", "--sop-dir", str(sop_dir)]
-    if prepare:
-        cmd.append("--prepare")
-    if inputs:
-        cmd += ["--inputs", str(inputs)[:2000]]
+    cmd = run_sop_command(sop_dir, sid, inputs=inputs, prepare=prepare)
     log = (sop_dir / "trigger.log").open("a")
     subprocess.Popen(cmd, stdout=log, stderr=log, start_new_session=True)
     return sid
