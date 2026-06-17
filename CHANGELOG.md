@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.28.0 (2026-06-16)
+
+- In-flight tasks can be recovered from the dashboard. Picking up a task moves it to "in flight" and opens a Claude session; if that session was closed or died before the work was recorded, the task used to be stuck there with no way out. Now each in-flight item has Put back (returns it to your plate), Done, and Dismiss, so nothing is ever trapped. The next step is the dashboard knowing on its own when a session finishes, rather than relying on you to resolve it.
+
 ## 0.27.0 (2026-06-16)
 
 - The dashboard has a compact layout for the menu-bar side panel. At sidebar width it keeps what needs you (your plate and pending approvals) at the top, under a sticky header that shows the waiting / in flight / coming up counts, and tucks the rest (in flight, coming up, recent runs, procedures, settings) behind a tap so the plate is never pushed below the fold. The full-width browser dashboard is unchanged; the panel loads the compact layout on its own.

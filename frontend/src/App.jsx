@@ -35,6 +35,9 @@ export default function App() {
   // per parked-result action state: file -> 'approve'|'discard'|'error', or `${file}#${i}` ->
   // 'applying'|'error'. Success clears via the SSE pending frame dropping the resolved item.
   const [pend, setPend] = useState({})
+  // per in-flight task recovery state: id -> 'waiting'|'done'|'dismissed' (in flight) or 'error'.
+  // Success clears via the SSE inflight frame dropping the task; an error re-enables the actions.
+  const [taskBusy, setTaskBusy] = useState({})
   // settings is owner-controlled config (not live-mirror state), so it's fetched once on mount
   // and updated from each write's echoed state, not streamed. confirmSkip gates the one
   // dangerous value (Skip all approvals) behind an inline confirm.
@@ -103,9 +106,20 @@ export default function App() {
       fresh()
     }
 
+    // the inflight frame prunes task-recovery state for tasks that left in_flight (recovered
+    // or resolved); an errored action on a task still in flight stays so its row keeps the retry.
+    const onInflight = (e) => {
+      let next
+      try { next = JSON.parse(e.data) } catch (_) { fresh(); return }
+      setInflight(next)
+      const ids = new Set(next.map((t) => t.id))
+      setTaskBusy((s) => { const n = {}; for (const k of Object.keys(s)) if (ids.has(Number(k))) n[k] = s[k]; return n })
+      fresh()
+    }
+
     const es = new EventSource(`/events?t=${encodeURIComponent(token)}`)
     es.addEventListener('plate', onPlate)
-    es.addEventListener('inflight', onFrame(setInflight))
+    es.addEventListener('inflight', onInflight)
     es.addEventListener('pending', onPending)
     es.addEventListener('queue', onQueue)
     es.addEventListener('runs', onFrame(setRuns))
@@ -269,6 +283,26 @@ export default function App() {
   const applyItem = (file, index) =>
     postAction('/api/apply-item', { file, index }, `${file}#${index}`, 'applying', 'applied')
 
+  // Recover or resolve an in-flight task: put it back on the plate (waiting), mark it done, or
+  // dismiss it. The escape hatch for a picked-up session that died or finished without reporting.
+  async function resolveTask(id, status) {
+    if (id == null) return
+    setTaskBusy((s) => ({ ...s, [id]: status }))
+    try {
+      const res = await fetch('/api/task-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-SMBOS-Token': token },
+        body: JSON.stringify({ task_id: id, status }),
+      })
+      if (!res.ok) throw new Error(String(res.status))
+      // success: the SSE inflight frame drops this task; clear local state
+      setTaskBusy((s) => { const n = { ...s }; delete n[id]; return n })
+    } catch (_) {
+      // remember WHICH action failed so its own button offers the retry (not whatever's last)
+      setTaskBusy((s) => ({ ...s, [id]: `error:${status}` }))
+    }
+  }
+
   // cancel a queued run; the SSE queue frame drops it on success, an error leaves a retry.
   async function dequeue(file) {
     setQbusy((s) => ({ ...s, [file]: 'canceling' }))
@@ -369,13 +403,28 @@ export default function App() {
 
   const inflightBody = (
     <ol className="list">
-      {inflight.map((t, i) => (
-        <li key={t.id ?? i}>
-          <span className="dot live" aria-hidden="true"></span>
-          <span className="subj" title={t.subject}>{t.subject}</span>
-          <span className="chip chip-inflight">in flight</span>
-        </li>
-      ))}
+      {inflight.map((t, i) => {
+        const busy = taskBusy[t.id]                         // a status (working), or `error:<status>`
+        const working = !!busy && !String(busy).startsWith('error')
+        // each button retries its OWN action: label is its progress, its own 'retry', or normal
+        const tbtn = (status, normal, prog, primary) => (
+          <button
+            className={`act${primary ? ' act-primary' : ''}${busy === `error:${status}` ? ' act-err' : ''}`}
+            onClick={() => resolveTask(t.id, status)} disabled={working}>
+            {busy === status ? prog : busy === `error:${status}` ? 'retry' : normal}
+          </button>
+        )
+        return (
+          <li key={t.id ?? i}>
+            <span className="dot live" aria-hidden="true"></span>
+            <span className="subj" title={t.subject}>{t.subject}</span>
+            <span className="chip chip-inflight">in flight</span>
+            {tbtn('done', 'Done', 'done…', true)}
+            {tbtn('waiting', 'Put back', 'returning…')}
+            {tbtn('dismissed', 'Dismiss', 'dismissing…')}
+          </li>
+        )
+      })}
     </ol>
   )
 
