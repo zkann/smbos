@@ -70,6 +70,15 @@ _JOURNAL_SECTIONS = ("Notes for next revision", "Changelog")
 # already-stamped SOP without tripping the drift gate.
 CAPABILITY_FIELDS = ("research_domains", "research_reads", "deliverable")
 
+# The per-SOP autonomy dial: how far an UNATTENDED run proceeds before it parks for review.
+#   with_me     supervised only (no unattended run; the dashboard offers Pick up)
+#   prepare_ask unattended runs go through prepare mode (park artifact -> owner approves)
+#   on_its_own  unattended full run, auto-applies, reports back (requires an active/trusted SOP)
+# Like interactive_only, this gates the unattended runner, so an ELEVATED level (prepare_ask /
+# on_its_own) is folded into the fingerprint (below) -- a silent out-of-band elevation then trips
+# the drift gate. The safe level (with_me) and an absent field are not folded.
+AUTONOMY_LEVELS = ("with_me", "prepare_ask", "on_its_own")
+
 
 def content_fingerprint(body, meta=None):
     """Hash of the procedure: body (journal sections stripped, line endings
@@ -85,6 +94,12 @@ def content_fingerprint(body, meta=None):
     # the existing stamped SOPs that don't carry the flag.
     if str(m.get("interactive_only", "")).strip().lower() in ("true", "yes", "1"):
         caps += "\ninteractive_only=true"
+    # autonomy elevations gate the unattended runner like interactive_only, so fold them in: a
+    # silent out-of-band set to prepare_ask/on_its_own then trips drift. Appended only when set to
+    # an elevated value, so the safe level (with_me) and existing SOPs without the field are unchanged.
+    _autonomy = str(m.get("autonomy", "")).strip().lower()
+    if _autonomy in ("prepare_ask", "on_its_own"):
+        caps += f"\nautonomy={_autonomy}"
     return hashlib.sha256((caps + "\n" + text.strip()).encode("utf-8")).hexdigest()[:12]
 
 
@@ -449,6 +464,35 @@ def is_interactive_only(sop_dir, sid):
     if p is None:
         return False
     return (frontmatter_field(p, "interactive_only") or "").strip().lower() in ("true", "yes", "1")
+
+
+def autonomy_level(sop_dir, sid):
+    """The SOP's autonomy dial: one of AUTONOMY_LEVELS. Reads the explicit `autonomy:` frontmatter
+    field when present and valid; otherwise DERIVES a non-disruptive default from current behavior,
+    so shipping the dial changes nothing for existing libraries until the owner sets it explicitly:
+
+        interactive_only -> with_me        (already supervised-only)
+        draft status     -> prepare_ask    (keeps today's Prepare)
+        active/trusted   -> on_its_own      (keeps today's headless Run)
+
+    The owner sets the level explicitly via the dashboard dial (which folds it into the fingerprint
+    and re-stamps). Missing SOP -> with_me (the safe level)."""
+    p = find_sop(sop_dir, sid)
+    if p is None:
+        return "with_me"
+    return autonomy_level_from_meta(parse_frontmatter(p.read_text(encoding="utf-8")))
+
+
+def autonomy_level_from_meta(meta):
+    """autonomy_level from an already-parsed frontmatter dict (no file read). The dashboard uses
+    this when it has already parsed an SOP, so listing procedures doesn't re-scan the library."""
+    val = str(meta.get("autonomy", "")).strip().lower()
+    if val in AUTONOMY_LEVELS:
+        return val
+    if str(meta.get("interactive_only", "")).strip().lower() in ("true", "yes", "1"):
+        return "with_me"
+    status = str(meta.get("status", "draft")).strip().lower()
+    return "on_its_own" if status in ("active", "trusted") else "prepare_ask"
 
 
 def sop_declared_folder(sop_dir, sid):

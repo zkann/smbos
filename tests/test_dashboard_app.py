@@ -1091,3 +1091,84 @@ def test_settings_includes_month_to_date_spend(tmp_path):
     with TestClient(app, base_url="http://localhost") as client:
         s = client.get("/api/settings", params={"t": token}).json()["settings"]
     assert s["spent"] == 0.12
+
+
+# --- autonomy dial (cutover PR: per-procedure autonomy) ---
+
+def test_gate_run_honors_autonomy(tmp_path):
+    _make_sop(tmp_path, "hands-on", extra="autonomy: with_me\n")
+    _make_sop(tmp_path, "park-it", extra="autonomy: prepare_ask\n")
+    _make_sop(tmp_path, "auto", extra="autonomy: on_its_own\n")
+    with pytest.raises(ValueError) as e:                              # with_me: refused (offer Pick up)
+        dashboard_app._gate_run(tmp_path, "hands-on", None, prepare=False)
+    assert "With me" in str(e.value)
+    sid, prep = dashboard_app._gate_run(tmp_path, "park-it", None, prepare=False)
+    assert sid == "park-it" and prep is True                         # prepare_ask: full run forced to prepare
+    sid, prep = dashboard_app._gate_run(tmp_path, "auto", None, prepare=False)
+    assert sid == "auto" and prep is False                           # on_its_own: full run
+
+
+def test_procedures_includes_autonomy(tmp_path):
+    _make_sop(tmp_path, "auto")                                       # active, no field -> derived on_its_own
+    _make_sop(tmp_path, "park", extra="autonomy: prepare_ask\n")
+    app = dashboard_app.create_app(tmp_path)
+    token = lib.dashboard_token(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        procs = {p["id"]: p for p in client.get("/api/procedures", params={"t": token}).json()["procedures"]}
+    assert procs["auto"]["autonomy"] == "on_its_own"
+    assert procs["park"]["autonomy"] == "prepare_ask"
+
+
+def test_api_autonomy_sets_field_and_gates(tmp_path):
+    _make_sop(tmp_path, "act")                                        # active
+    _make_sop(tmp_path, "wip", status="draft")
+    app = dashboard_app.create_app(tmp_path)
+    hdr = {"X-SMBOS-Token": lib.dashboard_token(tmp_path)}
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.post("/api/autonomy", json={"id": "act", "level": "with_me"}).status_code == 401  # no token
+        assert client.post("/api/autonomy", json={"id": "act", "level": "bogus"}, headers=hdr).status_code == 400
+        assert client.post("/api/autonomy", json={"id": "nope", "level": "with_me"}, headers=hdr).status_code == 404
+        r = client.post("/api/autonomy", json={"id": "wip", "level": "on_its_own"}, headers=hdr)
+        assert r.status_code == 409 and "draft" in r.json()["detail"].lower()  # can't grant a draft full autonomy
+        ok = client.post("/api/autonomy", json={"id": "act", "level": "with_me"}, headers=hdr)
+        assert ok.status_code == 200 and ok.json()["autonomy"] == "with_me"
+    assert lib.autonomy_level(tmp_path, "act") == "with_me"           # persisted to frontmatter
+
+
+def test_api_autonomy_restamps_and_refuses_drift(tmp_path):
+    _make_sop(tmp_path, "stamped")
+    p = lib.find_sop(tmp_path, "stamped")
+    meta, body = lib.split_frontmatter(p.read_text(encoding="utf-8"))
+    p.write_text(lib.set_frontmatter_fields(p.read_text(encoding="utf-8"),
+                 {"content_hash": lib.content_fingerprint(body, meta)}), encoding="utf-8")  # stamp it
+    assert lib.has_unrecorded_changes(tmp_path, "stamped") is False
+    app = dashboard_app.create_app(tmp_path)
+    hdr = {"X-SMBOS-Token": lib.dashboard_token(tmp_path)}
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.post("/api/autonomy", json={"id": "stamped", "level": "prepare_ask"},
+                           headers=hdr).status_code == 200
+    assert lib.autonomy_level(tmp_path, "stamped") == "prepare_ask"
+    assert lib.has_unrecorded_changes(tmp_path, "stamped") is False   # re-stamped, not flagged as drift
+    p.write_text(p.read_text(encoding="utf-8") + "\nan out-of-band edit\n", encoding="utf-8")  # now drift it
+    with TestClient(app, base_url="http://localhost") as client:
+        r = client.post("/api/autonomy", json={"id": "stamped", "level": "on_its_own"}, headers=hdr)
+        assert r.status_code == 409 and "review" in r.json()["detail"].lower()  # write can't bless a drifted body
+
+
+def test_api_autonomy_stamps_unstamped_so_silent_elevation_is_caught(tmp_path):
+    # the fingerprint protects only STAMPED SOPs, so setting autonomy via the dashboard ALWAYS
+    # stamps -- otherwise a 'With me' safety choice on an unstamped SOP could be silently flipped to
+    # 'On its own' and run headless. After the write, a silent out-of-band flip must trip drift.
+    _make_sop(tmp_path, "fresh")  # active, unstamped (no content_hash)
+    assert lib.frontmatter_field(lib.find_sop(tmp_path, "fresh"), "content_hash") is None
+    app = dashboard_app.create_app(tmp_path)
+    hdr = {"X-SMBOS-Token": lib.dashboard_token(tmp_path)}
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.post("/api/autonomy", json={"id": "fresh", "level": "with_me"},
+                           headers=hdr).status_code == 200
+    p = lib.find_sop(tmp_path, "fresh")
+    assert lib.frontmatter_field(p, "content_hash") is not None      # the deliberate choice is now stamped
+    assert lib.has_unrecorded_changes(tmp_path, "fresh") is False
+    p.write_text(p.read_text(encoding="utf-8").replace("autonomy: with_me", "autonomy: on_its_own"),
+                 encoding="utf-8")  # silent out-of-band elevation
+    assert lib.has_unrecorded_changes(tmp_path, "fresh") is True     # caught: the runner will refuse it

@@ -100,6 +100,12 @@ ol.list > li::before {
 /* pre-run cost estimate, a quiet monospace figure between the procedure title and its actions */
 .proc-cost { font: 11px/1 ui-monospace, monospace; color: var(--muted-fg); white-space: nowrap; }
 .proc-cost-none { color: var(--subtle-fg); }
+/* autonomy dial: a quiet inline select matching the Settings selects */
+.proc-dial {
+  font: inherit; font-size: 12px; color: var(--muted-fg); background: transparent;
+  border: 1px solid var(--input); border-radius: 6px; padding: 3px 6px;
+}
+.proc-dial:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .setrow { display: flex; align-items: center; gap: 10px; padding: 7px 0; flex-wrap: wrap; }
 .setrow label { flex: 1; color: var(--muted-fg); font-size: 13px; }
 .setrow .prefix { color: var(--muted-fg); margin-left: auto; }

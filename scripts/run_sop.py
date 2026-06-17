@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import state_store
-from smbos_lib import (acquire_run_lock, append_run, clear_run_active,
+from smbos_lib import (acquire_run_lock, append_run, autonomy_level, clear_run_active,
                        dashboard_url, find_sop as lib_find_sop, frontmatter_field, is_drifted,
                        mark_run_active, month_spend, notify, release_run_lock,
                        resolve_sop_dir, split_frontmatter)
@@ -273,6 +273,23 @@ def main():
         log_run(sop_dir, {**base, "result": "refused", "cost_usd": 0,
                           "note": f"status is '{status}'; only active/trusted SOPs run unattended"})
         sys.exit(f"Refused: '{args.sop_id}' is {status}. Drafts need a human first run. Use --force to override.")
+
+    # Autonomy dial: how far this SOP runs unattended (with_me / prepare_ask / on_its_own). The
+    # dashboard front-door honors it too, but enforce it here in the cage so a direct/cron invocation
+    # can't bypass the owner's setting. --force is the owner's explicit override.
+    _autonomy = autonomy_level(sop_dir, args.sop_id)
+    if not args.force:
+        if _autonomy == "with_me":
+            log_run(sop_dir, {**base, "result": "refused", "cost_usd": 0,
+                              "note": "autonomy: with me (supervised only, no unattended run)"})
+            sys.exit(f"Set to 'With me': '{args.sop_id}' runs only when you do it together. Pick it "
+                     "up with Claude instead of running it on its own. Use --force to override.")
+        if _autonomy == "prepare_ask" and not args.prepare:
+            log_run(sop_dir, {**base, "result": "refused", "cost_usd": 0,
+                              "note": "autonomy: prepare and ask (full unattended run refused; use --prepare)"})
+            sys.exit(f"Set to 'Prepare and ask': '{args.sop_id}' prepares for your approval rather "
+                     "than running fully on its own. Run it with --prepare (the dashboard does this "
+                     "for you). Use --force to override.")
 
     meta, body = split_frontmatter(sop_path.read_text(encoding="utf-8"))
     if args.prepare and "[personalize:" in body:

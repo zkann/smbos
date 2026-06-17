@@ -301,3 +301,26 @@ def test_run_sop_command_builder(tmp_path):
     assert "--inputs" not in bare and "--prepare" not in bare
     assert "--prepare" in lib.run_sop_command(tmp_path, "x", prepare=True)
     assert lib.run_sop_command(tmp_path, "x", source="cron")[4] == "cron"
+
+
+def test_autonomy_level_explicit_and_derived(tmp_path):
+    make_sop(tmp_path, id="explicit", status="active", extra="autonomy: with_me\n")
+    make_sop(tmp_path, id="act", status="active")
+    make_sop(tmp_path, id="draft", status="draft")
+    make_sop(tmp_path, id="inter", status="active", extra="interactive_only: true\n")
+    make_sop(tmp_path, id="bad", status="active", extra="autonomy: bogus\n")  # invalid -> derive
+    assert lib.autonomy_level(tmp_path, "explicit") == "with_me"     # explicit value honored
+    assert lib.autonomy_level(tmp_path, "act") == "on_its_own"       # derived: active keeps headless Run
+    assert lib.autonomy_level(tmp_path, "draft") == "prepare_ask"    # derived: draft keeps Prepare
+    assert lib.autonomy_level(tmp_path, "inter") == "with_me"        # derived: interactive_only is supervised
+    assert lib.autonomy_level(tmp_path, "bad") == "on_its_own"       # invalid value -> derive (active)
+    assert lib.autonomy_level(tmp_path, "missing") == "with_me"      # no such SOP -> the safe default
+
+
+def test_content_fingerprint_folds_autonomy_elevations_only(tmp_path):
+    base = lib.content_fingerprint("body", {})
+    assert lib.content_fingerprint("body", {"autonomy": "with_me"}) == base      # safe level not folded
+    assert lib.content_fingerprint("body", {"autonomy": "prepare_ask"}) != base  # elevation trips drift
+    assert lib.content_fingerprint("body", {"autonomy": "on_its_own"}) != base
+    assert (lib.content_fingerprint("body", {"autonomy": "prepare_ask"})
+            != lib.content_fingerprint("body", {"autonomy": "on_its_own"}))      # the two levels are distinct
