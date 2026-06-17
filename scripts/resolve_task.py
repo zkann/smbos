@@ -58,7 +58,11 @@ def main(argv=None):
         sys.exit(str(exc))
     if task is None:
         sys.exit(f"no task with id {task_id}")
-    if ss.resolve_in_flight_task(sop_dir, task["id"], status):
+    try:
+        changed = ss.resolve_in_flight_task(sop_dir, task["id"], status)
+    except ss.StateStoreError as exc:
+        sys.exit(str(exc))  # a DB-level failure exits cleanly, not as a traceback
+    if changed:
         print(f"Task {task['id']} {_LABELS[status]}.")
     else:
         # Not in flight: already resolved (by hand, or a prior report). The state is settled, so

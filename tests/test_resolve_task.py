@@ -61,6 +61,20 @@ def test_sop_dir_flag_without_value_is_an_error(tmp_path, monkeypatch):
     assert "--sop-dir needs a directory" in str(exc.value)
 
 
+def test_store_failure_on_write_exits_cleanly(tmp_path, monkeypatch):
+    # a DB-level failure during the resolve write must surface as a controlled CLI error, not a
+    # traceback escaping to the session
+    monkeypatch.setenv("SOP_DIR", str(tmp_path))
+    tid = _inflight(tmp_path)
+
+    def boom(*a, **k):
+        raise ss.StateStoreError("database is locked")
+    monkeypatch.setattr(ss, "resolve_in_flight_task", boom)
+    with pytest.raises(SystemExit) as exc:
+        resolve_task.main([str(tid), "done"])
+    assert "database is locked" in str(exc.value)
+
+
 def test_rejects_unknown_status(tmp_path, monkeypatch):
     monkeypatch.setenv("SOP_DIR", str(tmp_path))
     tid = _inflight(tmp_path)
