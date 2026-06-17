@@ -1,6 +1,10 @@
 const test = require('node:test')
 const assert = require('node:assert')
 const http = require('http')
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
+const { DatabaseSync } = require('node:sqlite')
 const { createBroker } = require('./broker')
 
 function listen(server) {
@@ -126,6 +130,49 @@ test('an absolute-form request-target still goes to the FIXED upstream (not an o
   // it reached the fixed upstream (handler ran) and forwarded the target verbatim -- never re-resolved
   // 'evil.example'. The hardcoded {host,port} is what makes this safe.
   assert.equal(seenUrl, 'http://evil.example/api/plate?t=x')
+  upstream.close(); broker.close()
+})
+
+test('serves /api/plate from the store (token-gated), forwards unknown paths', async () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'smbos-broker-'))
+  fs.writeFileSync(path.join(d, '.dashboard-token'), 'tok')
+  const db = new DatabaseSync(path.join(d, 'state.db'))
+  db.exec(`CREATE TABLE task (id INTEGER PRIMARY KEY, domain TEXT, kind TEXT, subject TEXT, status TEXT,
+    priority INTEGER DEFAULT 0, source_ref TEXT, created_at TEXT, updated_at TEXT)`)
+  db.prepare("INSERT INTO task(id,domain,kind,subject,status,created_at,updated_at) VALUES(1,'ops','x','on plate','waiting','t','t')").run()
+  db.close()
+  let forwarded = false
+  const upstream = http.createServer((req, res) => { forwarded = true; res.end('up') })
+  const upPort = await listen(upstream)
+  const broker = createBroker({ targetPort: upPort, sopDir: d })
+  const brPort = await listen(broker)
+  // served + no token -> 401, never forwarded
+  assert.equal((await request(brPort, '/api/plate')).status, 401)
+  // served + valid token -> answered from the store
+  const ok = await request(brPort, '/api/plate?t=tok')
+  assert.equal(ok.status, 200)
+  assert.deepEqual(JSON.parse(ok.body).plate.map((r) => r.subject), ['on plate'])
+  assert.equal(forwarded, false, 'a served read never hits the upstream')
+  // an unserved path still forwards to FastAPI
+  await request(brPort, '/api/runs?t=tok')
+  assert.equal(forwarded, true)
+  upstream.close(); broker.close()
+})
+
+test('a served read is DENIED when the token file is missing/empty (fails closed, no upstream contact)', async () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'smbos-broker-'))  // no .dashboard-token written
+  const db = new DatabaseSync(path.join(d, 'state.db'))
+  db.exec(`CREATE TABLE task (id INTEGER PRIMARY KEY, domain TEXT, kind TEXT, subject TEXT, status TEXT,
+    priority INTEGER DEFAULT 0, source_ref TEXT, created_at TEXT, updated_at TEXT)`)
+  db.close()
+  let forwarded = false
+  const upstream = http.createServer((req, res) => { forwarded = true; res.end('up') })
+  const upPort = await listen(upstream)
+  const broker = createBroker({ targetPort: upPort, sopDir: d })
+  const brPort = await listen(broker)
+  assert.equal((await request(brPort, '/api/plate?t=')).status, 401)          // empty token -> deny
+  assert.equal((await request(brPort, '/api/plate?t=anything')).status, 401)  // no token file -> deny, not allow
+  assert.equal(forwarded, false, 'a denied served read must not fall through to the upstream')
   upstream.close(); broker.close()
 })
 

@@ -14,7 +14,7 @@
 const { app, BrowserWindow, Tray, Menu, Notification, nativeImage } = require('electron')
 const path = require('path')
 const http = require('http')
-const { dashboardPort, token } = require('./resolve')
+const { dashboardPort, token, sopDir } = require('./resolve')
 const { createBroker } = require('./broker')
 
 const POLL_MS = 5000          // tray/notification poll cadence (matches the live mirror's calm cadence)
@@ -113,7 +113,7 @@ function createTray() {
 app.whenReady().then(() => {
   // Start the broker (Phase 2 facade) in front of the running FastAPI dashboard, on a free loopback
   // port, then point everything at the broker. The broker forwards to FastAPI for now.
-  broker = createBroker({ targetPort: dashboardPort() })
+  broker = createBroker({ targetPort: dashboardPort(), sopDir: sopDir() })
   // A bind failure (EACCES/EADDRNOTAVAIL on loopback) would otherwise leave the listen callback
   // unfired -- no window, no tray, a resident process with no UI. Fail loud and quit instead.
   broker.on('error', (e) => {
