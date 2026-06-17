@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.26.0 (2026-06-16)
+
+- New: a macOS menu-bar app for the dashboard. A small SmbOS icon sits in the menu bar showing how many items are waiting for you (a monogram that fills in when there is work and stays quiet at zero, with a warning mark if the dashboard is not running). Its menu breaks down what is on your plate, in flight, and coming up, and opens the dashboard, restarts it, or quits. It runs at login alongside the dashboard service and talks to it over the existing local URL, so there is nothing new to configure.
+- The menu-bar app can dock the dashboard as a side panel next to whatever you are working in. By default it stays out of the way: a thin handle on the right edge slides the dashboard in when you reach the edge and hides it again when you move away, so it never permanently blocks an app. "Dock as sidebar" parks it open and resizes the window beside it so nothing is covered (this needs Accessibility permission, which it asks for the first time, and falls back to the peek panel until granted). Install with `tray_app.py install`, remove with `tray_app.py uninstall`.
+- The menu-bar app is macOS-only and carries its own dependencies (rumps and a few pyobjc frameworks, installed into the dashboard's virtualenv); the rest of SmbOS stays stdlib-only on the system Python. It installs as a small SmbOS.app wrapper so macOS shows "SmbOS", not "Python", in notifications and the Accessibility prompt.
+
 ## 0.25.0 (2026-06-16)
 
 - The live dashboard is now a single-page app served by a small local web service, replacing the generated-HTML daemon. It updates in real time as runs start and finish, with no refresh, and adds per-procedure controls: run or queue a SOP, prepare a draft, or pick up an interactive one. Alongside are panels for parked results waiting on you, what's coming up, recent runs, and settings. The URL and token are unchanged.
