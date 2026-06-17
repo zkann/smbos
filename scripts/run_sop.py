@@ -37,14 +37,15 @@ def _surface(source):
     return "api"  # external triggers (dashboard, linear, slack, webhook, ...)
 
 
-def _record_run_finish(sop_dir, run_row_id, result, cost):
+def _record_run_finish(sop_dir, run_row_id, result, cost, summary=None):
     """Best-effort: record the run's terminal result in the live-mirror store. Recording to
     the mirror must NEVER break or fail the actual run, hence the broad guard."""
     if run_row_id is None:
         return
     try:
         state_store.finish_run(sop_dir, run_row_id, result=result,
-                               cost_usd=cost if isinstance(cost, (int, float)) else 0.0)
+                               cost_usd=cost if isinstance(cost, (int, float)) else 0.0,
+                               summary=summary)
     except Exception:  # noqa: BLE001 - mirror recording is best-effort, never fatal to the run
         pass
 
@@ -437,7 +438,7 @@ def main():
     log_run(sop_dir, {**base, "result": result, "cost_usd": cost, "duration_ms": duration,
                       "session_id": session_id, "pending": str(pending_file) if parked else None,
                       "prepare": True if args.prepare else None, "note": summary})
-    _record_run_finish(sop_dir, run_row_id, result, cost)
+    _record_run_finish(sop_dir, run_row_id, result, cost, summary=summary)
     title = frontmatter_field(sop_path, "title") or args.sop_id
     if parked:
         notify("SmbOS: result waiting for you",
