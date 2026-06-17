@@ -194,10 +194,23 @@ ol.list > li::before {
    amber waiting chip is redundant in the narrow column; drop it to give the title the width. */
 .compact .chip-waiting { display: none; }
 
-/* keep long task titles scannable in the narrow column: clamp to 3 lines (full text on hover).
-   min-width:0 + overflow-wrap let a long unbroken token shrink/break instead of pushing the
-   chip and button off-edge, independent of the <=480px media query (the panel is resizable). */
-.compact .subj {
-  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
-  min-width: 0; overflow-wrap: anywhere;
-}
+/* Narrow column: titles wrap in FULL (nothing hidden, no clamp/tooltip-only recovery), and any
+   row that carries an action stacks the action onto its own line so the title owns the whole
+   width instead of competing with a button for it. overflow-wrap breaks a long unbroken token. */
+.compact .subj { min-width: 0; overflow-wrap: anywhere; }
+
+/* drop the rank counter in compact: with rows wrapped it would float on its own line above each
+   title, and in a short ordered sidebar list the position already conveys priority */
+.compact ol.list > li::before { display: none; }
+
+.compact .list > li:has(> .pickup),
+.compact .candidates > li,
+.compact .pending-head { flex-wrap: wrap; row-gap: 7px; }
+
+.compact .list > li:has(> .pickup) > .subj,
+.compact .candidates > li > .subj,
+.compact .pending-head > .subj { flex-basis: 100%; }
+
+/* the action drops to the right under its now-full-width title */
+.compact .list > li:has(> .pickup) > .pickup,
+.compact .candidates > li > .act { margin-left: auto; }
