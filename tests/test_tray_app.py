@@ -192,6 +192,14 @@ def test_compute_state_maps_none_to_down():
     assert tray.compute_state({"waiting": 1, "inflight": 0, "coming": 0})["status"] == "ok"
 
 
+def test_panel_url_loads_compact_mode(monkeypatch):
+    # The docked panel loads the dashboard in compact (sidebar) layout; the browser does not.
+    monkeypatch.setattr(tray, "dashboard_url", lambda d: "http://127.0.0.1:8765/?t=abc")
+    assert tray.panel_url("/x") == "http://127.0.0.1:8765/?t=abc&compact=1"
+    monkeypatch.setattr(tray, "dashboard_url", lambda d: "http://127.0.0.1:8765/")
+    assert tray.panel_url("/x") == "http://127.0.0.1:8765/?compact=1"
+
+
 def test_main_sop_dir_without_value_exits_cleanly():
     # `--sop-dir` with no folder after it should exit with a message, not crash with IndexError.
     with pytest.raises(SystemExit) as e:

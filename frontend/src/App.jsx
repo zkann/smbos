@@ -319,152 +319,186 @@ export default function App() {
     }
   }
 
-  return (
-    <main>
-      {stale && <div className="banner" role="status">Reconnecting, data may be stale</div>}
+  // ?compact: the menu-bar side panel loads this. The "needs you" zone (plate + pending) stays at
+  // top; the rest collapses. The full browser dashboard (no ?compact) is unchanged.
+  const compact = new URLSearchParams(window.location.search).has('compact')
 
-      <header><span className="dot live" aria-hidden="true"></span><h1>SmbOS</h1></header>
+  // Panel bodies, computed once and arranged by layout below, so the full dashboard and the
+  // compact sidebar share one source of truth for each panel's contents.
+  const plateBody = plate.length === 0 ? (
+    <p className="empty">Nothing waiting for you right now.</p>
+  ) : (
+    <ol className="list">
+      {plate.map((t, i) => (
+        <li key={t.id ?? i}>
+          <span className="subj" title={t.subject}>{t.subject}</span>
+          <span className={`chip chip-${t.status}`}>{t.status}</span>
+          <button
+            className={`pickup${launch[t.id] === 'error' ? ' pickup-err' : ''}`}
+            onClick={() => pickUp(t.id)}
+            disabled={t.id == null || launch[t.id] === 'launching'}
+          >
+            {pickupLabel(t.id)}
+          </button>
+        </li>
+      ))}
+    </ol>
+  )
 
-      <section className="panel">
-        <div className="overline">On your plate</div>
-        {plate.length === 0 ? (
-          <p className="empty">Nothing waiting for you right now.</p>
-        ) : (
-          <ol className="list">
-            {plate.map((t, i) => (
-              <li key={t.id ?? i}>
-                <span className="subj">{t.subject}</span>
-                <span className={`chip chip-${t.status}`}>{t.status}</span>
-                <button
-                  className={`pickup${launch[t.id] === 'error' ? ' pickup-err' : ''}`}
-                  onClick={() => pickUp(t.id)}
-                  disabled={t.id == null || launch[t.id] === 'launching'}
-                >
-                  {pickupLabel(t.id)}
-                </button>
-              </li>
-            ))}
-          </ol>
-        )}
-      </section>
-
-      {pending.length > 0 && (
-        <section className="panel">
-          <div className="overline">Needs your eyes</div>
-          <ol className="list">
-            {pending.map((it, i) => (
-              <li key={it.file ?? i} className="pending-li">
-                <div className="pending-head">
-                  <span className="subj">{it.title}</span>
-                  <span className="chip chip-pending">pending</span>
-                  {it.candidates.length === 0 ? (
-                    <>
-                      <button className="act act-primary" onClick={() => resolve(it.file, 'approve')}
-                        disabled={pend[it.file] === 'approve' || pend[it.file] === 'discard'}>
-                        {pend[it.file] === 'approve' ? 'approving…' : 'Approve'}
-                      </button>
-                      <button className={`act${pend[it.file] === 'error' ? ' act-err' : ''}`}
-                        onClick={() => resolve(it.file, 'discard')}
-                        disabled={pend[it.file] === 'approve' || pend[it.file] === 'discard'}>
-                        {pend[it.file] === 'discard' ? 'discarding…' : pend[it.file] === 'error' ? 'retry' : 'Reject'}
-                      </button>
-                    </>
-                  ) : (
-                    <span className="chip">{it.candidates.length} to pick</span>
-                  )}
-                </div>
-                {it.candidates.length > 0 && (
-                  <ul className="candidates">
-                    {it.candidates.map((c, j) => {
-                      const key = `${it.file}#${j}`
-                      return (
-                        <li key={j}>
-                          <span className="subj cand">{c.title}</span>
-                          <button className={`act${pend[key] === 'error' ? ' act-err' : ''}`}
-                            onClick={() => applyItem(it.file, j)}
-                            disabled={pend[key] === 'applying' || pend[key] === 'applied'}>
-                            {pend[key] === 'applying' ? 'applying…'
-                              : pend[key] === 'applied' ? 'applied ✓'
-                              : pend[key] === 'error' ? 'retry' : 'Apply'}
-                          </button>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                )}
-              </li>
-            ))}
-          </ol>
-        </section>
-      )}
-
-      {inflight.length > 0 && (
-        <section className="panel">
-          <div className="overline">In flight</div>
-          <ol className="list">
-            {inflight.map((t, i) => {
-              const busy = taskBusy[t.id]                         // a status (working), or `error:<status>`
-              const working = !!busy && !String(busy).startsWith('error')
-              // each button retries its OWN action: label is its progress, its own 'retry', or normal
-              const tbtn = (status, normal, prog, primary) => (
-                <button
-                  className={`act${primary ? ' act-primary' : ''}${busy === `error:${status}` ? ' act-err' : ''}`}
-                  onClick={() => resolveTask(t.id, status)} disabled={working}>
-                  {busy === status ? prog : busy === `error:${status}` ? 'retry' : normal}
-                </button>
-              )
+  const pendingBody = (
+    <ol className="list">
+      {pending.map((it, i) => {
+        const cands = (
+          <ul className="candidates">
+            {it.candidates.map((c, j) => {
+              const key = `${it.file}#${j}`
               return (
-                <li key={t.id ?? i}>
-                  <span className="dot live" aria-hidden="true"></span>
-                  <span className="subj">{t.subject}</span>
-                  <span className="chip chip-inflight">in flight</span>
-                  {tbtn('done', 'Done', 'done…', true)}
-                  {tbtn('waiting', 'Put back', 'returning…')}
-                  {tbtn('dismissed', 'Dismiss', 'dismissing…')}
-                </li>
-              )
-            })}
-          </ol>
-        </section>
-      )}
-
-      {queued.length > 0 && (
-        <section className="panel">
-          <div className="overline">Coming up</div>
-          <ol className="list">
-            {queued.map((q, i) => (
-              <li key={q.file ?? i}>
-                <span className="subj">{q.sop}{q.project ? ` · ${q.project}` : ''}</span>
-                <span className="chip">queued</span>
-                <button className={`act${qbusy[q.file] === 'error' ? ' act-err' : ''}`}
-                  onClick={() => dequeue(q.file)} disabled={qbusy[q.file] === 'canceling'}>
-                  {qbusy[q.file] === 'canceling' ? 'canceling…' : qbusy[q.file] === 'error' ? 'retry' : 'Cancel'}
-                </button>
-              </li>
-            ))}
-          </ol>
-        </section>
-      )}
-
-      <section className="panel">
-        <div className="overline">Recent runs</div>
-        {runs.length === 0 ? (
-          <p className="empty">No runs yet.</p>
-        ) : (
-          <ul className="list">
-            {runs.map((r, i) => {
-              const dot = runDot(r)
-              return (
-                <li key={r.id ?? i}>
-                  <span className={`dot ${dot}`} aria-hidden="true"></span>
-                  <span className="subj">{r.sop_id}</span>
-                  <span className={`chip${dot === 'stalled' ? ' chip-stalled' : ''}`}>{runLabel(r)}</span>
+                <li key={j}>
+                  <span className="subj cand" title={c.title}>{c.title}</span>
+                  <button className={`act${pend[key] === 'error' ? ' act-err' : ''}`}
+                    onClick={() => applyItem(it.file, j)}
+                    disabled={pend[key] === 'applying' || pend[key] === 'applied'}>
+                    {pend[key] === 'applying' ? 'applying…'
+                      : pend[key] === 'applied' ? 'applied ✓'
+                      : pend[key] === 'error' ? 'retry' : 'Apply'}
+                  </button>
                 </li>
               )
             })}
           </ul>
-        )}
+        )
+        return (
+          <li key={it.file ?? i} className="pending-li">
+            <div className="pending-head">
+              <span className="subj" title={it.title}>{it.title}</span>
+              <span className="chip chip-pending">pending</span>
+              {it.candidates.length === 0 ? (
+                <>
+                  <button className="act act-primary" onClick={() => resolve(it.file, 'approve')}
+                    disabled={pend[it.file] === 'approve' || pend[it.file] === 'discard'}>
+                    {pend[it.file] === 'approve' ? 'approving…' : 'Approve'}
+                  </button>
+                  <button className={`act${pend[it.file] === 'error' ? ' act-err' : ''}`}
+                    onClick={() => resolve(it.file, 'discard')}
+                    disabled={pend[it.file] === 'approve' || pend[it.file] === 'discard'}>
+                    {pend[it.file] === 'discard' ? 'discarding…' : pend[it.file] === 'error' ? 'retry' : 'Reject'}
+                  </button>
+                </>
+              ) : compact ? null : (
+                <span className="chip">{it.candidates.length} to pick</span>
+              )}
+            </div>
+            {it.candidates.length > 0 && (compact ? (
+              // sidebar: keep the pending item one glanceable row; the candidates open on tap
+              <details className="cand-disclosure">
+                <summary className="cand-summary">{it.candidates.length} to pick</summary>
+                {cands}
+              </details>
+            ) : cands)}
+          </li>
+        )
+      })}
+    </ol>
+  )
+
+  const inflightBody = (
+    <ol className="list">
+      {inflight.map((t, i) => {
+        const busy = taskBusy[t.id]                         // a status (working), or `error:<status>`
+        const working = !!busy && !String(busy).startsWith('error')
+        // each button retries its OWN action: label is its progress, its own 'retry', or normal
+        const tbtn = (status, normal, prog, primary) => (
+          <button
+            className={`act${primary ? ' act-primary' : ''}${busy === `error:${status}` ? ' act-err' : ''}`}
+            onClick={() => resolveTask(t.id, status)} disabled={working}>
+            {busy === status ? prog : busy === `error:${status}` ? 'retry' : normal}
+          </button>
+        )
+        return (
+          <li key={t.id ?? i}>
+            <span className="dot live" aria-hidden="true"></span>
+            <span className="subj" title={t.subject}>{t.subject}</span>
+            <span className="chip chip-inflight">in flight</span>
+            {tbtn('done', 'Done', 'done…', true)}
+            {tbtn('waiting', 'Put back', 'returning…')}
+            {tbtn('dismissed', 'Dismiss', 'dismissing…')}
+          </li>
+        )
+      })}
+    </ol>
+  )
+
+  const queuedBody = (
+    <ol className="list">
+      {queued.map((q, i) => (
+        <li key={q.file ?? i}>
+          <span className="subj">{q.sop}{q.project ? ` · ${q.project}` : ''}</span>
+          <span className="chip">queued</span>
+          <button className={`act${qbusy[q.file] === 'error' ? ' act-err' : ''}`}
+            onClick={() => dequeue(q.file)} disabled={qbusy[q.file] === 'canceling'}>
+            {qbusy[q.file] === 'canceling' ? 'canceling…' : qbusy[q.file] === 'error' ? 'retry' : 'Cancel'}
+          </button>
+        </li>
+      ))}
+    </ol>
+  )
+
+  const recentBody = runs.length === 0 ? (
+    <p className="empty">No runs yet.</p>
+  ) : (
+    <ul className="list">
+      {runs.map((r, i) => {
+        const dot = runDot(r)
+        return (
+          <li key={r.id ?? i}>
+            <span className={`dot ${dot}`} aria-hidden="true"></span>
+            <span className="subj">{r.sop_id}</span>
+            <span className={`chip${dot === 'stalled' ? ' chip-stalled' : ''}`}>{runLabel(r)}</span>
+          </li>
+        )
+      })}
+    </ul>
+  )
+
+  // A panel as a plain <section> (full dashboard), or in compact mode (when collapsible) a
+  // tap-to-open <details> with the count on its summary, so the sidebar stays glanceable.
+  const section = (label, count, body, collapsible = false) =>
+    compact && collapsible ? (
+      <details className="panel collapsible">
+        <summary className="overline">{label}{count ? <span className="count">{count}</span> : null}</summary>
+        {body}
+      </details>
+    ) : (
+      <section className="panel">
+        <div className="overline">{label}</div>
+        {body}
       </section>
+    )
+
+  return (
+    <main className={compact ? 'compact' : undefined}>
+      {stale && <div className="banner" role="status">Reconnecting, data may be stale</div>}
+
+      <header>
+        <span className="dot live" aria-hidden="true"></span>
+        <h1>SmbOS</h1>
+        {compact && (
+          <span className="counts">
+            <span className={plate.length ? undefined : 'count-zero'}>{plate.length} waiting</span>
+            <span className={inflight.length ? undefined : 'count-zero'}>{inflight.length} in flight</span>
+            <span className={queued.length ? undefined : 'count-zero'}>{queued.length} coming up</span>
+          </span>
+        )}
+      </header>
+
+      {/* needs you: plate + pending, always visible in both layouts */}
+      {section('On your plate', null, plateBody)}
+      {pending.length > 0 && section('Needs your eyes', null, pendingBody)}
+
+      {/* secondary: collapsible in the sidebar, plain sections in the full dashboard */}
+      {inflight.length > 0 && section('In flight', inflight.length, inflightBody, true)}
+      {queued.length > 0 && section('Coming up', queued.length, queuedBody, true)}
+      {section('Recent runs', null, recentBody, true)}
 
       {procedures.length > 0 && (
         <details className="panel procedures" onToggle={(e) => { if (e.target.open) refreshProcedures() }}>

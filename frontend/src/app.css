@@ -126,3 +126,91 @@ ol.list > li::before {
 .dot.done { background: var(--muted-fg); }
 .dot.err { background: var(--red); }
 .chip-stalled { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 35%, transparent); }
+
+/* Narrow widths: the menu-bar side panel (~360px) and small phones. The default layout was
+   built for a wide column (32px gutters, 160-200px fixed-width form controls) and overflows
+   when squeezed. Here we reclaim the gutters and let the fixed controls go fluid so nothing
+   spills. DESIGN.md: responsive is intentional per viewport; the 16px body / 11-12px microcopy
+   floor, monospace labels, and AA contrast all carry over unchanged, only the geometry adapts. */
+@media (max-width: 480px) {
+  main { padding: 16px 14px; }       /* was 32px: ~36px of width reclaimed */
+  .panel { padding: 13px 13px; }
+  header { margin-bottom: 14px; }
+
+  /* flex children must be allowed to shrink (default min-width:auto pushes siblings off-edge) */
+  .subj { min-width: 0; overflow-wrap: anywhere; }
+  .list li { gap: 8px; }
+
+  /* per-procedure inputs were min-width:160px; go fluid and wrap to their own line */
+  .proc-inputs { min-width: 0; width: 100%; }
+
+  /* settings rows stack: label on its own line, full-width control beneath it */
+  .setrow { flex-wrap: wrap; }
+  .setrow label { flex-basis: 100%; }
+  .setrow .prefix { margin-left: 0; }
+  .setrow select, .setrow input { min-width: 0; flex: 1 1 100%; }
+  .setrow input[type="number"] { min-width: 0; width: 100%; }
+}
+
+/* Compact sidebar mode (the menu-bar panel loads ?compact). The "needs you" zone owns the top;
+   secondary panels collapse to a tap; a sticky header keeps the counts glanceable while the plate
+   scrolls. Calm Command Center density throughout; zero counts stay neutral (DESIGN.md). */
+.compact header {
+  position: sticky; top: 0; z-index: 2; flex-wrap: wrap;
+  background: var(--background); margin: 0 0 10px;
+  padding: 10px 0 9px; border-bottom: 1px solid var(--border);
+}
+.compact .counts {
+  flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 3px;
+  font: 11px/1.3 ui-monospace, monospace; color: var(--foreground); letter-spacing: 0.02em;
+}
+.compact .counts .count-zero { color: var(--subtle-fg); }
+
+/* secondary panels (collapsible, procedures, settings): a quiet disclosure with a rotating caret
+   and, where present, the count pushed to the right edge */
+.compact details.panel > summary { cursor: pointer; list-style: none; display: flex; align-items: center; }
+.compact details.panel > summary::-webkit-details-marker { display: none; }
+.compact details.panel[open] > summary { margin-bottom: 12px; }
+.compact details.panel > summary::before {
+  content: "\25B8"; color: var(--subtle-fg); margin-right: 7px; font-size: 10px;
+  transition: transform 120ms;
+}
+.compact details.panel[open] > summary::before { transform: rotate(90deg); }
+.compact .collapsible .count { margin-left: auto; color: var(--subtle-fg); }
+
+/* a pending item's candidate list (e.g. "11 to pick") collapses behind its count, so one parked
+   result with many candidates stays a single glanceable row until you tap to act on it */
+.compact .cand-disclosure > summary {
+  cursor: pointer; list-style: none; display: inline-flex; align-items: center;
+  font: 11px/1.4 ui-monospace, monospace; color: var(--muted-fg); padding: 4px 0;
+}
+.compact .cand-disclosure > summary::-webkit-details-marker { display: none; }
+.compact .cand-disclosure > summary::before {
+  content: "\25B8"; color: var(--subtle-fg); margin-right: 6px; font-size: 10px; transition: transform 120ms;
+}
+.compact .cand-disclosure[open] > summary::before { transform: rotate(90deg); }
+
+/* the section header already says "On your plate" (everything there is waiting), so the per-row
+   amber waiting chip is redundant in the narrow column; drop it to give the title the width. */
+.compact .chip-waiting { display: none; }
+
+/* Narrow column: titles wrap in FULL (nothing hidden, no clamp/tooltip-only recovery), and any
+   row that carries an action stacks the action onto its own line so the title owns the whole
+   width instead of competing with a button for it. overflow-wrap breaks a long unbroken token. */
+.compact .subj { min-width: 0; overflow-wrap: anywhere; }
+
+/* drop the rank counter in compact: with rows wrapped it would float on its own line above each
+   title, and in a short ordered sidebar list the position already conveys priority */
+.compact ol.list > li::before { display: none; }
+
+.compact .list > li:has(> .pickup),
+.compact .candidates > li,
+.compact .pending-head { flex-wrap: wrap; row-gap: 7px; }
+
+.compact .list > li:has(> .pickup) > .subj,
+.compact .candidates > li > .subj,
+.compact .pending-head > .subj { flex-basis: 100%; }
+
+/* the action drops to the right under its now-full-width title */
+.compact .list > li:has(> .pickup) > .pickup,
+.compact .candidates > li > .act { margin-left: auto; }

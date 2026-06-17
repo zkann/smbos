@@ -16,3 +16,4 @@ dashboard-daemon.log
 .venv/
 frontend/node_modules/
 frontend/dist/
+sidebar-*.png
