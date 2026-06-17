@@ -152,6 +152,82 @@ function procedures(sopDir) {
   return out.sort((a, b) => (a.title.toLowerCase() < b.title.toLowerCase() ? -1 : a.title.toLowerCase() > b.title.toLowerCase() ? 1 : 0))
 }
 
+// A parked result's `## Candidates` fenced-json block as [{title,url,note}] (mirrors
+// generate_dashboard.parse_candidates). Empty on absent/malformed; never throws.
+function parseCandidates(content) {
+  const m = /^##\s+Candidates\s*$[\s\S]*?```json\s*([\s\S]*?)```/m.exec(content)
+  if (!m) return []
+  let data
+  // JSON.parse rejects bare NaN/Infinity (which aren't valid JSON) where Python json.loads accepts
+  // them, so such a non-standard block yields [] here vs a parsed list in Python. Accepted divergence:
+  // candidate fields are contract-typed strings, and regex-stripping NaN would corrupt a string value
+  // that legitimately contains "NaN".
+  try { data = JSON.parse(m[1]) } catch (_) { return [] }
+  if (!Array.isArray(data)) return []
+  const str = (v) => (typeof v === 'string' ? v : '')        // non-string field -> '' (Python str() of a
+  const cut = (v, n) => Array.from(v).slice(0, n).join('')   // list/dict is junk too); truncate by CODE POINT (Python [:n])
+  const out = []
+  for (const d of data) {
+    if (d && typeof d === 'object' && !Array.isArray(d)) {
+      out.push({
+        title: cut(str(d.title) || str(d.url) || 'Item', 140),
+        url: cut(str(d.url), 500),
+        note: cut(str(d.note), 300),
+      })
+    }
+  }
+  return out
+}
+
+// First .md file named `${sopId}.md` anywhere under sopDir (mirrors Python rglob -- NOT pruned, so it
+// finds a source SOP even outside the iter_sops set). null if none.
+function findSopFile(dir, name) {
+  let entries
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch (_) { return null }
+  for (const e of entries) if (e.isFile() && e.name === name) return path.join(dir, e.name)
+  for (const e of entries) {
+    if (e.isDirectory()) { const f = findSopFile(path.join(dir, e.name), name); if (f) return f }
+  }
+  return null
+}
+
+// The first `next:` SOP id declared by sopId (mirrors generate_dashboard.sop_next).
+function sopNext(sopDir, sopId) {
+  if (!sopId) return null
+  const p = findSopFile(sopDir, `${sopId}.md`)
+  if (!p) return null
+  let meta
+  try { meta = parseFrontmatter(readTextStrict(p)) } catch (_) { return null }
+  return String(meta.next || '').split(',')[0].trim() || null
+}
+
+// Parked results awaiting a decision (status: pending), for 'Needs your eyes'. Mirrors
+// dashboard_app._pending over generate_dashboard.collect_pending: human title from the body's
+// '# Pending: X' heading, the candidate list, and the downstream SOP for an apply.
+function pending(sopDir) {
+  const pdir = path.join(sopDir, 'pending')
+  let files
+  try { files = fs.readdirSync(pdir).filter((f) => f.endsWith('.md')).sort() } catch (_) { return [] }
+  const out = []
+  for (const f of files) {
+    let content
+    try { content = readTextStrict(path.join(pdir, f)) } catch (_) { continue }  // skip unreadable/non-utf8
+    const meta = parseFrontmatter(content)
+    if (String(meta.status || '').trim() !== 'pending') continue
+    const m = /^#\s+(?:Pending:\s*)?(.+)$/m.exec(content)
+    const title = m ? m[1].trim() : (meta.sop || f)
+    const candidates = parseCandidates(content)
+    out.push({
+      file: f,
+      sop: meta.sop || '',
+      title,
+      candidates,
+      next: candidates.length ? sopNext(sopDir, meta.sop) : null,
+    })
+  }
+  return out
+}
+
 // Minimal frontmatter parser for the simple `key: value` lines we read (matches smbos_lib for these).
 function parseFrontmatter(text) {
   const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text)
@@ -167,4 +243,4 @@ function parseFrontmatter(text) {
   return out
 }
 
-module.exports = { plate, queue, procedures }
+module.exports = { plate, queue, procedures, pending }

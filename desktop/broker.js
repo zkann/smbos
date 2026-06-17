@@ -17,12 +17,14 @@ const { token } = require('./resolve')
 // GET endpoints the broker answers itself, from the local store, in FastAPI's response shape
 // (parity-tested against the live FastAPI). Cost/autonomy numbers ride as JSON numbers, so a whole
 // dollar serializes as `1` here vs `1.0` in Python -- semantically identical after JSON.parse (what
-// the SPA does), so the parity check compares parsed values, not bytes. settings/pending follow
-// later: settings reads an environment-detected terminal, so it isn't a pure static read yet.
+// the SPA does), so the parity check compares parsed values, not bytes. Still forwarded: settings
+// (reads an environment-detected terminal, not a pure static read) and the liveness-bearing reads
+// (inflight/runs) + the SSE live mirror (Phase 5 flock/pid migration).
 const SERVED = {
   '/api/plate': (sopDir) => ({ plate: store.plate(sopDir) }),
   '/api/queue': (sopDir) => ({ queue: store.queue(sopDir) }),
   '/api/procedures': (sopDir) => ({ procedures: store.procedures(sopDir) }),
+  '/api/pending': (sopDir) => ({ pending: store.pending(sopDir) }),
 }
 
 // Constant-time token compare (the broker now gates the reads it serves, mirroring FastAPI's check).
