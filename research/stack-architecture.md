@@ -51,7 +51,7 @@ Two kinds of "AI" stay distinct: (a) the **Claude Code session** the engine spaw
 ┌───────┴────────────────────────┐         ┌─────────────┴───────────────┐
 │  ENGINE — Python (unchanged)   │         │  NATIVE — Rust               │
 │  run_sop · smbos_lib · gates · │         │  spawn · liveness · watch ·  │
-│  importer · MCP server         │         │  schedule · capability cage  │
+│  importer · MCP server         │         │  schedule (cage = engine)    │
 │        │ spawns                │         └──────────────────────────────┘
 │        ▼                       │
 │  Claude Code session (runs the SOP)                                    │
@@ -63,7 +63,7 @@ Two kinds of "AI" stay distinct: (a) the **Claude Code session** the engine spaw
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-Run flow: broker decides to run SOP X → Rust native spawns the Python engine (`run_sop`) in an isolated workspace under the capability cage → the engine spawns the Claude Code session that does the work → the session reports completion → Rust native tracks liveness → broker updates the run object → Electron mirrors it live. The Claude Code plugin (SessionStart hook + commands + MCP) remains the **engine**; Electron/Node/Rust are the console, orchestration, and OS layers around it.
+Run flow: broker decides to run SOP X → Rust native spawns the Python engine (`run_sop`) in an isolated workspace, gated by the engine's Claude-CLI capability cage (not an OS sandbox) → the engine spawns the Claude Code session that does the work → the session reports completion → Rust native tracks liveness → broker updates the run object → Electron mirrors it live. The Claude Code plugin (SessionStart hook + commands + MCP) remains the **engine**; Electron/Node/Rust are the console, orchestration, and OS layers around it.
 
 ## The invariant: the Python engine runs the whole time
 
@@ -95,7 +95,7 @@ This is a strangler-fig migration (the same pattern `dashboard_app.py` already u
 - **Ships:** FastAPI gone. Node broker + Python engine.
 
 ### Phase 5 - Introduce the Rust native layer
-- Replace **osascript launch** with Rust cross-platform process spawn; move **process liveness** (today's flock/pid `inflight-session-liveness` work) into Rust; add **file-watching** and **reliable scheduling** (fixes the documented "Darwin launchd timers never auto-fire / cron-kickstart" workarounds). Exposed via napi-rs or a stdio sidecar.
+- Move **headless process spawn** and **process liveness** (today's flock/pid `inflight-session-liveness` work) into Rust, and add **file-watching** + **reliable scheduling** (fixes the documented "Darwin launchd timers never auto-fire / cron-kickstart" workarounds). Exposed via napi-rs or a stdio sidecar. **Keep the `osascript` interactive pick-up launch until env/auth/TCC parity is proven, then port it** (D3) - replacing it wholesale would risk the Claude auth/PATH/permission context on the proven hot path.
 - The **capability cage** stays the Claude-CLI permission construct (not an OS sandbox); Rust can additionally sandbox the engine's *own* syscalls, but business actions in the external session / via cloud MCP remain gated by the Claude permission model + the SOP's blessed capabilities (correction banner).
 - **Ships:** cross-platform launch + robust liveness + reliable scheduling. macOS coupling gone.
 
