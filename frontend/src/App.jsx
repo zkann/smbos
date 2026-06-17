@@ -19,6 +19,12 @@ function runLabel(r) {
   if (r.result) return r.result          // recorded outcome: ok / parked / error / ...
   return r.state === 'stalled' ? 'stalled' : 'running'
 }
+// Format a small dollar estimate: cents normally, "<$0.01" for a real-but-sub-cent cost so it
+// never displays as a misleading "$0.00".
+function fmtCost(n) {
+  if (!(n > 0)) return '$0.00'
+  return n >= 0.005 ? `$${n.toFixed(2)}` : '<$0.01'
+}
 
 export default function App() {
   const [plate, setPlate] = useState([])
@@ -555,6 +561,13 @@ export default function App() {
               return (
                 <li key={p.id ?? i}>
                   <span className="subj">{p.title}{p.draft ? ' · draft' : ''}</span>
+                  {/* cost estimate from prior successful runs, shown only where it matches the
+                      action: a full Run/Queue (not interactive Pick-up SOPs, which have no headless
+                      cost; not drafts, whose action is Prepare -- a prepare run costs differently
+                      than the full runs this median is built from, so showing it there mislabels) */}
+                  {!p.interactive && !p.draft && (p.cost && p.cost.n > 0
+                    ? <span className="proc-cost" title={`typical cost, based on ${p.cost.n} past run${p.cost.n > 1 ? 's' : ''}`}>~{fmtCost(p.cost.estimate)}</span>
+                    : <span className="proc-cost proc-cost-none" title="no successful run yet to estimate from">first run</span>)}
                   {p.interactive ? (
                     <button className={`act${err ? ' act-err' : ''}`} onClick={() => launchSop(p.id)}
                       disabled={b === 'launching'}>
@@ -627,6 +640,13 @@ export default function App() {
             <input id="budget" type="number" min="0" step="1" value={budgetInput}
               onChange={(e) => setBudgetInput(e.target.value)}
               onBlur={() => saveSetting('budget', Number(budgetInput) || 0)} />
+            {(settings.budget > 0 || (settings.spent ?? 0) > 0) && (
+              <span className="setdesc">
+                {fmtCost(settings.spent ?? 0)} spent this month
+                {settings.budget > 0 &&
+                  `, ${fmtCost(Math.max(0, settings.budget - (settings.spent ?? 0)))} left`}
+              </span>
+            )}
           </div>
         </details>
       )}
