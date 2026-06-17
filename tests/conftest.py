@@ -16,11 +16,8 @@ def _no_real_crontab_writes(monkeypatch):
     writes a watchdog cron entry; a test that exercises it without stubbing once polluted a
     real crontab with a pytest temp path. No-op the writer by default; tests that assert on
     crontab contents stub _read_crontab/_write_crontab themselves (overriding this)."""
-    try:
-        import serve_dashboard
-        monkeypatch.setattr(serve_dashboard, "_write_crontab", lambda text: True, raising=False)
-    except Exception:
-        pass
+    import serve_dashboard  # on sys.path via conftest; an import failure should surface loudly
+    monkeypatch.setattr(serve_dashboard, "_write_crontab", lambda text: True, raising=False)
 
 SOP_TEMPLATE = """---
 id: {id}
