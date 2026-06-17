@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.29.0 (2026-06-16)
+
+- Picked-up tasks now clear themselves from "in flight" when the session is done. When you pick up a task, the Claude session it opens is told to record the outcome as its last step: finished, should-not-be-done, or put it back on your plate. So the dashboard reflects what happened on its own, instead of leaving the task in flight until you resolve it by hand. The manual Put back / Done / Dismiss buttons stay as the backstop, and a late report can't override a task you already resolved yourself. (Still on the list: the dashboard noticing on its own when a session dies without reporting, so a dropped task surfaces as stalled rather than showing a live dot.)
+
 ## 0.28.0 (2026-06-16)
 
 - In-flight tasks can be recovered from the dashboard. Picking up a task moves it to "in flight" and opens a Claude session; if that session was closed or died before the work was recorded, the task used to be stuck there with no way out. Now each in-flight item has Put back (returns it to your plate), Done, and Dismiss, so nothing is ever trapped. The next step is the dashboard knowing on its own when a session finishes, rather than relying on you to resolve it.
