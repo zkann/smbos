@@ -215,6 +215,10 @@ def _stub_install(monkeypatch, tmp_path, *, ready):
                         lambda *a, **k: (built.__setitem__("called", True), (True, "built"))[1])
     monkeypatch.setattr(cut, "migrate", lambda sd, *a, **k: (True, "flipped"))
     monkeypatch.setattr(legacy, "stable_url", lambda sd: "http://127.0.0.1:8765/?t=tok")
+    # the install path also installs the watchdog cron entry and may brew-install terminal-notifier;
+    # stub both so the test never touches the real crontab or shells out (test-isolation).
+    monkeypatch.setattr(cut, "install_watchdog", lambda *a, **k: True)
+    monkeypatch.setattr(cut, "ensure_terminal_notifier", lambda *a, **k: None)
     return built
 
 
