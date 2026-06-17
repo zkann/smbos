@@ -5,3 +5,15 @@
 # add a committed lockfile (pip freeze) when distribution-to-others becomes a goal.
 fastapi>=0.115,<1.0
 uvicorn>=0.30,<1.0
+# Menu-bar tray (scripts/tray_app.py): a macOS status item that polls the daemon.
+# macOS-only (pulls pyobjc); the tray's pure logic and tests stay stdlib-only so they
+# run under the system Python 3.9 without it. Deferred-cross-platform: this is the one
+# mac-only shell dep, behind the platform seam.
+rumps>=0.4; sys_platform == "darwin"
+# Docked side panel (an always-on-top WKWebView in the tray process): pyobjc's WebKit
+# binding. rumps only pulls Cocoa, so WebKit is a separate, explicit dep. macOS-only.
+pyobjc-framework-WebKit; sys_platform == "darwin"
+# "Dock as sidebar" reflows the neighbor window via the Accessibility API.
+# ApplicationServices = the AX functions; Quartz = CGSize for AXValueCreate. macOS-only.
+pyobjc-framework-ApplicationServices; sys_platform == "darwin"
+pyobjc-framework-Quartz; sys_platform == "darwin"
