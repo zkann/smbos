@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.27.0 (2026-06-16)
+
+- The dashboard has a compact layout for the menu-bar side panel. At sidebar width it keeps what needs you (your plate and pending approvals) at the top, under a sticky header that shows the waiting / in flight / coming up counts, and tucks the rest (in flight, coming up, recent runs, procedures, settings) behind a tap so the plate is never pushed below the fold. The full-width browser dashboard is unchanged; the panel loads the compact layout on its own.
+- The dashboard also reflows cleanly at narrow widths in general (the side panel and small browser windows): the wide page gutters shrink and the settings controls go full-width instead of overflowing.
+
 ## 0.26.0 (2026-06-16)
 
 - New: a macOS menu-bar app for the dashboard. A small SmbOS icon sits in the menu bar showing how many items are waiting for you (a monogram that fills in when there is work and stays quiet at zero, with a warning mark if the dashboard is not running). Its menu breaks down what is on your plate, in flight, and coming up, and opens the dashboard, restarts it, or quits. It runs at login alongside the dashboard service and talks to it over the existing local URL, so there is nothing new to configure.
