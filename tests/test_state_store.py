@@ -100,7 +100,7 @@ def test_v1_to_v2_migration_adds_unique_index(tmp_path):
     raw.commit()
     raw.close()
     with ss.connect(tmp_path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == ss.SCHEMA_VERSION
         idx = {r[0] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='index'").fetchall()}
     assert "idx_task_source" in idx
@@ -126,9 +126,31 @@ def test_v1_to_v2_migration_dedups_existing_duplicates(tmp_path):
     raw.commit()
     raw.close()
     with ss.connect(tmp_path) as conn:  # must NOT raise / brick
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == ss.SCHEMA_VERSION
         rows = conn.execute("SELECT subject FROM task WHERE source_ref='dup'").fetchall()
     assert [r["subject"] for r in rows] == ["newer"]  # MAX(id) survived the dedup
+
+
+def test_v2_to_v3_migration_adds_run_summary_column(tmp_path):
+    # A pre-existing v2 DB (run table without summary, user_version=2) must gain run.summary on
+    # open, preserving existing run rows. Proves the additive v3 migration upgrades a real DB.
+    raw = sqlite3.connect(str(ss.db_path(tmp_path)))
+    raw.executescript(
+        "CREATE TABLE run (id INTEGER PRIMARY KEY, sop_id TEXT NOT NULL, content_hash TEXT,"
+        " task_id INTEGER, surface TEXT NOT NULL, result TEXT, cost_usd REAL NOT NULL DEFAULT 0,"
+        " started_at TEXT NOT NULL, ended_at TEXT);"
+        " INSERT INTO run(id,sop_id,surface,result,cost_usd,started_at,ended_at)"
+        "  VALUES(1,'old-run','cron','ok',0.1,'t','t2');"
+        " PRAGMA user_version=2;"
+    )
+    raw.commit()
+    raw.close()
+    with ss.connect(tmp_path) as conn:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == ss.SCHEMA_VERSION
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(run)").fetchall()}
+        assert "summary" in cols
+        row = conn.execute("SELECT sop_id, result, summary FROM run WHERE id=1").fetchone()
+    assert row["sop_id"] == "old-run" and row["result"] == "ok" and row["summary"] is None
 
 
 def test_empty_source_ref_is_not_deduped(tmp_path):
@@ -163,6 +185,33 @@ def test_run_metadata_lifecycle(tmp_path):
     ss.finish_run(tmp_path, rid, result="ok", cost_usd=0.42)
     done = ss.recent_runs(tmp_path)[0]
     assert done["result"] == "ok" and done["cost_usd"] == 0.42 and done["ended_at"] is not None
+
+
+def test_finish_run_persists_summary(tmp_path):
+    rid = ss.start_run(tmp_path, "weekly-report", surface="cc")
+    ss.finish_run(tmp_path, rid, result="ok", cost_usd=0.1, summary="Compiled 4 KPIs, churn up 2%")
+    assert ss.recent_runs(tmp_path)[0]["summary"] == "Compiled 4 KPIs, churn up 2%"
+
+
+def test_finish_run_blank_summary_is_null(tmp_path):
+    # an empty/whitespace summary normalizes to NULL so a blank never renders as a summary line
+    rid = ss.start_run(tmp_path, "weekly-report", surface="cc")
+    ss.finish_run(tmp_path, rid, result="ok", summary="   ")
+    assert ss.recent_runs(tmp_path)[0]["summary"] is None
+
+
+def test_finish_run_default_summary_is_null(tmp_path):
+    rid = ss.start_run(tmp_path, "weekly-report", surface="cc")
+    ss.finish_run(tmp_path, rid, result="ok")
+    assert ss.recent_runs(tmp_path)[0]["summary"] is None
+
+
+def test_finish_run_coerces_non_string_summary(tmp_path):
+    # finish_run is a public store API; a non-string summary must coerce, not raise AttributeError
+    # (run_sop swallows the mirror error, but a direct caller should get the value recorded).
+    rid = ss.start_run(tmp_path, "weekly-report", surface="cc")
+    ss.finish_run(tmp_path, rid, result="ok", summary=42)
+    assert ss.recent_runs(tmp_path)[0]["summary"] == "42"
 
 
 def test_record_verdict_coerces_reply_owed_and_validates_label(tmp_path):

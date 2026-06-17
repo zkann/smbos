@@ -24,8 +24,9 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 2  # bump when SCHEMA_STATEMENTS changes; migrations key off PRAGMA user_version
+SCHEMA_VERSION = 3  # bump when SCHEMA_STATEMENTS changes; migrations key off PRAGMA user_version
 # v2: partial unique index on (domain, source_ref) so imports can upsert idempotently.
+# v3: run.summary holds the run's one-line "what it did" line, surfaced on Recent runs.
 DB_NAME = "state.db"
 BUSY_TIMEOUT_MS = 5000
 
@@ -65,7 +66,8 @@ SCHEMA_STATEMENTS = (
         result TEXT,                     -- ok|parked|error|refused|skipped, or NULL while open
         cost_usd REAL NOT NULL DEFAULT 0,
         started_at TEXT NOT NULL,        -- ISO-8601 UTC from _now()
-        ended_at TEXT
+        ended_at TEXT,
+        summary TEXT                     -- v3: one-line "what it did", set by finish_run
     )""",
     "CREATE INDEX IF NOT EXISTS idx_run_started ON run(started_at DESC, id DESC)",
     """CREATE TABLE IF NOT EXISTS verdict (
@@ -159,6 +161,14 @@ def _apply_migrations(conn, from_ver):
             "DELETE FROM task WHERE source_ref IS NOT NULL AND id NOT IN ("
             " SELECT MAX(id) FROM task WHERE source_ref IS NOT NULL GROUP BY domain, source_ref)"
         )
+    # 2 -> 3: add run.summary to an existing run table. CREATE ... IF NOT EXISTS below won't
+    # alter an existing table, so add the column here; guarded on the column not already existing
+    # so the step is idempotent. No-op on a fresh DB (run table doesn't exist yet; the v3 DDL
+    # below creates it with the column).
+    if from_ver < 3 and _table_exists(conn, "run"):
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(run)").fetchall()]
+        if "summary" not in cols:
+            conn.execute("ALTER TABLE run ADD COLUMN summary TEXT")
     for stmt in SCHEMA_STATEMENTS:
         conn.execute(stmt)
 
@@ -307,13 +317,19 @@ def start_run(sop_dir, sop_id, surface, content_hash=None, task_id=None):
         return cur.lastrowid
 
 
-def finish_run(sop_dir, run_id, result, cost_usd=0.0):
+def finish_run(sop_dir, run_id, result, cost_usd=0.0, summary=None):
     if result not in RESULT_VALUES:
         raise StateStoreError(f"invalid result {result!r}; expected one of {sorted(RESULT_VALUES)}")
+    # summary is the run's one-line "what it did". Coerce defensively (this is a best-effort
+    # mirror path and a public store API, so a non-None non-str caller value must not raise),
+    # then normalize a blank to NULL so it never renders as an empty summary line; the run keeps
+    # showing just its result + cost.
+    if summary is not None:
+        summary = str(summary).strip() or None
     with connect(sop_dir) as conn:
         conn.execute(
-            "UPDATE run SET result=?, cost_usd=?, ended_at=? WHERE id=?",
-            (result, cost_usd, _now(), run_id),
+            "UPDATE run SET result=?, cost_usd=?, ended_at=?, summary=? WHERE id=?",
+            (result, cost_usd, _now(), summary, run_id),
         )
         conn.commit()
 

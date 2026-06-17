@@ -457,7 +457,10 @@ export default function App() {
         return (
           <li key={r.id ?? i}>
             <span className={`dot ${dot}`} aria-hidden="true"></span>
-            <span className="subj">{r.sop_id}</span>
+            <span className="subj">
+              {r.sop_id}
+              {r.summary && <span className="run-summary" title={r.summary}>{r.summary}</span>}
+            </span>
             <span className={`chip${dot === 'stalled' ? ' chip-stalled' : ''}`}>{runLabel(r)}</span>
           </li>
         )

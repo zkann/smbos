@@ -45,7 +45,13 @@ ol.list > li::before {
   counter-increment: rank; content: counter(rank);
   font: 11px/1 ui-monospace, monospace; color: var(--subtle-fg); min-width: 14px;
 }
-.subj { flex: 1; }
+.subj { flex: 1; min-width: 0; }
+/* Recent-runs "what it did" line: a quiet second row under the SOP title, single-line + ellipsis
+   (min-width:0 on .subj lets it actually truncate inside the flex row). */
+.run-summary {
+  display: block; margin-top: 2px; color: var(--subtle-fg); font-size: 13px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .chip {
   font: 11px/1 ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.08em;
   background: var(--chip-bg); color: var(--muted-fg);
