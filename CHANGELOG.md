@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.28.1 (2026-06-16)
+
+- The always-on dashboard install now sets up a small cron watchdog that keeps it running. On some macOS versions launchd does not honor a LaunchAgent's auto-start and restart, so the dashboard would not come back after a crash or a reboot. The watchdog checks the dashboard's configured port every few minutes and starts it again when it's down. `cutover_dashboard install` adds it; `uninstall` removes it. (This release also catches plugin.json up to the 0.26–0.28 changelog entries.)
+
 ## 0.28.0 (2026-06-16)
 
 - In-flight tasks can be recovered from the dashboard. Picking up a task moves it to "in flight" and opens a Claude session; if that session was closed or died before the work was recorded, the task used to be stuck there with no way out. Now each in-flight item has Put back (returns it to your plate), Done, and Dismiss, so nothing is ever trapped. The next step is the dashboard knowing on its own when a session finishes, rather than relying on you to resolve it.

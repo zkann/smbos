@@ -251,6 +251,42 @@ def env_ready(venv=VENV):
     return compat_ok(py)[0] and _can_import(py, "fastapi, uvicorn")[0]
 
 
+WATCHDOG = PLUGIN_ROOT / "scripts" / "dashboard_watchdog.py"
+WATCHDOG_TAG = "# smbos-dashboard-watchdog"
+
+
+def _without_watchdog(crontab_text):
+    # Anchor on the tag as a trailing token so a comment that merely mentions it is untouched.
+    return [ln for ln in crontab_text.splitlines() if not ln.rstrip().endswith(WATCHDOG_TAG)]
+
+
+def install_watchdog(sop_dir, interval_min=5):
+    """Add/refresh a cron entry that keeps the dashboard up (launchd won't auto-start it on
+    some macOS versions). Idempotent: replaces any prior tagged line, preserves every other
+    crontab entry. Bakes the port resolved NOW (cron's env lacks SMBOS_DASHBOARD_PORT, so the
+    watchdog can't re-resolve it there). Returns True on success, False if it couldn't read or
+    write the crontab (never overwrites a crontab it failed to read)."""
+    cur = legacy._read_crontab()
+    if cur is None:
+        return False
+    port = lib.dashboard_port(sop_dir)
+    # In a cron command an unescaped % becomes a newline (rest -> stdin); escape it in paths.
+    esc = lambda s: str(s).replace("%", r"\%")
+    lines = _without_watchdog(cur)
+    lines.append('*/{} * * * * /usr/bin/python3 "{}" --sop-dir "{}" --port {} >/dev/null 2>&1  {}'
+                 .format(interval_min, esc(WATCHDOG), esc(sop_dir), port, WATCHDOG_TAG))
+    return bool(legacy._write_crontab("\n".join(lines) + "\n"))
+
+
+def remove_watchdog():
+    """Drop the watchdog cron entry, leaving any other crontab entries intact."""
+    cur = legacy._read_crontab()
+    if cur is None:
+        return False
+    lines = _without_watchdog(cur)
+    return bool(legacy._write_crontab(("\n".join(lines) + "\n") if lines else ""))
+
+
 COMMANDS = {"build", "migrate", "install", "uninstall", "url"}
 
 
@@ -267,6 +303,7 @@ def main(argv=None):
         print(legacy.stable_url(sop_dir))
         return
     if cmd == "uninstall":
+        remove_watchdog()
         ok = legacy.uninstall_agent()
         print("Always-on dashboard removed." if ok else "No always-on dashboard was installed.")
         return
@@ -283,6 +320,7 @@ def main(argv=None):
         if ok:
             ok, msg = migrate(sop_dir)
         if ok:
+            install_watchdog(sop_dir)  # cron keeps it up where launchd won't auto-start it
             print("Always-on dashboard installed. It starts at login and serves a stable URL "
                   "(bookmark it):", flush=True)
             print(legacy.stable_url(sop_dir))
