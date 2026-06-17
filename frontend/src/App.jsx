@@ -313,48 +313,57 @@ export default function App() {
 
   const pendingBody = (
     <ol className="list">
-      {pending.map((it, i) => (
-        <li key={it.file ?? i} className="pending-li">
-          <div className="pending-head">
-            <span className="subj" title={it.title}>{it.title}</span>
-            <span className="chip chip-pending">pending</span>
-            {it.candidates.length === 0 ? (
-              <>
-                <button className="act act-primary" onClick={() => resolve(it.file, 'approve')}
-                  disabled={pend[it.file] === 'approve' || pend[it.file] === 'discard'}>
-                  {pend[it.file] === 'approve' ? 'approving…' : 'Approve'}
-                </button>
-                <button className={`act${pend[it.file] === 'error' ? ' act-err' : ''}`}
-                  onClick={() => resolve(it.file, 'discard')}
-                  disabled={pend[it.file] === 'approve' || pend[it.file] === 'discard'}>
-                  {pend[it.file] === 'discard' ? 'discarding…' : pend[it.file] === 'error' ? 'retry' : 'Reject'}
-                </button>
-              </>
-            ) : (
-              <span className="chip">{it.candidates.length} to pick</span>
-            )}
-          </div>
-          {it.candidates.length > 0 && (
-            <ul className="candidates">
-              {it.candidates.map((c, j) => {
-                const key = `${it.file}#${j}`
-                return (
-                  <li key={j}>
-                    <span className="subj cand" title={c.title}>{c.title}</span>
-                    <button className={`act${pend[key] === 'error' ? ' act-err' : ''}`}
-                      onClick={() => applyItem(it.file, j)}
-                      disabled={pend[key] === 'applying' || pend[key] === 'applied'}>
-                      {pend[key] === 'applying' ? 'applying…'
-                        : pend[key] === 'applied' ? 'applied ✓'
-                        : pend[key] === 'error' ? 'retry' : 'Apply'}
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-        </li>
-      ))}
+      {pending.map((it, i) => {
+        const cands = (
+          <ul className="candidates">
+            {it.candidates.map((c, j) => {
+              const key = `${it.file}#${j}`
+              return (
+                <li key={j}>
+                  <span className="subj cand" title={c.title}>{c.title}</span>
+                  <button className={`act${pend[key] === 'error' ? ' act-err' : ''}`}
+                    onClick={() => applyItem(it.file, j)}
+                    disabled={pend[key] === 'applying' || pend[key] === 'applied'}>
+                    {pend[key] === 'applying' ? 'applying…'
+                      : pend[key] === 'applied' ? 'applied ✓'
+                      : pend[key] === 'error' ? 'retry' : 'Apply'}
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        )
+        return (
+          <li key={it.file ?? i} className="pending-li">
+            <div className="pending-head">
+              <span className="subj" title={it.title}>{it.title}</span>
+              <span className="chip chip-pending">pending</span>
+              {it.candidates.length === 0 ? (
+                <>
+                  <button className="act act-primary" onClick={() => resolve(it.file, 'approve')}
+                    disabled={pend[it.file] === 'approve' || pend[it.file] === 'discard'}>
+                    {pend[it.file] === 'approve' ? 'approving…' : 'Approve'}
+                  </button>
+                  <button className={`act${pend[it.file] === 'error' ? ' act-err' : ''}`}
+                    onClick={() => resolve(it.file, 'discard')}
+                    disabled={pend[it.file] === 'approve' || pend[it.file] === 'discard'}>
+                    {pend[it.file] === 'discard' ? 'discarding…' : pend[it.file] === 'error' ? 'retry' : 'Reject'}
+                  </button>
+                </>
+              ) : compact ? null : (
+                <span className="chip">{it.candidates.length} to pick</span>
+              )}
+            </div>
+            {it.candidates.length > 0 && (compact ? (
+              // sidebar: keep the pending item one glanceable row; the candidates open on tap
+              <details className="cand-disclosure">
+                <summary className="cand-summary">{it.candidates.length} to pick</summary>
+                {cands}
+              </details>
+            ) : cands)}
+          </li>
+        )
+      })}
     </ol>
   )
 

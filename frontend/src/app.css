@@ -178,6 +178,18 @@ ol.list > li::before {
 .compact details.panel[open] > summary::before { transform: rotate(90deg); }
 .compact .collapsible .count { margin-left: auto; color: var(--subtle-fg); }
 
+/* a pending item's candidate list (e.g. "11 to pick") collapses behind its count, so one parked
+   result with many candidates stays a single glanceable row until you tap to act on it */
+.compact .cand-disclosure > summary {
+  cursor: pointer; list-style: none; display: inline-flex; align-items: center;
+  font: 11px/1.4 ui-monospace, monospace; color: var(--muted-fg); padding: 4px 0;
+}
+.compact .cand-disclosure > summary::-webkit-details-marker { display: none; }
+.compact .cand-disclosure > summary::before {
+  content: "\25B8"; color: var(--subtle-fg); margin-right: 6px; font-size: 10px; transition: transform 120ms;
+}
+.compact .cand-disclosure[open] > summary::before { transform: rotate(90deg); }
+
 /* the section header already says "On your plate" (everything there is waiting), so the per-row
    amber waiting chip is redundant in the narrow column; drop it to give the title the width. */
 .compact .chip-waiting { display: none; }
