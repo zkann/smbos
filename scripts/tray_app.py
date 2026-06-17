@@ -289,13 +289,20 @@ def menu_model(state, panel_mode=None):
 
 # --- actions -----------------------------------------------------------------------------
 def dashboard_url(sop_dir):
-    """The dashboard URL to load (browser or panel). Prefer the daemon's live (actual) URL so
-    a fallback port still works; fall back to the stable URL."""
+    """The dashboard URL to load. Prefer the daemon's live (actual) URL so a fallback port still
+    works; fall back to the stable URL."""
     return daemon.live_server_url(sop_dir) or daemon.stable_url(sop_dir)
 
 
+def panel_url(sop_dir):
+    """The URL the docked panel loads: the dashboard in compact (sidebar) mode. The full dashboard
+    is wide; ?compact tells the SPA to render the narrow layout (plate on top, rest collapsed)."""
+    base = dashboard_url(sop_dir)
+    return base + ("&" if "?" in base else "?") + "compact=1"
+
+
 def open_dashboard(sop_dir):
-    """Open the full dashboard in the default browser (the deep surface)."""
+    """Open the FULL dashboard in the default browser (the deep surface; no compact)."""
     subprocess.run(["open", dashboard_url(sop_dir)], capture_output=True)
 
 
@@ -567,7 +574,7 @@ def _build():
             try:
                 panel = self._ensure_panel()
                 from Foundation import NSURL, NSURLRequest
-                url = NSURL.URLWithString_(dashboard_url(self.sop_dir))
+                url = NSURL.URLWithString_(panel_url(self.sop_dir))  # compact sidebar layout
                 self._webview.loadRequest_(NSURLRequest.requestWithURL_(url))
                 panel.orderFrontRegardless()  # show WITHOUT activating (focus stays put)
             except Exception:
