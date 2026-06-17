@@ -1,8 +1,12 @@
 # Changelog
 
-## 0.28.2 (2026-06-16)
+## 0.29.1 (2026-06-16)
 
 - The dashboard watchdog now bounds its `launchctl` calls with a timeout, so a hung `launchctl` can't leave the every-few-minutes check stuck. A timed-out or failed call is treated as "did nothing this run" and the next run retries; nothing about when the watchdog restarts the dashboard changes.
+
+## 0.29.0 (2026-06-16)
+
+- Picked-up tasks now clear themselves from "in flight" when the session is done. When you pick up a task, the Claude session it opens is told to record the outcome as its last step: finished, should-not-be-done, or put it back on your plate. So the dashboard reflects what happened on its own, instead of leaving the task in flight until you resolve it by hand. The manual Put back / Done / Dismiss buttons stay as the backstop, and a late report can't override a task you already resolved yourself. (Still on the list: the dashboard noticing on its own when a session dies without reporting, so a dropped task surfaces as stalled rather than showing a live dot.)
 
 ## 0.28.1 (2026-06-16)
 
