@@ -1,0 +1,15 @@
+{
+  "name": "smbos-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "SmbOS desktop shell (Electron). Phase 1 of the strangler-fig switchover: wraps the existing live dashboard in a cross-platform window with a tray and native notifications. The Python engine and the FastAPI server are untouched.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "check": "node --check main.js && node --check preload.js && node --check resolve.js",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "electron": "^32.0.0"
+  }
+}
