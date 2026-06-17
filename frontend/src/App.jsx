@@ -182,6 +182,37 @@ export default function App() {
   const queueSop = (id) => procPost('/api/queue', { id, inputs: procInputs[id] || undefined }, id, 'queuing')
   const launchSop = (id) => procPost('/api/launch-sop', { id }, id, 'launching')
 
+  // Set a procedure's autonomy dial. The <select> is controlled by p.autonomy, so on a refusal
+  // (e.g. 'On its own' on a draft -> 409) we leave the state unchanged and the select snaps back to
+  // the real value, surfacing the server's reason inline. On success the local list is updated (to
+  // the server's echoed level) so the action button (Pick up / Prepare / Run) re-renders to match.
+  // A per-id monotonic seq discards a stale echo: two quick changes for the same SOP can resolve
+  // out of order, and applying the earlier one last would land the wrong level (mirrors saveSetting).
+  const latestAutonomy = useRef({})
+  async function setAutonomy(id, level) {
+    const seq = (latestAutonomy.current[id] || 0) + 1
+    latestAutonomy.current[id] = seq
+    try {
+      const res = await fetch('/api/autonomy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-SMBOS-Token': token },
+        body: JSON.stringify({ id, level }),
+      })
+      if (!res.ok) {
+        let detail = `Couldn't change that (${res.status}).`
+        try { const d = await res.json(); if (d && d.detail) detail = d.detail } catch (_) { /* keep generic */ }
+        throw new Error(detail)
+      }
+      const d = await res.json()
+      if (latestAutonomy.current[id] !== seq) return  // a newer change superseded this one
+      setProcedures((ps) => ps.map((p) => (p.id === id ? { ...p, autonomy: d.autonomy } : p)))
+      setProcErr((s) => { const n = { ...s }; delete n[id]; return n })
+    } catch (e) {
+      if (latestAutonomy.current[id] !== seq) return
+      setProcErr((s) => ({ ...s, [id]: e.message }))
+    }
+  }
+
   // apply-on-change write of one setting; the response echoes the full new config to resync. On
   // failure, re-fetch so a rejected value snaps the control back to what actually persisted. A
   // monotonic seq discards a stale echo: two near-simultaneous saves can resolve out of order, and
@@ -561,23 +592,39 @@ export default function App() {
               return (
                 <li key={p.id ?? i}>
                   <span className="subj">{p.title}{p.draft ? ' · draft' : ''}</span>
-                  {/* cost estimate from prior successful runs, shown only where it matches the
-                      action: a full Run/Queue (not interactive Pick-up SOPs, which have no headless
-                      cost; not drafts, whose action is Prepare -- a prepare run costs differently
-                      than the full runs this median is built from, so showing it there mislabels) */}
-                  {!p.interactive && !p.draft && (p.cost && p.cost.n > 0
+                  {/* cost estimate shown only where the action is a full headless Run (on its own);
+                      the median is built from full 'ok' runs, so it mislabels a Prepare/Pick-up */}
+                  {p.autonomy === 'on_its_own' && (p.cost && p.cost.n > 0
                     ? <span className="proc-cost" title={`typical cost, based on ${p.cost.n} past run${p.cost.n > 1 ? 's' : ''}`}>~{fmtCost(p.cost.estimate)}</span>
                     : <span className="proc-cost proc-cost-none" title="no successful run yet to estimate from">first run</span>)}
-                  {p.interactive ? (
+                  {/* autonomy dial: how much this runs on its own. Hidden for interactive_only SOPs
+                      (they always need a live session). 'On its own' is disabled for a draft, which
+                      must be verified by a supervised run before it can earn full autonomy. */}
+                  {!p.interactive && (
+                    <select className="proc-dial" value={p.autonomy} title="How much this runs on its own"
+                      onChange={(e) => setAutonomy(p.id, e.target.value)}>
+                      <option value="with_me">With me</option>
+                      <option value="prepare_ask">Prepare and ask</option>
+                      <option value="on_its_own" disabled={p.draft}>On its own</option>
+                    </select>
+                  )}
+                  {p.interactive || p.autonomy === 'with_me' ? (
                     <button className={`act${err ? ' act-err' : ''}`} onClick={() => launchSop(p.id)}
                       disabled={b === 'launching'}>
                       {b === 'launching' ? 'launching…' : err ? 'retry' : 'Pick up ▶'}
                     </button>
-                  ) : p.draft ? (
-                    <button className={`act${err ? ' act-err' : ''}`} onClick={() => runSop(p.id, { prepare: true })}
-                      disabled={b === 'preparing'}>
-                      {b === 'preparing' ? 'preparing…' : err ? 'retry' : 'Prepare'}
-                    </button>
+                  ) : p.autonomy === 'prepare_ask' ? (
+                    <>
+                      {p.needs_inputs && (
+                        <input className="proc-inputs" placeholder="inputs…" value={procInputs[p.id] || ''}
+                          onChange={(e) => setProcInputs((s) => ({ ...s, [p.id]: e.target.value }))} />
+                      )}
+                      <button className={`act${err ? ' act-err' : ''}`}
+                        onClick={() => runSop(p.id, { prepare: true, inputs: procInputs[p.id] })}
+                        disabled={b === 'preparing'}>
+                        {b === 'preparing' ? 'preparing…' : err ? 'retry' : 'Prepare'}
+                      </button>
+                    </>
                   ) : (
                     <>
                       {p.needs_inputs && (

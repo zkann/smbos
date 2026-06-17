@@ -93,6 +93,38 @@ def test_interactive_only_refused_free(library, fake_claude):
         assert rec["result"] == "refused" and rec["cost_usd"] == 0, extra_args
 
 
+def test_autonomy_with_me_refused_but_force_overrides(library, fake_claude):
+    # 'With me' is supervised-only: the unattended runner refuses it (offer Pick up), free, but the
+    # owner's explicit --force overrides the dial.
+    make_sop(library, id="hands-on", status="active", extra="autonomy: with_me\n")
+    r = run(["hands-on", "--sop-dir", str(library)], fake_claude)
+    assert r.returncode == 1 and "With me" in (r.stderr + r.stdout)
+    assert last_run(library)["result"] == "refused" and last_run(library)["cost_usd"] == 0
+    r2 = run(["hands-on", "--force", "--sop-dir", str(library)], fake_claude)
+    assert r2.returncode == 0 and last_run(library)["result"] == "ok"
+
+
+def test_autonomy_prepare_ask_refuses_full_run(library, fake_claude):
+    # 'Prepare and ask' refuses a full unattended run (it should go through --prepare); --force overrides.
+    make_sop(library, id="park-it", status="active", extra="autonomy: prepare_ask\n")
+    r = run(["park-it", "--sop-dir", str(library)], fake_claude)
+    assert r.returncode == 1 and "Prepare and ask" in (r.stderr + r.stdout)
+    assert last_run(library)["result"] == "refused"
+    r2 = run(["park-it", "--force", "--sop-dir", str(library)], fake_claude)
+    assert r2.returncode == 0 and last_run(library)["result"] == "ok"
+
+
+def test_autonomy_on_its_own_and_derived_default_run(library, fake_claude):
+    # explicit 'on its own' runs; and an active SOP with NO autonomy field derives on_its_own, so
+    # existing libraries keep running headless exactly as before (non-disruptive default).
+    make_sop(library, id="auto", status="active", extra="autonomy: on_its_own\n")
+    assert run(["auto", "--sop-dir", str(library)], fake_claude).returncode == 0
+    assert last_run(library)["result"] == "ok"
+    make_sop(library, id="no-field", status="active")  # no autonomy -> derived on_its_own
+    assert run(["no-field", "--sop-dir", str(library)], fake_claude).returncode == 0
+    assert last_run(library)["result"] == "ok"
+
+
 def test_budget_guard(library, fake_claude):
     (library / "triggers.json").write_text(json.dumps({"monthly_budget_usd": 0.01}))
     from datetime import date

@@ -26,6 +26,7 @@ import re
 import secrets
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -285,8 +286,45 @@ def _procedures(sop_dir):
             "interactive": (m.get("interactive_only") or "").strip().lower() in ("true", "yes", "1"),
             "needs_inputs": bool(m.get("run_inputs")),
             "cost": ests.get(sid),  # {estimate, n} from prior 'ok' runs, or None (no history yet)
+            "autonomy": lib.autonomy_level_from_meta(m),  # with_me|prepare_ask|on_its_own (derived if unset)
         })
     return sorted(out, key=lambda x: x["title"].lower())
+
+
+class _SopDrifted(Exception):
+    """The SOP body drifted from its recorded stamp; an autonomy write must not bless it."""
+
+
+def _write_autonomy(sop_path, level):
+    """Write the `autonomy:` frontmatter field and (re-)STAMP the content_hash, so the owner's
+    deliberate choice is fingerprint-protected even on a previously-unstamped SOP: a later
+    out-of-band edit (the body, or a silent flip of the level itself, e.g. with_me -> on_its_own)
+    then trips the drift gate and the unattended runner refuses it. Setting autonomy via the
+    authenticated dashboard IS the owner vouching for this content at this level.
+
+    The drift check and the write share ONE read (no TOCTOU window): a STAMPED-but-drifted SOP
+    raises _SopDrifted (the caller returns 409) rather than letting the re-stamp bless the changed
+    body; an unstamped SOP has no recorded hash to drift from, so it's stamped fresh. Atomic
+    replace; the temp file is cleaned up on any failure."""
+    text = sop_path.read_text(encoding="utf-8")
+    meta, body = lib.split_frontmatter(text)
+    if lib.is_drifted(meta, body):  # stamped + body changed out-of-band: refuse, don't re-stamp it
+        raise _SopDrifted()
+    new_hash = lib.content_fingerprint(body, {**meta, "autonomy": level})
+    # Unique temp name (not a fixed <sop>.md.tmp) so two concurrent writes to the SAME SOP can't
+    # collide on the temp file. Same directory, so os.replace is an atomic rename.
+    fd, tmp_name = tempfile.mkstemp(prefix=sop_path.name + ".", suffix=".tmp", dir=str(sop_path.parent))
+    os.close(fd)
+    tmp = Path(tmp_name)
+    try:
+        tmp.write_text(lib.set_frontmatter_fields(text, {"autonomy": level, "content_hash": new_hash}),
+                       encoding="utf-8")
+        os.replace(tmp, sop_path)
+    finally:
+        try:
+            tmp.unlink()  # gone after a successful os.replace; cleans up an orphan on failure
+        except OSError:
+            pass
 
 
 async def _body_obj(request):
@@ -330,23 +368,34 @@ _SETTERS = {
 
 
 def _gate_run(sop_dir, sop_id, inputs, prepare=False):
-    """Native run gate (shared smbos_lib guards). Returns the sanitized sid or raises ValueError
-    with an owner-facing message. run_sop re-enforces every one of these on the unattended side
-    (the cage lives there); this is the early, clean 4xx + the design D2 rule that an
-    interactive_only SOP is refused here so the SPA offers Pick up instead of a headless run.
+    """Native run gate (shared smbos_lib guards). Returns (sanitized sid, effective_prepare) or
+    raises ValueError with an owner-facing message. run_sop re-enforces every one of these on the
+    unattended side (the cage lives there); this is the early, clean 4xx + the design D2 rule that
+    an interactive_only SOP is refused here so the SPA offers Pick up instead of a headless run.
 
-    `prepare` is the tighter prepare cage (run_sop --prepare): it's the supervised first run a
-    draft is allowed to do, so the draft refusal is skipped when prepare is requested."""
+    `prepare` is the tighter prepare cage (run_sop --prepare): the supervised first run a draft is
+    allowed to do. The autonomy dial can also FORCE prepare: a 'prepare_ask' SOP runs in prepare
+    mode even when a full run was requested, so the returned effective_prepare may be True even if
+    the caller passed prepare=False."""
     sid = re.sub(r"[^a-z0-9-]", "", str(sop_id).lower())
     sop = lib.find_sop(sop_dir, sid) if sid else None
     if sop is None:
         raise ValueError("unknown task")
     if lib.is_interactive_only(sop_dir, sid):
         raise ValueError("This one needs you in the session. Pick it up instead of running it headless.")
+    # Autonomy dial: 'with me' refuses any headless run (offer Pick up); 'prepare and ask' forces
+    # prepare mode for what would be a full run; 'on its own' runs fully. The cage in run_sop
+    # re-enforces this, so this is the early, clean refusal + the prepare coercion the SPA reflects.
+    autonomy = lib.autonomy_level(sop_dir, sid)
+    if autonomy == "with_me":
+        raise ValueError("This one is set to 'With me'. It runs only when you do it together. "
+                         "Pick it up instead of running it on its own.")
     status = (lib.frontmatter_field(sop, "status") or "").strip().lower()
     if not prepare and status not in ("active", "trusted"):  # prepare IS how a draft runs first
         raise ValueError("This procedure is still a draft. It needs a supervised first run before it "
                          "can run on its own.")
+    if autonomy == "prepare_ask":  # a full run of an active/trusted 'prepare and ask' SOP -> prepare
+        prepare = True
     if lib.run_lock_held(sop_dir, sid):
         raise ValueError("This procedure is already running. Its result will appear when it finishes.")
     if lib.has_unrecorded_changes(sop_dir, sid):
@@ -354,7 +403,7 @@ def _gate_run(sop_dir, sop_id, inputs, prepare=False):
     needed = lib.required_inputs(sop_dir, sid)
     if needed and not inputs:
         raise ValueError(f"This task needs information before it can run: {needed}.")
-    return sid
+    return sid, prepare
 
 
 def _spawn_run(sop_dir, sid, inputs=None, prepare=False):
@@ -613,11 +662,41 @@ def create_app(sop_dir, dist_dir=None):
         inputs = str(body.get("inputs") or "").strip() or None
         prepare = str(body.get("mode") or "").strip().lower() == "prepare"  # the tighter prepare cage
         try:
-            sid = _gate_run(sop_dir, body.get("id", ""), inputs, prepare)
-        except ValueError as exc:  # refused: interactive_only / draft / running / drifted / needs inputs
+            sid, prepare = _gate_run(sop_dir, body.get("id", ""), inputs, prepare)
+        except ValueError as exc:  # refused: interactive_only / with_me / draft / running / drifted / needs inputs
             raise HTTPException(status_code=409, detail=str(exc))
+        # prepare may have been forced True by a 'prepare and ask' autonomy level
         _spawn_run(sop_dir, sid, inputs=inputs, prepare=prepare)
         return {"status": "preparing" if prepare else "started", "sop": sid}
+
+    @app.post("/api/autonomy")
+    async def set_autonomy(request: Request):
+        """Set a procedure's autonomy dial (with_me | prepare_ask | on_its_own). Header-token gated.
+        'On its own' requires an active/trusted SOP -- you can't grant full autonomy to an unverified
+        draft. The write ALWAYS (re-)stamps, so the owner's deliberate choice is fingerprint-protected
+        even on a previously-unstamped SOP (a later silent flip then trips drift); a stamped-but-drifted
+        SOP is refused (review it first) so the stamp can't bless an out-of-band body edit."""
+        check(request.headers.get("x-smbos-token", ""))
+        body = await _body_obj(request)
+        level = str(body.get("level") or "").strip().lower()
+        if level not in lib.AUTONOMY_LEVELS:
+            raise HTTPException(status_code=400, detail="unknown autonomy level")
+        sid = re.sub(r"[^a-z0-9-]", "", str(body.get("id") or "").lower())
+        sop = lib.find_sop(sop_dir, sid) if sid else None
+        if sop is None:
+            raise HTTPException(status_code=404, detail="unknown procedure")
+        status = (lib.frontmatter_field(sop, "status") or "").strip().lower()
+        if level == "on_its_own" and status not in ("active", "trusted"):
+            raise HTTPException(status_code=409, detail="A draft can't run on its own yet. Verify it "
+                                "with a supervised run first, then it can earn more autonomy.")
+        try:
+            await asyncio.to_thread(_write_autonomy, sop, level)
+        except _SopDrifted:  # stamped + body changed out-of-band: don't let the stamp bless it
+            raise HTTPException(status_code=409, detail="This procedure was changed outside the normal "
+                                "save flow. Review it first, then set its autonomy.")
+        except (OSError, ValueError):
+            raise HTTPException(status_code=500, detail="could not save the autonomy setting")
+        return {"id": sid, "autonomy": level}
 
     @app.get("/api/queue")
     def api_queue(t: str = ""):
