@@ -46,3 +46,45 @@ test('queue: #-comment frontmatter lines are skipped (parity with smbos_lib.pars
   assert.deepEqual(store.queue(d), [{ file: 'a.md', sop: 'weekly', project: '' }])
 })
 
+test('procedures: derives autonomy, computes the cost median, skips INDEX, sorts by title', () => {
+  const d = tmpSop(); fs.mkdirSync(path.join(d, 'ops'))
+  const sop = (sid, title, status, extra = '') => fs.writeFileSync(path.join(d, 'ops', sid + '.md'),
+    `---\nid: ${sid}\ntitle: ${title}\nstatus: ${status}\n${extra}---\n# ${title}\n`)
+  sop('b-weekly', 'Weekly', 'active', 'autonomy: on_its_own\n')
+  sop('a-draft', 'Draft proc', 'draft')
+  sop('c-inter', 'Inbox', 'active', 'interactive_only: true\n')
+  fs.writeFileSync(path.join(d, 'INDEX.md'), 'skip me')  // iter_sops skips INDEX.md
+  fs.writeFileSync(path.join(d, 'runs.jsonl'), [
+    { sop: 'b-weekly', result: 'ok', cost_usd: 0.1 },
+    { sop: 'b-weekly', result: 'ok', cost_usd: 0.3 },
+    { sop: 'b-weekly', result: 'error', cost_usd: 9 },  // non-ok -> excluded from the median
+  ].map((r) => JSON.stringify(r)).join('\n'))
+  const procs = store.procedures(d)
+  assert.deepEqual(procs.map((p) => p.title), ['Draft proc', 'Inbox', 'Weekly'])  // sorted by title.lower()
+  const weekly = procs.find((p) => p.id === 'b-weekly')
+  assert.equal(weekly.autonomy, 'on_its_own'); assert.equal(weekly.draft, false)
+  assert.deepEqual(weekly.cost, { estimate: 0.2, n: 2 })          // median of 0.1, 0.3
+  const draft = procs.find((p) => p.id === 'a-draft')
+  assert.equal(draft.autonomy, 'prepare_ask'); assert.equal(draft.cost, null)  // draft, no runs
+  const inter = procs.find((p) => p.id === 'c-inter')
+  assert.equal(inter.interactive, true); assert.equal(inter.autonomy, 'with_me')  // interactive_only -> with_me
+})
+
+test('procedures: same-title tie-break follows Python path-component order (nested before prefix-sibling)', () => {
+  const d = tmpSop(); fs.mkdirSync(path.join(d, 'clients'))
+  fs.writeFileSync(path.join(d, 'clients', 'nested.md'), '---\nid: nested\ntitle: Same\nstatus: active\n---\n')
+  fs.writeFileSync(path.join(d, 'clients-flat.md'), '---\nid: flat\ntitle: Same\nstatus: active\n---\n')
+  // Python sorted(rglob) compares components: 'clients' < 'clients-flat.md', so the nested file is
+  // first; a full-string sort would put 'clients-flat.md' first ('-' < '/'). Stable title sort keeps it.
+  assert.deepEqual(store.procedures(d).map((p) => p.id), ['nested', 'flat'])
+})
+
+test('procedures/queue skip a non-UTF-8 file (parity: Python read_text raises -> skipped)', () => {
+  const d = tmpSop(); fs.mkdirSync(path.join(d, 'ops')); fs.mkdirSync(path.join(d, 'queue'))
+  fs.writeFileSync(path.join(d, 'ops', 'good.md'), '---\nid: good\ntitle: Good\nstatus: active\n---\n')
+  fs.writeFileSync(path.join(d, 'ops', 'bad.md'), Buffer.from([0x2d, 0x2d, 0x2d, 0x0a, 0xff, 0xfe, 0x0a, 0x2d, 0x2d, 0x2d]))
+  fs.writeFileSync(path.join(d, 'queue', 'q.md'), Buffer.from([0xff, 0xfe]))  // invalid UTF-8
+  assert.deepEqual(store.procedures(d).map((p) => p.id), ['good'])  // bad.md skipped, not garbled-in
+  assert.deepEqual(store.queue(d), [])                              // bad queue file skipped
+})
+
