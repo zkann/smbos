@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.0 (2026-06-17)
+
+- The dashboard now knows when a picked-up session has stopped. An in-flight task used to always show a green "live" dot, even if you closed its window or it crashed without reporting; now the dashboard tracks the session's process, so a task whose session is gone turns amber and reads "stalled", with Put back as the highlighted action to return it to your plate. A task that's genuinely still being worked stays live. This is the awareness half of the in-flight work; the manual Put back / Done / Dismiss controls and the session's own reporting (0.29.0) still apply.
+
 ## 0.29.1 (2026-06-16)
 
 - The dashboard watchdog now bounds its `launchctl` calls with a timeout, so a hung `launchctl` can't leave the every-few-minutes check stuck. A timed-out or failed call is treated as "did nothing this run" and the next run retries; nothing about when the watchdog restarts the dashboard changes.

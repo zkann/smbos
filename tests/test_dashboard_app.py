@@ -166,6 +166,40 @@ def test_task_status_recovers_an_in_flight_task(tmp_path):
     assert ss.get_task(tmp_path, tid)["status"] == "waiting"
 
 
+def test_task_status_clears_the_liveness_marker(tmp_path):
+    # resolving an in_flight task drops its session marker, so a recovered/redone task doesn't keep
+    # a stale liveness handle around
+    tid = ss.record_task(tmp_path, "ops", "review", "stuck", status="in_flight")
+    lib.record_session(tmp_path, tid, 999999)  # a (dead) recorded session
+    assert lib.session_state(tmp_path, tid) == "stalled"
+    app = dashboard_app.create_app(tmp_path)
+    hdr = {"X-SMBOS-Token": lib.dashboard_token(tmp_path)}
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.post("/api/task-status", json={"task_id": tid, "status": "waiting"},
+                           headers=hdr).status_code == 200
+    assert lib.session_state(tmp_path, tid) is None  # marker gone
+
+
+def test_inflight_annotated_with_liveness(tmp_path):
+    # an in_flight task with a dead recorded session reads 'stalled'; one with no marker yet but a
+    # fresh claim is 'live' (startup grace), so the dot tells the truth
+    dead = ss.record_task(tmp_path, "ops", "review", "window closed", status="in_flight")
+    lib.record_session(tmp_path, dead, 999999)  # pid that isn't running
+    fresh = ss.record_task(tmp_path, "ops", "review", "just picked up", status="in_flight")
+    rows = {r["id"]: r["state"] for r in dashboard_app._inflight_with_liveness(tmp_path)}
+    assert rows[dead] == "stalled"
+    assert rows[fresh] == "live"  # no marker yet, but within the startup grace
+
+
+def test_inflight_stalls_after_startup_grace(tmp_path, monkeypatch):
+    # a task that's been in_flight past the grace with no session marker ever recorded is stalled
+    # (the window never came up), not forever-live
+    monkeypatch.setattr(dashboard_app, "STARTUP_GRACE_SECONDS", 0.0)
+    tid = ss.record_task(tmp_path, "ops", "review", "never started", status="in_flight")
+    rows = {r["id"]: r["state"] for r in dashboard_app._inflight_with_liveness(tmp_path)}
+    assert rows[tid] == "stalled"
+
+
 def test_events_requires_token(tmp_path):
     app = dashboard_app.create_app(tmp_path)
     with TestClient(app, base_url="http://localhost") as client:
@@ -448,15 +482,20 @@ def test_launch_session_exports_sop_dir(tmp_path, monkeypatch):
     captured = {}
     monkeypatch.setattr(dashboard_app.legacy, "open_terminal_with_claude",
                         lambda folder, prompt, **kw: captured.update(folder=folder, **kw))
-    dashboard_app._launch_session(tmp_path, "pick up the task")
+    dashboard_app._launch_session(tmp_path, "pick up the task", task_id=42)
     assert captured["env"]["SOP_DIR"] == str(tmp_path.resolve())  # absolute library path
+    assert captured["env"]["SMBOS_TASK_ID"] == "42"               # so the hook records liveness
     assert captured["folder"] == os.path.expanduser("~")          # neutral cwd; SOP_DIR carries the lib
+    # a non-task launch (no task_id) exports SOP_DIR but no task marker env
+    captured.clear()
+    dashboard_app._launch_session(tmp_path, "no task")
+    assert "SMBOS_TASK_ID" not in captured["env"]
 
 
 def test_launch_moves_task_in_flight_and_primes_prompt(tmp_path, monkeypatch):
     seen = {}
     monkeypatch.setattr(dashboard_app, "_launch_session",
-                        lambda sop_dir, prompt: seen.update(prompt=prompt, sop_dir=sop_dir))
+                        lambda sop_dir, prompt, task_id=None: seen.update(prompt=prompt, sop_dir=sop_dir, task_id=task_id))
     tid = _seed_task(tmp_path, subject="Send the Acme invoice")
     app = dashboard_app.create_app(tmp_path)
     token = lib.dashboard_token(tmp_path)
@@ -465,6 +504,7 @@ def test_launch_moves_task_in_flight_and_primes_prompt(tmp_path, monkeypatch):
     assert r.status_code == 200 and r.json() == {"status": "launched", "task_id": tid}
     # prompt is derived from the STORED subject, never the request body
     assert "Send the Acme invoice" in seen["prompt"]
+    assert seen["task_id"] == tid  # passed through so the session marker ties to this task
     assert ss.get_task(tmp_path, tid)["status"] == "in_flight"
     assert tid not in [t["id"] for t in ss.plate(tmp_path)]
     assert tid in [t["id"] for t in ss.in_flight(tmp_path)]
@@ -532,7 +572,7 @@ def test_launch_refuses_task_not_on_plate(tmp_path, monkeypatch):
 
 
 def test_launch_failure_leaves_task_on_plate(tmp_path, monkeypatch):
-    def boom(sop_dir, prompt):
+    def boom(sop_dir, prompt, task_id=None):
         raise RuntimeError("osascript blew up")
     monkeypatch.setattr(dashboard_app, "_launch_session", boom)
     tid = _seed_task(tmp_path)
@@ -545,7 +585,7 @@ def test_launch_failure_leaves_task_on_plate(tmp_path, monkeypatch):
 
 
 def test_launch_non_macos_is_clean_400(tmp_path, monkeypatch):
-    def not_mac(sop_dir, prompt):
+    def not_mac(sop_dir, prompt, task_id=None):
         raise ValueError("launching Claude from the dashboard only works on macOS")
     monkeypatch.setattr(dashboard_app, "_launch_session", not_mac)
     tid = _seed_task(tmp_path)
