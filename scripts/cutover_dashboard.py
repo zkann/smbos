@@ -13,6 +13,7 @@ orchestrates the venv creation.
 """
 import os
 import plistlib
+import shlex
 import shutil
 import socket
 import subprocess
@@ -270,10 +271,11 @@ def install_watchdog(sop_dir, interval_min=5):
     if cur is None:
         return False
     port = lib.dashboard_port(sop_dir)
-    # In a cron command an unescaped % becomes a newline (rest -> stdin); escape it in paths.
-    esc = lambda s: str(s).replace("%", r"\%")
+    # shell-quote against metacharacters (", $, backticks, spaces) in the path/sop_dir, THEN
+    # escape % for cron (cron turns an unescaped % into a newline before the shell sees it).
+    esc = lambda s: shlex.quote(str(s)).replace("%", r"\%")
     lines = _without_watchdog(cur)
-    lines.append('*/{} * * * * /usr/bin/python3 "{}" --sop-dir "{}" --port {} >/dev/null 2>&1  {}'
+    lines.append("*/{} * * * * /usr/bin/python3 {} --sop-dir {} --port {} >/dev/null 2>&1  {}"
                  .format(interval_min, esc(WATCHDOG), esc(sop_dir), port, WATCHDOG_TAG))
     return bool(legacy._write_crontab("\n".join(lines) + "\n"))
 
@@ -320,7 +322,11 @@ def main(argv=None):
         if ok:
             ok, msg = migrate(sop_dir)
         if ok:
-            install_watchdog(sop_dir)  # cron keeps it up where launchd won't auto-start it
+            # cron keeps it up where launchd won't auto-start it; the flip itself still
+            # succeeded if this fails, so warn rather than fail, but don't hide it.
+            if not install_watchdog(sop_dir):
+                print("Note: could not install the keep-alive cron entry (crontab unavailable). "
+                      "The dashboard is up, but won't auto-restart after a crash or reboot.", flush=True)
             print("Always-on dashboard installed. It starts at login and serves a stable URL "
                   "(bookmark it):", flush=True)
             print(legacy.stable_url(sop_dir))

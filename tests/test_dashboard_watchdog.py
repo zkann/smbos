@@ -94,6 +94,26 @@ def test_install_watchdog_escapes_percent_in_path(monkeypatch, tmp_path):
     assert r"My\%20SOPs" in state["text"] and "My%20SOPs" not in state["text"].replace(r"\%", "")
 
 
+def test_install_watchdog_shell_quotes_special_chars(monkeypatch, tmp_path):
+    # a space (or $, quote, backtick) in the path must be shell-quoted, not left bare
+    state = _stub_cron(monkeypatch)
+    spaced = tmp_path / "My SOPs"
+    assert cut.install_watchdog(spaced) is True
+    assert "--sop-dir '{}'".format(spaced) in state["text"]  # single-quoted by shlex.quote
+
+
+def test_install_failure_is_surfaced(monkeypatch, tmp_path, capsys):
+    # a crontab that can't be read -> install_watchdog False -> install must warn, not hide it
+    monkeypatch.setattr(cut, "env_ready", lambda *a, **k: True)
+    monkeypatch.setattr(cut, "ensure_terminal_notifier", lambda *a, **k: None)
+    monkeypatch.setattr(cut, "migrate", lambda *a, **k: (True, "flipped"))
+    monkeypatch.setattr(cut, "install_watchdog", lambda *a, **k: False)
+    monkeypatch.setattr(cut.legacy, "stable_url", lambda sd: "http://127.0.0.1:8765/?t=t")
+    cut.main(["install", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert "won't auto-restart" in out and "http://127.0.0.1:8765" in out
+
+
 def test_install_watchdog_aborts_when_crontab_unreadable(monkeypatch, tmp_path):
     # a read failure must NOT overwrite the crontab (could wipe the user's other jobs)
     state = _stub_cron(monkeypatch, initial="0 * * * * keep\n", read_fails=True)
