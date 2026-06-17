@@ -178,6 +178,10 @@ ol.list > li::before {
 .compact details.panel[open] > summary::before { transform: rotate(90deg); }
 .compact .collapsible .count { margin-left: auto; color: var(--subtle-fg); }
 
+/* the section header already says "On your plate" (everything there is waiting), so the per-row
+   amber waiting chip is redundant in the narrow column; drop it to give the title the width. */
+.compact .chip-waiting { display: none; }
+
 /* keep long task titles scannable in the narrow column: clamp to 3 lines (full text on hover).
    min-width:0 + overflow-wrap let a long unbroken token shrink/break instead of pushing the
    chip and button off-edge, independent of the <=480px media query (the panel is resizable). */
