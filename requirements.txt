@@ -17,6 +17,3 @@ pyobjc-framework-WebKit; sys_platform == "darwin"
 # ApplicationServices = the AX functions; Quartz = CGSize for AXValueCreate. macOS-only.
 pyobjc-framework-ApplicationServices; sys_platform == "darwin"
 pyobjc-framework-Quartz; sys_platform == "darwin"
-# `tray_app.py install` builds the SmbOS.app wrapper with py2app (alias mode) so macOS shows
-# "SmbOS", not "Python", in the Accessibility prompt. Build-time tool, runs from the venv.
-py2app; sys_platform == "darwin"

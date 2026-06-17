@@ -38,7 +38,6 @@ import plistlib
 import shutil
 import subprocess
 import sys
-import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -304,54 +303,51 @@ def restart_daemon():
     )
 
 
-# --- the .app bundle: give the process a name/identity (not "Python") --------------------
+# --- the .app bundle: give the process the "SmbOS" name in notifications and the app menu ---
+# A minimal bundle whose executable is a symlink to the venv interpreter. NSBundle resolves to
+# SmbOS.app, so notifications and the menu read "SmbOS". NOTE: the macOS Accessibility prompt
+# (for "Dock as sidebar") still shows the Python interpreter's name, TCC won't trust an unsigned
+# / ad-hoc bundle and follows the interpreter; naming it there would need Developer ID signing +
+# notarization, which is out of scope for a local single-user tool.
 def bundle_exec(bundle=APP_BUNDLE):
     return Path(bundle) / "Contents" / "MacOS" / "SmbOS"
 
 
-_SETUP_TEMPLATE = '''\
-from setuptools import setup
-setup(
-    name="SmbOS",
-    app=[{app!r}],
-    options={{"py2app": {{
-        "alias": True,
-        "plist": {{
-            "CFBundleName": "SmbOS",
-            "CFBundleDisplayName": "SmbOS",
-            "CFBundleIdentifier": {label!r},
-            "CFBundleExecutable": "SmbOS",
-            "LSUIElement": True,
-        }},
-    }}}},
-)
-'''
-
-
-def _setup_source(app=APP, label=TRAY_LABEL):
-    """The py2app setup.py text (pure, so the bundle's name/identity is unit-testable)."""
-    return _SETUP_TEMPLATE.format(app=str(app), label=label)
+def venv_site_packages(python_exec=None):
+    """The venv's site-packages dir, put on the LaunchAgent's PYTHONPATH so the symlinked
+    interpreter finds rumps/pyobjc (the bundle exec is a symlink, so venv auto-detection is off)."""
+    python_exec = str(python_exec or VENV_PYTHON)
+    r = subprocess.run(
+        [python_exec, "-c", "import sys;print(next(p for p in sys.path if 'site-packages' in p))"],
+        capture_output=True, text=True)
+    return r.stdout.strip()
 
 
 def build_app_bundle(python_exec=None, bundle=APP_BUNDLE):
-    """Build SmbOS.app with py2app in alias mode. py2app's launcher is a real stub binary (NOT the
-    python interpreter), so the macOS permission system names the Accessibility prompt and the
-    Settings entry 'SmbOS', not 'Python', TCC reads the executable, and a raw python binary always
-    reads as Python no matter how it is re-signed. Alias mode references the venv in place (no fat
-    copy) and py2app ad-hoc signs the bundle as com.smbos.tray. Returns the executable path, or
-    None if the build failed (e.g. py2app not installed in the venv)."""
+    """Create SmbOS.app: an Info.plist (name/identity) and a MacOS/SmbOS executable that symlinks
+    the venv interpreter. Launching from inside it makes NSBundle resolve to SmbOS.app, so the app
+    name reads 'SmbOS' in notifications and the menu. Idempotent. Returns the executable path."""
     python_exec = Path(python_exec or VENV_PYTHON)
     bundle = Path(bundle)
-    build_dir = Path(tempfile.mkdtemp(prefix="smbos-tray-build-"))
-    (build_dir / "setup.py").write_text(_setup_source())
-    shutil.rmtree(bundle, ignore_errors=True)  # replace any prior bundle
-    bundle.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run([str(python_exec), "setup.py", "py2app", "-A",
-                    "--dist-dir", str(bundle.parent), "--bdist-base", str(build_dir / "b")],
-                   cwd=str(build_dir), capture_output=True, text=True)
-    shutil.rmtree(build_dir, ignore_errors=True)
+    (bundle / "Contents" / "MacOS").mkdir(parents=True, exist_ok=True)
+    (bundle / "Contents" / "Info.plist").write_bytes(plistlib.dumps({
+        "CFBundleName": "SmbOS",
+        "CFBundleDisplayName": "SmbOS",
+        "CFBundleIdentifier": TRAY_LABEL,
+        "CFBundleExecutable": "SmbOS",
+        "CFBundlePackageType": "APPL",
+        "CFBundleInfoDictionaryVersion": "6.0",
+        "CFBundleShortVersionString": "1.0",
+        "CFBundleVersion": "1",
+        "LSUIElement": True,  # status-bar app, no Dock icon
+    }))
     exe = bundle_exec(bundle)
-    return exe if exe.exists() else None
+    try:
+        exe.unlink()
+    except OSError:
+        pass
+    exe.symlink_to(python_exec)  # the bundle's executable IS the interpreter
+    return exe
 
 
 # --- launchd: run the tray at login, alongside (not owning) the daemon -------------------
@@ -362,17 +358,20 @@ def _launchd_path():
     return ":".join(dirs)
 
 
-def tray_plist_xml(sop_dir, exe=None):
-    """LaunchAgent for the tray. Launches the SmbOS.app stub (so the process is named 'SmbOS' and
-    the Accessibility prompt reads 'SmbOS'); the app has the script baked in, so it only needs
-    --sop-dir, not the script path. RunAtLoad gives login durability (KeepAlive respawn is
-    unreliable on Darwin 25, so login-start is the real story); KeepAlive matches the daemon."""
+def tray_plist_xml(sop_dir, exe=None, pythonpath=None):
+    """LaunchAgent for the tray. Launches the bundle's executable (the symlinked interpreter, so
+    the process is named 'SmbOS') with the script and --sop-dir, and the venv's site-packages on
+    PYTHONPATH so the symlink finds its deps. RunAtLoad gives login durability (KeepAlive respawn
+    is unreliable on Darwin 25, so login-start is the real story); KeepAlive matches the daemon."""
     exe = str(exe or bundle_exec())
+    env = {"PATH": _launchd_path()}
+    if pythonpath:
+        env["PYTHONPATH"] = pythonpath
     log = str(Path(sop_dir) / "tray.log")
     spec = {
         "Label": TRAY_LABEL,
-        "ProgramArguments": [exe, "--sop-dir", str(sop_dir)],
-        "EnvironmentVariables": {"PATH": _launchd_path()},
+        "ProgramArguments": [exe, str(APP), "--sop-dir", str(sop_dir)],
+        "EnvironmentVariables": env,
         "RunAtLoad": True,
         "KeepAlive": True,
         "ThrottleInterval": 5,
@@ -387,13 +386,11 @@ def tray_plist_path():
 
 
 def install_agent(sop_dir, python_exec=None):
-    exe = build_app_bundle(python_exec)  # the py2app SmbOS.app (names the process 'SmbOS')
-    if exe is None:
-        return False, ("could not build SmbOS.app; install py2app in the venv: "
-                       "{} -m pip install py2app".format(VENV_PYTHON))
+    exe = build_app_bundle(python_exec)           # the SmbOS.app wrapper (names notifications)
+    pythonpath = venv_site_packages(python_exec)  # so the symlinked interpreter finds its deps
     plist = tray_plist_path()
     plist.parent.mkdir(parents=True, exist_ok=True)
-    plist.write_text(tray_plist_xml(sop_dir, exe), encoding="utf-8")
+    plist.write_text(tray_plist_xml(sop_dir, exe, pythonpath), encoding="utf-8")
     subprocess.run(["launchctl", "unload", str(plist)], capture_output=True)
     r = subprocess.run(["launchctl", "load", "-w", str(plist)], capture_output=True, text=True)
     if r.returncode == 0:

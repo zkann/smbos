@@ -194,27 +194,30 @@ def test_compute_state_maps_none_to_down():
 # --- launchd plist: distinct label, runs the venv python, starts at login -----------------
 def test_tray_plist_shape():
     d = plistlib.loads(tray.tray_plist_xml(
-        "/tmp/sops", "/Apps/SmbOS.app/Contents/MacOS/SmbOS").encode("utf-8"))
+        "/tmp/sops", "/Apps/SmbOS.app/Contents/MacOS/SmbOS", "/venv/site-packages").encode("utf-8"))
     assert d["Label"] == tray.TRAY_LABEL
     assert d["Label"] != tray.daemon.AGENT_LABEL  # never collides with the daemon's job
     args = d["ProgramArguments"]
-    assert args[0] == "/Apps/SmbOS.app/Contents/MacOS/SmbOS"  # the py2app stub, not bare python
-    assert str(tray.APP) not in args              # the stub has the script baked in
+    assert args[0] == "/Apps/SmbOS.app/Contents/MacOS/SmbOS"  # launched via the named bundle
+    assert str(tray.APP) in args                  # symlinked interpreter needs the script
     assert args[args.index("--sop-dir") + 1] == "/tmp/sops"
+    assert d["EnvironmentVariables"]["PYTHONPATH"] == "/venv/site-packages"  # deps for the symlink
     assert d["RunAtLoad"] is True                  # login durability
 
 
 def test_tray_plist_defaults_to_bundle_exec():
     d = plistlib.loads(tray.tray_plist_xml("/tmp/sops").encode("utf-8"))
-    assert d["ProgramArguments"][0] == str(tray.bundle_exec())  # the .app stub, not bare python
+    assert d["ProgramArguments"][0] == str(tray.bundle_exec())  # the .app, not bare python
     assert "SmbOS.app" in d["ProgramArguments"][0]
 
 
-def test_setup_source_names_the_app():
-    # The py2app setup that makes macOS show "SmbOS" instead of "Python".
-    src = tray._setup_source(app="/x/tray_app.py", label="com.smbos.tray")
-    assert '"CFBundleName": "SmbOS"' in src
-    assert "com.smbos.tray" in src                  # the bundle identity
-    assert '"LSUIElement": True' in src             # status-bar app, no Dock icon
-    assert '"alias": True' in src                   # references the venv in place, no fat copy
-    assert "tray_app.py" in src                     # the app's entry script
+def test_build_app_bundle_writes_named_plist_and_exec(tmp_path):
+    bundle = tmp_path / "SmbOS.app"
+    fake_python = tmp_path / "python"
+    fake_python.write_text("#!/bin/sh\n")
+    exe = tray.build_app_bundle(python_exec=fake_python, bundle=bundle)
+    info = plistlib.loads((bundle / "Contents" / "Info.plist").read_bytes())
+    assert info["CFBundleName"] == "SmbOS"          # the name macOS shows in notifications
+    assert info["CFBundleIdentifier"] == tray.TRAY_LABEL
+    assert info["LSUIElement"] is True
+    assert exe.is_symlink() and exe.resolve() == fake_python.resolve()  # exec IS the interpreter
