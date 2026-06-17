@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.28.2 (2026-06-16)
+
+- The dashboard watchdog now bounds its `launchctl` calls with a timeout, so a hung `launchctl` can't leave the every-few-minutes check stuck. A timed-out or failed call is treated as "did nothing this run" and the next run retries; nothing about when the watchdog restarts the dashboard changes.
+
 ## 0.28.1 (2026-06-16)
 
 - The always-on dashboard install now sets up a small cron watchdog that keeps it running. On some macOS versions launchd does not honor a LaunchAgent's auto-start and restart, so the dashboard would not come back after a crash or a reboot. The watchdog checks the dashboard's configured port every few minutes and starts it again when it's down. `cutover_dashboard install` adds it; `uninstall` removes it. (This release also catches plugin.json up to the 0.26–0.28 changelog entries.)

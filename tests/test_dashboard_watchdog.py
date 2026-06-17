@@ -57,6 +57,28 @@ def test_watchdog_reports_still_down(monkeypatch, tmp_path):
     assert not ok and "still down" in msg
 
 
+def test_launchctl_calls_are_bounded(monkeypatch):
+    # launchctl runs with a timeout so a hung call can't wedge the cron watchdog
+    seen = {}
+    monkeypatch.setattr(wd.subprocess, "run",
+                        lambda cmd, **k: seen.update(timeout=k.get("timeout")))
+    wd._launchctl("kickstart", "-k", "gui/501/label")
+    assert isinstance(seen["timeout"], (int, float)) and seen["timeout"] > 0
+
+
+def test_hung_launchctl_does_not_crash_the_watchdog(monkeypatch, tmp_path):
+    # a launchctl that times out (or errors) must be swallowed: the run reports based on the port
+    # probe, not a traceback, so the next */5 cron run can retry
+    def hang(cmd, **k):
+        raise wd.subprocess.TimeoutExpired(cmd, k.get("timeout"))
+    monkeypatch.setattr(wd.subprocess, "run", hang)
+    monkeypatch.setattr(wd.lib, "dashboard_port", lambda sd: 8765)
+    monkeypatch.setattr(wd, "port_up", lambda *a, **k: False)
+    monkeypatch.setattr(wd, "_wait_up", lambda *a, **k: False)
+    ok, msg = wd.ensure_up(tmp_path)  # must not raise
+    assert not ok and "still down" in msg
+
+
 # --- crontab install/remove (cutover_dashboard, reusing serve_dashboard's helpers) ---
 
 def _stub_cron(monkeypatch, initial="", read_fails=False):
