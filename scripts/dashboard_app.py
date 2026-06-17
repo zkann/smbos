@@ -122,6 +122,45 @@ def _liveness_sig(sop_dir):
     return tuple(sorted((r.get("sop", ""), r.get("state", "")) for r in lib.active_runs(sop_dir)))
 
 
+# A picked-up session's window can take a few seconds to open and run its SessionStart hook (which
+# records the liveness marker). Until that grace passes, an in_flight task with no marker yet reads
+# as 'live' (just launched) rather than 'stalled', so the dot doesn't flicker at pickup.
+STARTUP_GRACE_SECONDS = _positive_env("SMBOS_INFLIGHT_GRACE", "120.0")
+
+
+def _task_state(sop_dir, task, verify=True):
+    """Derived liveness for one in_flight task: 'live' if its picked-up session is running (or
+    just launched, within the startup grace), else 'stalled' (the window closed/crashed, or no
+    session ever recorded after the grace). Mirrors the running/stalled split runs already get.
+    `verify` is forwarded to session_state (the per-second SSE poll passes False; see _session_sig)."""
+    state = lib.session_state(sop_dir, task["id"], verify=verify)
+    if state is not None:
+        return state
+    # No marker yet: live during the startup grace, then stalled (session never came up).
+    try:
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(task["updated_at"])).total_seconds()
+    except (KeyError, ValueError, TypeError):
+        return "live"  # can't age it: don't cry stalled
+    return "live" if age < STARTUP_GRACE_SECONDS else "stalled"
+
+
+def _inflight_with_liveness(sop_dir, verify=True):
+    """in_flight tasks, each annotated with a derived `state` ('live'|'stalled') so the dashboard's
+    in-flight dot tells the truth instead of always showing green."""
+    rows = ss.in_flight(sop_dir)
+    for t in rows:
+        t["state"] = _task_state(sop_dir, t, verify=verify)
+    return rows
+
+
+def _session_sig(sop_dir):
+    """A comparable signature of in_flight liveness. A session dying writes nothing to the DB, so
+    the SSE loop watches this (like _liveness_sig for runs) to push a fresh inflight frame when a
+    task flips live -> stalled. verify=False keeps this once-a-second poll cheap (os.kill only, no
+    ps fork): it catches the common window-closed flip; the rendered frame does the full check."""
+    return tuple((t["id"], t["state"]) for t in _inflight_with_liveness(sop_dir, verify=False))
+
+
 def _pending(sop_dir):
     """Parked results still awaiting a decision (status: pending), as API-safe rows.
 
@@ -294,7 +333,7 @@ def _snapshot(sop_dir):
     never blocks the event loop."""
     return [
         _sse("plate", json.dumps(ss.plate(sop_dir))),
-        _sse("inflight", json.dumps(ss.in_flight(sop_dir))),
+        _sse("inflight", json.dumps(_inflight_with_liveness(sop_dir))),
         _sse("pending", json.dumps(_pending(sop_dir))),
         _sse("queue", json.dumps(_queue(sop_dir))),
         _sse("runs", json.dumps(_runs_with_liveness(sop_dir))),
@@ -343,20 +382,27 @@ def _launch_prompt(task, sop_dir):
     return prompt
 
 
-def _launch_session(sop_dir, prompt):
+def _launch_session(sop_dir, prompt, task_id=None):
     """Open an interactive Claude session primed with `prompt`, reusing the legacy daemon's
     osascript launch (terminal detection, permission posture, shlex-escaping). A thin seam so
     tests can stub the actual window-spawn. Launches in $HOME, but exports SOP_DIR so the new
     session resolves the SAME library the dashboard is mirroring (it may have been started with a
     non-default --sop-dir); without it the session would fall back to ~/sops and load a different
     library than the one whose plate it was launched from. The SessionStart SOP protocol routes
-    Claude to the right folder/procedure from there."""
+    Claude to the right folder/procedure from there.
+
+    Also exports SMBOS_TASK_ID when launching for a plate task, so the SessionStart hook records
+    this session's process as the task's liveness handle (active-sessions/<id>); that's how the
+    dashboard later tells a still-running pickup from one whose window was closed."""
     sop_dir = Path(sop_dir)
+    env = {"SOP_DIR": str(sop_dir.resolve())}
+    if task_id is not None:
+        env["SMBOS_TASK_ID"] = str(task_id)
     legacy.open_terminal_with_claude(
         str(Path.home()), prompt,
         terminal=legacy.preferred_terminal(sop_dir),
         permission=legacy.launch_permission(sop_dir),
-        env={"SOP_DIR": str(sop_dir.resolve())},
+        env=env,
     )
 
 
@@ -371,9 +417,11 @@ async def event_stream(sop_dir, request):
     # stall the loop. Liveness (a flock release on a dying run) writes nothing to the DB, so
     # data_version alone would miss a run going stalled; we watch it separately.
     def _signals():
-        # run liveness (flock) and the file-based work (pending/ + queue/) all change without a DB
-        # write, so data_version alone would miss them; sample them off the event loop.
-        return _liveness_sig(sop_dir), _pending_sig(sop_dir), _queue_sig(sop_dir)
+        # run liveness (flock), picked-up session liveness (pid), and the file-based work (pending/
+        # + queue/) all change without a DB write, so data_version alone would miss them; sample
+        # them off the event loop.
+        return (_liveness_sig(sop_dir), _session_sig(sop_dir),
+                _pending_sig(sop_dir), _queue_sig(sop_dir))
 
     with ss.connect(sop_dir) as conn:
         last_dv = ss.data_version(conn)
@@ -449,7 +497,7 @@ def create_app(sop_dir, dist_dir=None):
     @app.get("/api/inflight")
     def api_inflight(t: str = ""):
         check(t)
-        return {"inflight": ss.in_flight(sop_dir)}
+        return {"inflight": _inflight_with_liveness(sop_dir)}
 
     @app.get("/api/runs")
     def api_runs(t: str = ""):
@@ -624,11 +672,15 @@ def create_app(sop_dir, dist_dir=None):
         # already picked it up. We read the subject above (for the prompt) before claiming.
         if not ss.claim_task(sop_dir, task["id"]):
             raise HTTPException(status_code=409, detail="task is not on your plate (already picked up?)")
+        # Drop any liveness marker left by a prior session for this id (e.g. a re-pickup): the new
+        # session's hook writes a fresh one, and until it does the task should read as starting, not
+        # inherit a dead session's stalled marker.
+        lib.clear_session(sop_dir, task["id"])
         # Spawn in a worker thread: the osascript launch shells out (up to ~20s) and must not
         # block the event loop. If it fails, RELEASE the claim (back to waiting) so the task
         # isn't stranded in_flight with no session behind it.
         try:
-            await asyncio.to_thread(_launch_session, sop_dir, _launch_prompt(task, sop_dir))
+            await asyncio.to_thread(_launch_session, sop_dir, _launch_prompt(task, sop_dir), task["id"])
         except ValueError as exc:  # non-macOS / missing folder: a clean, client-visible reason
             ss.set_task_status(sop_dir, task["id"], "waiting")
             raise HTTPException(status_code=400, detail=str(exc))
@@ -640,9 +692,9 @@ def create_app(sop_dir, dist_dir=None):
     @app.post("/api/task-status")
     async def task_status(request: Request):
         """Recover or resolve a task from the dashboard: move it back to 'waiting' (put it back on
-        the plate), 'done', or 'dismissed'. The owner's escape hatch for an in-flight task whose
-        picked-up session died or finished without reporting, there is no liveness link to the
-        spawned session yet, so without this an in-flight task is a one-way trap."""
+        the plate), 'done', or 'dismissed'. The owner's manual control for an in-flight task; the
+        dashboard also surfaces when a picked-up session has gone stalled (its window closed), so
+        this is the action that clears such a task instead of leaving it a one-way trap."""
         check(request.headers.get("x-smbos-token", ""))
         try:
             body = await request.json()
@@ -663,6 +715,7 @@ def create_app(sop_dir, dist_dir=None):
         # flip the now-resolved task into a different state. SSE inflight/plate frames reflect it.
         if not ss.resolve_in_flight_task(sop_dir, task["id"], target):
             raise HTTPException(status_code=409, detail="task is not in flight (already resolved?)")
+        lib.clear_session(sop_dir, task["id"])  # task left in_flight: its liveness marker is moot
         return {"status": target, "task_id": task["id"]}
 
     @app.get("/events")

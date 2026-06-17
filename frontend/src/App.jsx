@@ -414,13 +414,18 @@ export default function App() {
             {busy === status ? prog : busy === `error:${status}` ? 'retry' : normal}
           </button>
         )
+        const stalled = t.state === 'stalled'
         return (
           <li key={t.id ?? i}>
-            <span className="dot live" aria-hidden="true"></span>
+            <span className={`dot ${stalled ? 'stalled' : 'live'}`} aria-hidden="true"></span>
             <span className="subj" title={t.subject}>{t.subject}</span>
-            <span className="chip chip-inflight">in flight</span>
-            {tbtn('done', 'Done', 'done…', true)}
-            {tbtn('waiting', 'Put back', 'returning…')}
+            {stalled
+              ? <span className="chip chip-stalled"
+                  title="No live session for this task (its window was closed, or it stopped without reporting). Put it back on your plate, or mark it done or dismissed.">stalled</span>
+              : <span className="chip chip-inflight">in flight</span>}
+            {/* stalled: the likely action is to put it back, so that's the primary; otherwise Done */}
+            {tbtn('done', 'Done', 'done…', !stalled)}
+            {tbtn('waiting', 'Put back', 'returning…', stalled)}
             {tbtn('dismissed', 'Dismiss', 'dismissing…')}
           </li>
         )

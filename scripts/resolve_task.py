@@ -27,7 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import state_store as ss
-from smbos_lib import resolve_sop_dir
+from smbos_lib import clear_session, resolve_sop_dir
 
 # The outcomes a session may report. A subset of TASK_STATUSES: a session can only move a task
 # out of in_flight, never into it ('in_flight' is the claim gate) and never silently delete it.
@@ -63,6 +63,7 @@ def main(argv=None):
     except ss.StateStoreError as exc:
         sys.exit(str(exc))  # a DB-level failure exits cleanly, not as a traceback
     if changed:
+        clear_session(sop_dir, task["id"])  # task left in_flight: drop its liveness marker
         print(f"Task {task['id']} {_LABELS[status]}.")
     else:
         # Not in flight: already resolved (by hand, or a prior report). The state is settled, so

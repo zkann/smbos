@@ -27,6 +27,17 @@ def test_reports_each_outcome(tmp_path, monkeypatch, capsys, status, expected):
     assert str(tid) in capsys.readouterr().out
 
 
+def test_successful_report_clears_the_liveness_marker(tmp_path, monkeypatch):
+    # when the session reports its outcome, drop its liveness marker so the resolved task doesn't
+    # leave a stale session handle behind
+    import smbos_lib as lib
+    monkeypatch.setenv("SOP_DIR", str(tmp_path))
+    tid = _inflight(tmp_path)
+    lib.record_session(tmp_path, tid, 999999)
+    assert resolve_task.main([str(tid), "done"]) == 0
+    assert lib.session_state(tmp_path, tid) is None  # marker cleared on resolve
+
+
 def test_late_report_does_not_disturb_a_hand_resolved_task(tmp_path, monkeypatch, capsys):
     # owner already put it back on the plate; a session reporting "done" afterward must NOT flip it
     monkeypatch.setenv("SOP_DIR", str(tmp_path))

@@ -5,6 +5,14 @@
 
 PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
+# If the dashboard's "pick up" opened this session for a plate task, it exported SMBOS_TASK_ID.
+# Record this session's process (the hook's $PPID is the durable claude process) as the task's
+# liveness handle, so the dashboard can tell a still-running pickup from one whose window closed.
+# Best-effort and silent: this fires for every session and must never disrupt session start.
+if [ -n "$SMBOS_TASK_ID" ]; then
+  python3 "$PLUGIN_ROOT/scripts/session_marker.py" record "$SMBOS_TASK_ID" "$PPID" >/dev/null 2>&1 || true
+fi
+
 home_dir=""
 proj_dir=""
 if [ -n "$SOP_DIR" ] && [ -d "$SOP_DIR" ]; then
