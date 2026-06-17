@@ -1,17 +1,18 @@
 # SmbOS desktop shell (Electron)
 
-Phase 1 of the strangler-fig switchover documented in `research/stack-architecture.md`. A thin Electron shell that wraps the **existing** live dashboard.
+Phases 1-2 of the strangler-fig switchover documented in `research/stack-architecture.md`. An Electron shell wrapping the **existing** live dashboard, now with a Node broker in front.
 
-## What this phase is
+## What this is
 
-- Opens the running FastAPI dashboard in a real cross-platform desktop window (no browser tab).
-- Adds a **tray** icon with the waiting count, and **native notifications** when something lands on your plate (recommendations.md R4, off-dashboard loop), replacing the macOS-only rumps tray.
-- The **Python engine and the FastAPI server are untouched.** This shell only *loads* the dashboard; it resolves the URL + token exactly as the rest of the app does. Nothing about the do-loop changes, so the working tool never goes dark.
+- **Window (Phase 1):** opens the dashboard in a cross-platform desktop window (no browser tab); a **tray** with the waiting count; **native notifications** when something lands on your plate (recommendations.md R4), replacing the macOS-only rumps tray.
+- **Node broker (Phase 2):** a `broker.js` reverse proxy (`createBroker`) sits between the renderer and FastAPI. The window and the tray poll talk to the broker; the broker forwards every request to the running FastAPI server, streaming responses (so the `/events` SSE live mirror passes through unbuffered) and preserving the token gate. This establishes the single API/IPC front door before any logic moves off FastAPI.
+- The **Python engine and the FastAPI server are untouched.** The shell + broker only *front* the dashboard. Nothing about the do-loop changes, so the working tool never goes dark.
 
-## What this phase is NOT (yet)
+## What this is NOT (yet)
 
-- It does not spawn or own the dashboard server (later phase). It loads whatever server is already running (your launchd dashboard).
-- No Node broker, no Rust native layer, no packaging/signing yet. Those are Phases 2-5.
+- The broker only **forwards**; no read/action logic has moved to it yet (Phases 3-4).
+- It does not spawn or own the FastAPI server. It fronts whatever server is already running (your launchd dashboard).
+- No Rust native layer, no packaging/signing yet. Those are Phases 4-5.
 
 ## Run it (dev)
 
@@ -30,7 +31,6 @@ It resolves the server like the rest of the app: `$SMBOS_DASHBOARD_PORT`, else `
 
 ## Next phases
 
-2. Node broker as a facade proxying FastAPI (the single API/IPC surface).
-3. Move reads + the live mirror to the broker.
-4. Move actions to the broker; broker spawns the Python engine.
+3. Move reads + the live mirror off FastAPI into the broker (serve them directly).
+4. Move actions into the broker; the broker spawns the Python engine.
 5. Rust native layer (cross-platform spawn / liveness / scheduling).
