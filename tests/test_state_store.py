@@ -376,3 +376,29 @@ def test_claim_task_is_single_winner(tmp_path):
     assert ss.claim_task(tmp_path, 999999) is False        # no such row, no transition
     with pytest.raises(ss.StateStoreError):
         ss.claim_task(tmp_path, "not-an-int")
+
+
+def test_touch_in_flight_task_gates_on_in_flight_and_bumps_updated_at(tmp_path):
+    tid = ss.record_task(tmp_path, "ops", "x", "touch me", status="in_flight")
+    before = ss.get_task(tmp_path, tid)["updated_at"]
+    assert ss.touch_in_flight_task(tmp_path, tid) is True   # in_flight: matched + bumped
+    assert ss.get_task(tmp_path, tid)["updated_at"] >= before  # updated_at advanced (ISO-8601, sortable)
+    assert ss.get_task(tmp_path, tid)["status"] == "in_flight"  # status unchanged
+    waiting = ss.record_task(tmp_path, "ops", "x", "not in flight")  # waiting
+    assert ss.touch_in_flight_task(tmp_path, waiting) is False  # not in_flight: no match
+    assert ss.touch_in_flight_task(tmp_path, 999999) is False   # no such row
+    with pytest.raises(ss.StateStoreError):
+        ss.touch_in_flight_task(tmp_path, "not-an-int")
+
+
+def test_assert_in_flight_gates_without_side_effect(tmp_path):
+    tid = ss.record_task(tmp_path, "ops", "x", "gate me", status="in_flight")
+    before = ss.get_task(tmp_path, tid)["updated_at"]
+    assert ss.assert_in_flight(tmp_path, tid) is True            # in_flight: gate passes
+    assert ss.get_task(tmp_path, tid)["updated_at"] == before    # NO side effect: updated_at untouched
+    assert ss.get_task(tmp_path, tid)["status"] == "in_flight"
+    waiting = ss.record_task(tmp_path, "ops", "x", "waiting")
+    assert ss.assert_in_flight(tmp_path, waiting) is False       # not in_flight: gate fails
+    assert ss.assert_in_flight(tmp_path, 999999) is False        # no such row
+    with pytest.raises(ss.StateStoreError):
+        ss.assert_in_flight(tmp_path, "not-an-int")

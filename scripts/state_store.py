@@ -431,6 +431,39 @@ def resolve_in_flight_task(sop_dir, task_id, status):
         return cur.rowcount == 1
 
 
+def assert_in_flight(sop_dir, task_id):
+    """Atomic in_flight gate with NO side effect: True iff the task is currently in_flight. A
+    no-value-change UPDATE (SQLite still reports the matched rowcount), so a caller can gate a
+    reopen on the live DB state WITHOUT restarting the liveness grace -- the grace bump
+    (touch_in_flight_task) is deferred to a SUCCESSFUL launch, so a failed relaunch can't leave a
+    no-marker task reading 'live'. Raises StateStoreError on a non-integer id."""
+    task_id = _coerce_task_id(task_id)
+    with connect(sop_dir) as conn:
+        cur = conn.execute(
+            "UPDATE task SET status='in_flight' WHERE id=? AND status='in_flight'",
+            (task_id,),
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
+def touch_in_flight_task(sop_dir, task_id):
+    """Bump an in_flight task's updated_at, atomically and ONLY if it's currently in_flight. Returns
+    True iff it was in_flight (the conditional UPDATE matched a row). The dashboard's 'open session'
+    recovery calls this AFTER a successful relaunch to restart the startup grace, so the reopened
+    task reads 'live' until its new session's hook records a marker, instead of snapping straight
+    back to 'stalled' (its updated_at would otherwise be old). Raises StateStoreError on a
+    non-integer id."""
+    task_id = _coerce_task_id(task_id)
+    with connect(sop_dir) as conn:
+        cur = conn.execute(
+            "UPDATE task SET updated_at=? WHERE id=? AND status='in_flight'",
+            (_now(), task_id),
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
 def recent_runs(sop_dir, limit=50):
     with connect(sop_dir) as conn:
         rows = conn.execute(

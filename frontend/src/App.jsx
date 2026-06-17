@@ -303,6 +303,35 @@ export default function App() {
     }
   }
 
+  // Re-open a primed session for an in-flight (stalled) task: the recovery for a pickup whose
+  // window closed, so it resumes instead of being stranded at Put back / Done / Dismiss. The task
+  // stays in flight (no SSE removal), so on success we clear the local busy to re-enable the row;
+  // the new session's hook re-establishes liveness. Shares taskBusy with resolveTask (its 'opening'
+  // value disables the resolve buttons while the launch is in flight) and uses the 'error:open' key
+  // so a failure retries THIS action, matching the resolve buttons' per-action retry convention.
+  async function openSession(id) {
+    if (id == null) return
+    setTaskBusy((s) => ({ ...s, [id]: 'opening' }))
+    // bound it like Pick up: the server spawns osascript (up to ~20s); without a ceiling a stuck
+    // launch would leave the button disabled+'opening…' forever with no recovery but reload.
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 25000)
+    try {
+      const res = await fetch('/api/open-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-SMBOS-Token': token },
+        body: JSON.stringify({ task_id: id }),
+        signal: ctrl.signal,
+      })
+      if (!res.ok) throw new Error(String(res.status))
+      setTaskBusy((s) => { const n = { ...s }; delete n[id]; return n })
+    } catch (_) {
+      setTaskBusy((s) => ({ ...s, [id]: 'error:open' }))
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
   // cancel a queued run; the SSE queue frame drops it on success, an error leaves a retry.
   async function dequeue(file) {
     setQbusy((s) => ({ ...s, [file]: 'canceling' }))
@@ -423,9 +452,17 @@ export default function App() {
               ? <span className="chip chip-stalled"
                   title="No live session for this task (its window was closed, or it stopped without reporting). Put it back on your plate, or mark it done or dismissed.">stalled</span>
               : <span className="chip chip-inflight">in flight</span>}
-            {/* stalled: the likely action is to put it back, so that's the primary; otherwise Done */}
+            {/* stalled: its session is gone, so the primary recovery is to reopen it and resume;
+                Put back / Done / Dismiss stay as the other outs. Live: Done is the primary. */}
+            {stalled && (
+              <button
+                className={`act act-primary${busy === 'error:open' ? ' act-err' : ''}`}
+                onClick={() => openSession(t.id)} disabled={working}>
+                {busy === 'opening' ? 'opening…' : busy === 'error:open' ? 'retry' : 'Open session ▸'}
+              </button>
+            )}
             {tbtn('done', 'Done', 'done…', !stalled)}
-            {tbtn('waiting', 'Put back', 'returning…', stalled)}
+            {tbtn('waiting', 'Put back', 'returning…')}
             {tbtn('dismissed', 'Dismiss', 'dismissing…')}
           </li>
         )

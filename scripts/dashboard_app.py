@@ -718,6 +718,53 @@ def create_app(sop_dir, dist_dir=None):
         lib.clear_session(sop_dir, task["id"])  # task left in_flight: its liveness marker is moot
         return {"status": target, "task_id": task["id"]}
 
+    @app.post("/api/open-session")
+    async def open_session(request: Request):
+        """Re-open a primed Claude session for a task that is already in flight. The recovery for a
+        STALLED pickup (its window was closed, or it crashed without reporting): the dashboard
+        otherwise strands it at Put back / Done / Dismiss, with no way to resume the actual work.
+        This launches a fresh primed session for the SAME task without re-claiming it (the task
+        stays in_flight), so the new session's SessionStart hook re-records the liveness marker and
+        the work continues. A late report from the prior dead session is still gated by
+        resolve_in_flight_task, so it cannot clobber the resumed task. Token rides in the header
+        (same CSRF posture as /api/launch). Launch-coupled, so offloaded to a thread."""
+        check(request.headers.get("x-smbos-token", ""))
+        body = await _body_obj(request)
+        try:
+            task = ss.get_task(sop_dir, body.get("task_id"))
+        except ss.StateStoreError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        if task is None:
+            raise HTTPException(status_code=404, detail="no such task")
+        if (task.get("status") or "") != "in_flight":
+            # only an in-flight task has a session to reopen; a resolved/waiting one does not
+            raise HTTPException(status_code=409, detail="task is not in flight")
+        # Only a STALLED session is reopenable: a live in-flight task already has a running session,
+        # so reopening would just spawn a duplicate window. The UI offers this on stalled cards
+        # only; this enforces it server-side. (Checked BEFORE the touch below, which bumps
+        # updated_at and would otherwise make a grace-expired task read 'live'.)
+        if _task_state(sop_dir, task) != "stalled":
+            raise HTTPException(status_code=409, detail="this task's session is still running")
+        # Atomic in_flight gate with NO side effect: catches a resolve that raced the checks above
+        # (the mirror of resolve_in_flight_task), WITHOUT bumping updated_at -- the grace restart is
+        # deferred to a successful launch below, so a failed relaunch can't leave a no-marker task
+        # falsely reading 'live'.
+        if not ss.assert_in_flight(sop_dir, task["id"]):
+            raise HTTPException(status_code=409, detail="task is not in flight")
+        try:
+            await asyncio.to_thread(_launch_session, sop_dir, _launch_prompt(task, sop_dir), task["id"])
+        except ValueError as exc:  # non-macOS / missing folder: a clean, client-visible reason
+            raise HTTPException(status_code=400, detail=str(exc))
+        except Exception:
+            raise HTTPException(status_code=500, detail="could not open a session")
+        # Launch succeeded: restart the liveness grace (so the reopened task reads 'live' until the
+        # new session's hook records a marker, not 'stalled'), then clear the prior (dead) marker.
+        # Both only on success, so a failed relaunch leaves the task exactly as it was (stalled,
+        # marker intact) -- recoverable by trying again.
+        ss.touch_in_flight_task(sop_dir, task["id"])
+        lib.clear_session(sop_dir, task["id"])
+        return {"status": "opened", "task_id": task["id"]}
+
     @app.get("/events")
     async def events(request: Request, t: str = ""):
         check(t)
