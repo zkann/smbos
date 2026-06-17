@@ -617,6 +617,31 @@ def create_app(sop_dir, dist_dir=None):
             raise HTTPException(status_code=500, detail="could not open a session")
         return {"status": "launched", "task_id": task["id"]}
 
+    @app.post("/api/task-status")
+    async def task_status(request: Request):
+        """Recover or resolve a task from the dashboard: move it back to 'waiting' (put it back on
+        the plate), 'done', or 'dismissed'. The owner's escape hatch for an in-flight task whose
+        picked-up session died or finished without reporting, there is no liveness link to the
+        spawned session yet, so without this an in-flight task is a one-way trap."""
+        check(request.headers.get("x-smbos-token", ""))
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="invalid JSON body")
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="body must be a JSON object")
+        target = body.get("status")
+        if target not in ("waiting", "done", "dismissed"):
+            raise HTTPException(status_code=400, detail="status must be waiting, done, or dismissed")
+        try:
+            task = ss.get_task(sop_dir, body.get("task_id"))
+        except ss.StateStoreError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        if task is None:
+            raise HTTPException(status_code=404, detail="no such task")
+        ss.set_task_status(sop_dir, task["id"], target)  # SSE inflight/plate frames reflect it
+        return {"status": target, "task_id": task["id"]}
+
     @app.get("/events")
     async def events(request: Request, t: str = ""):
         check(t)

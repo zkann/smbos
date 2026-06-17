@@ -143,6 +143,24 @@ def test_plate_returns_tasks_in_priority_order(tmp_path):
     assert [t["subject"] for t in r.json()["plate"]] == ["alpha", "beta"]
 
 
+def test_task_status_recovers_an_in_flight_task(tmp_path):
+    # the escape hatch: an in_flight task whose session died can be put back / done / dismissed.
+    tid = ss.record_task(tmp_path, "ops", "review", "stuck", status="in_flight")
+    app = dashboard_app.create_app(tmp_path)
+    token = lib.dashboard_token(tmp_path)
+    hdr = {"X-SMBOS-Token": token}
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.post("/api/task-status", json={"task_id": tid, "status": "waiting"}).status_code == 401  # no token
+        bad = client.post("/api/task-status", json={"task_id": tid, "status": "in_flight"}, headers=hdr)
+        assert bad.status_code == 400  # can't set in_flight via the recovery endpoint
+        missing = client.post("/api/task-status", json={"task_id": 99999, "status": "done"}, headers=hdr)
+        assert missing.status_code == 404
+        ok = client.post("/api/task-status", json={"task_id": tid, "status": "waiting"}, headers=hdr)
+        assert ok.status_code == 200 and ok.json()["status"] == "waiting"
+    # the task is back on the plate (recovered), not stuck in_flight
+    assert ss.get_task(tmp_path, tid)["status"] == "waiting"
+
+
 def test_events_requires_token(tmp_path):
     app = dashboard_app.create_app(tmp_path)
     with TestClient(app, base_url="http://localhost") as client:
