@@ -191,6 +191,14 @@ def test_compute_state_maps_none_to_down():
     assert tray.compute_state({"waiting": 1, "inflight": 0, "coming": 0})["status"] == "ok"
 
 
+def test_accessibility_target_is_the_real_interpreter():
+    # Dock's grant must point at the interpreter (what TCC checks), not the SmbOS bundle.
+    import os
+    target = tray.accessibility_target()
+    assert target == os.path.realpath(sys.executable)
+    assert os.path.isabs(target)
+
+
 # --- launchd plist: distinct label, runs the venv python, starts at login -----------------
 def test_tray_plist_shape():
     d = plistlib.loads(tray.tray_plist_xml(

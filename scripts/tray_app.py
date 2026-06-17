@@ -653,12 +653,14 @@ def _build():
         # dock: reserve real space by reflowing the neighbor window (Accessibility) ---------
         def _dock(self):
             """Reflow the neighbor window so it clears the panel. Returns False (caller falls
-            back to peek) when Accessibility isn't granted, so the drawer still auto-hides."""
+            back to peek) when Accessibility isn't granted, so the drawer still auto-hides.
+
+            Granting is fiddly on an unsigned build: TCC checks the interpreter, not the SmbOS
+            bundle, and macOS won't auto-add it, so the user must add the interpreter by hand.
+            We make that doable: open the Accessibility pane and put the interpreter path on the
+            clipboard with steps. (Issue #54 tracks the Developer ID signing that removes this.)"""
             if not _ax_trusted():
-                _prompt_ax()  # surface the system permission prompt
-                rumps.notification("SmbOS", "Dock needs Accessibility",
-                                   "Allow SmbOS in System Settings > Privacy & Security > "
-                                   "Accessibility, then choose Dock as sidebar again.")
+                _guide_accessibility_grant()
                 return False
             self._reflow_active_window()
             self._subscribe_activation()
@@ -751,6 +753,34 @@ def _prompt_ax():
         AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: True})
     except Exception:
         pass
+
+
+def accessibility_target():
+    """The binary the user must add to System Settings > Accessibility to enable 'Dock as
+    sidebar'. It's the interpreter the tray actually runs as, NOT the SmbOS bundle: on an
+    unsigned app, TCC checks the interpreter, so granting the bundle has no effect (#54)."""
+    return os.path.realpath(sys.executable)
+
+
+_ACCESSIBILITY_PANE = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+
+
+def _guide_accessibility_grant():
+    """Make the manual grant doable: fire the system prompt, open the Accessibility pane, and put
+    the interpreter path on the clipboard with the exact steps (macOS won't auto-add a background-
+    launched interpreter, and granting the SmbOS bundle doesn't work, so we guide the + flow)."""
+    target = accessibility_target()
+    _prompt_ax()
+    try:
+        subprocess.run(["pbcopy"], input=target.encode("utf-8"), timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    subprocess.run(["open", _ACCESSIBILITY_PANE], capture_output=True)
+    if rumps is not None:
+        rumps.notification(
+            "SmbOS", "Dock needs Accessibility",
+            "In the list that opened: click +, press Cmd+Shift+G, paste (the path is on your "
+            "clipboard), enable it, then choose Dock as sidebar again.")
 
 
 def main(argv=None):
