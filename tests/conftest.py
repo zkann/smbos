@@ -9,6 +9,19 @@ REPO = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
+
+@pytest.fixture(autouse=True)
+def _no_real_crontab_writes(monkeypatch):
+    """Safety net: never let a test mutate the developer's real crontab. The install path
+    writes a watchdog cron entry; a test that exercises it without stubbing once polluted a
+    real crontab with a pytest temp path. No-op the writer by default; tests that assert on
+    crontab contents stub _read_crontab/_write_crontab themselves (overriding this)."""
+    try:
+        import serve_dashboard
+        monkeypatch.setattr(serve_dashboard, "_write_crontab", lambda text: True, raising=False)
+    except Exception:
+        pass
+
 SOP_TEMPLATE = """---
 id: {id}
 title: {title}
