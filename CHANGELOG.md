@@ -6,6 +6,10 @@
 - The menu-bar app can dock the dashboard as a side panel next to whatever you are working in. By default it stays out of the way: a thin handle on the right edge slides the dashboard in when you reach the edge and hides it again when you move away, so it never permanently blocks an app. "Dock as sidebar" parks it open and resizes the window beside it so nothing is covered (this needs Accessibility permission, which it asks for the first time, and falls back to the peek panel until granted). Install with `tray_app.py install`, remove with `tray_app.py uninstall`.
 - The menu-bar app is macOS-only and carries its own dependencies (rumps and a few pyobjc frameworks, installed into the dashboard's virtualenv); the rest of SmbOS stays stdlib-only on the system Python. It installs as a small SmbOS.app wrapper so macOS shows "SmbOS" in notifications and the menu. (The one-time Accessibility prompt for the dock feature still shows the Python interpreter's name; naming it there needs Developer ID signing, tracked in #54.)
 
+## 0.25.1 (2026-06-16)
+
+- Dashboard notifications open the dashboard when clicked, instead of launching Script Editor. macOS attributes `osascript` notifications to Script Editor and gives them no click target, so when `terminal-notifier` is present the app posts through it with the dashboard URL as the click action. The dashboard install adds `terminal-notifier` via Homebrew when it's available; without it, notifications still appear through the previous path.
+
 ## 0.25.0 (2026-06-16)
 
 - The live dashboard is now a single-page app served by a small local web service, replacing the generated-HTML daemon. It updates in real time as runs start and finish, with no refresh, and adds per-procedure controls: run or queue a SOP, prepare a draft, or pick up an interactive one. Alongside are panels for parked results waiting on you, what's coming up, recent runs, and settings. The URL and token are unchanged.

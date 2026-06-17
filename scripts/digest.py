@@ -20,7 +20,7 @@ from pathlib import Path  # noqa: F401  (used for project-folder display)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from humanize import humanize_failure, humanize_source, humanize_spec
-from smbos_lib import parse_frontmatter, resolve_sop_dir
+from smbos_lib import dashboard_url, parse_frontmatter, resolve_sop_dir
 from smbos_lib import notify as lib_notify
 
 
@@ -163,7 +163,7 @@ def deliver(d, text, n_waiting, n_failures):
     if cfg.get("notify", True):
         summary = (f"{n_waiting} waiting for your OK" if n_waiting else "nothing waiting") + \
                   (f", {n_failures} thing(s) need attention" if n_failures else "")
-        if lib_notify("SmbOS digest", summary):
+        if lib_notify("SmbOS digest", summary, open_url=dashboard_url(d)):
             delivered.append("notification")
     return delivered
 

@@ -1,3 +1,4 @@
+import json
 import threading
 
 from conftest import make_sop
@@ -20,6 +21,41 @@ def test_dashboard_token_concurrent_creation_converges(tmp_path):
         t.join()
     assert len(set(results)) == 1  # no divergent tokens
     assert (tmp_path / ".dashboard-token").read_text(encoding="utf-8").strip() == results[0]
+
+
+def test_dashboard_port_and_url(tmp_path, monkeypatch):
+    monkeypatch.delenv("SMBOS_DASHBOARD_PORT", raising=False)
+    assert lib.dashboard_port(tmp_path) == 8765  # default
+    (tmp_path / "triggers.json").write_text('{"dashboard_port": 9001}', encoding="utf-8")
+    assert lib.dashboard_port(tmp_path) == 9001  # configured
+    monkeypatch.setenv("SMBOS_DASHBOARD_PORT", "9100")
+    assert lib.dashboard_port(tmp_path) == 9100  # env wins
+    url = lib.dashboard_url(tmp_path)
+    assert url == "http://127.0.0.1:9100/?t={}".format(lib.dashboard_token(tmp_path))
+    # out-of-range / wrong-type values fall back to the default rather than break binding
+    monkeypatch.delenv("SMBOS_DASHBOARD_PORT", raising=False)
+    for bad in (0, 70000, -1, True):
+        (tmp_path / "triggers.json").write_text(json.dumps({"dashboard_port": bad}), encoding="utf-8")
+        assert lib.dashboard_port(tmp_path) == 8765
+
+
+def test_terminal_notifier_falls_back_to_brew_paths(monkeypatch):
+    # Under a minimal PATH (run_sop background runs, launchd digest), shutil.which misses a brew
+    # install; the known-path fallback must still find it so the click target works.
+    monkeypatch.setattr(lib.shutil, "which", lambda name: None)
+    monkeypatch.setattr(lib.os.path, "exists",
+                        lambda p: p == "/opt/homebrew/bin/terminal-notifier")
+    assert lib._terminal_notifier() == "/opt/homebrew/bin/terminal-notifier"
+    monkeypatch.setattr(lib.os.path, "exists", lambda p: False)
+    assert lib._terminal_notifier() is None
+
+
+def test_dashboard_url_returns_none_on_token_failure(tmp_path, monkeypatch):
+    # notify() is called on error paths; a token-dir hiccup must yield None, not raise.
+    def boom(_):
+        raise PermissionError("sop dir unwritable")
+    monkeypatch.setattr(lib, "dashboard_token", boom)
+    assert lib.dashboard_url(tmp_path) is None
 
 
 def test_iter_sops_skips_runtime_dirs(library):
