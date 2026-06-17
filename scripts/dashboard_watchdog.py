@@ -34,6 +34,16 @@ def _wait_up(port, attempts=8, delay=0.5):
     return False
 
 
+def _launchctl(*args, timeout=10):
+    """Fire a launchctl subcommand, bounded so a hung launchctl can't wedge the cron watchdog.
+    The result is ignored on purpose: liveness is re-checked via the port (_wait_up), not the exit
+    code. A timeout or OS error just means this attempt did nothing, and the next */5 run retries."""
+    try:
+        subprocess.run(["launchctl", *args], capture_output=True, timeout=timeout)
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+
+
 def ensure_up(sop_dir, label=None, port=None):
     """No-op when the dashboard answers; otherwise start it and confirm. Returns (ok, msg).
 
@@ -45,13 +55,12 @@ def ensure_up(sop_dir, label=None, port=None):
     if port_up(port):
         return True, "up on {}".format(port)
     gui = "gui/{}/{}".format(os.getuid(), label)
-    subprocess.run(["launchctl", "kickstart", "-k", gui], capture_output=True)
+    _launchctl("kickstart", "-k", gui)
     if _wait_up(port):
         return True, "kickstarted; up on {}".format(port)
     # agent not loaded (e.g. just after boot, before login bootstrap): register it, then start
-    subprocess.run(["launchctl", "bootstrap", "gui/{}".format(os.getuid()),
-                    str(legacy.plist_path())], capture_output=True)
-    subprocess.run(["launchctl", "kickstart", "-k", gui], capture_output=True)
+    _launchctl("bootstrap", "gui/{}".format(os.getuid()), str(legacy.plist_path()))
+    _launchctl("kickstart", "-k", gui)
     ok = _wait_up(port)
     return ok, ("recovered on {}".format(port) if ok else "still down on {}".format(port))
 
