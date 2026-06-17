@@ -180,6 +180,94 @@ def test_task_status_clears_the_liveness_marker(tmp_path):
     assert lib.session_state(tmp_path, tid) is None  # marker gone
 
 
+def test_open_session_relaunches_an_in_flight_task(tmp_path, monkeypatch):
+    # the recovery for a stalled pickup: reopen a primed session for a task still in_flight WITHOUT
+    # re-claiming it. The task stays in_flight; the prior (dead) marker is cleared so the reopened
+    # session re-establishes liveness from scratch.
+    calls = []
+    monkeypatch.setattr(dashboard_app, "_launch_session",
+                        lambda sop_dir, prompt, task_id=None: calls.append((task_id, prompt)))
+    tid = ss.record_task(tmp_path, "ops", "review", "stalled pickup", status="in_flight")
+    lib.record_session(tmp_path, tid, 999999)  # a dead recorded session -> stalled
+    app = dashboard_app.create_app(tmp_path)
+    hdr = {"X-SMBOS-Token": lib.dashboard_token(tmp_path)}
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.post("/api/open-session", json={"task_id": tid}).status_code == 401  # no token
+        assert client.post("/api/open-session", json={"task_id": 99999}, headers=hdr).status_code == 404
+        ok = client.post("/api/open-session", json={"task_id": tid}, headers=hdr)
+        assert ok.status_code == 200 and ok.json()["status"] == "opened"
+    assert len(calls) == 1 and calls[0][0] == tid and "stalled pickup" in calls[0][1]  # primed for THIS task
+    assert ss.get_task(tmp_path, tid)["status"] == "in_flight"  # not re-claimed; stays in flight
+    assert lib.session_state(tmp_path, tid) is None  # prior marker cleared for the reopened session
+    # the reopened task reads 'live' (grace restarted by the touch), not 'stalled' -- so the row
+    # doesn't snap back to the stalled chip before the new session's hook records its marker
+    assert dashboard_app._task_state(tmp_path, ss.get_task(tmp_path, tid)) == "live"
+
+
+def test_open_session_refuses_a_non_in_flight_task(tmp_path, monkeypatch):
+    # a waiting (never picked up) or already-resolved task has no session to reopen -> 409, no launch
+    calls = []
+    monkeypatch.setattr(dashboard_app, "_launch_session", lambda *a, **k: calls.append(a))
+    tid = ss.record_task(tmp_path, "ops", "review", "not picked up", status="waiting")
+    app = dashboard_app.create_app(tmp_path)
+    hdr = {"X-SMBOS-Token": lib.dashboard_token(tmp_path)}
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.post("/api/open-session", json={"task_id": tid}, headers=hdr).status_code == 409
+    assert calls == []  # nothing launched
+
+
+def test_open_session_refuses_a_live_in_flight_task(tmp_path, monkeypatch):
+    # a LIVE in-flight task already has a running session; reopening would spawn a duplicate, so the
+    # server refuses it (409) even though it's in_flight. No marker + fresh updated_at reads 'live'.
+    calls = []
+    monkeypatch.setattr(dashboard_app, "_launch_session", lambda *a, **k: calls.append(a))
+    tid = ss.record_task(tmp_path, "ops", "review", "still working", status="in_flight")
+    app = dashboard_app.create_app(tmp_path)
+    hdr = {"X-SMBOS-Token": lib.dashboard_token(tmp_path)}
+    with TestClient(app, base_url="http://localhost") as client:
+        r = client.post("/api/open-session", json={"task_id": tid}, headers=hdr)
+        assert r.status_code == 409 and "still running" in r.json()["detail"]
+    assert calls == []  # nothing launched for a live task
+
+
+def test_open_session_preserves_marker_when_launch_fails(tmp_path, monkeypatch):
+    # if the launch raises AFTER the gates, the prior marker must NOT be cleared, so a false-stalled
+    # but still-alive session keeps its liveness handle and the task stays recoverable (in_flight).
+    def boom(*a, **k):
+        raise RuntimeError("osascript blew up")
+    monkeypatch.setattr(dashboard_app, "_launch_session", boom)
+    tid = ss.record_task(tmp_path, "ops", "review", "stalled pickup", status="in_flight")
+    lib.record_session(tmp_path, tid, 999999)  # dead marker -> stalled
+    app = dashboard_app.create_app(tmp_path)
+    hdr = {"X-SMBOS-Token": lib.dashboard_token(tmp_path)}
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.post("/api/open-session", json={"task_id": tid}, headers=hdr).status_code == 500
+    assert ss.get_task(tmp_path, tid)["status"] == "in_flight"  # still in flight, recoverable
+    assert lib.session_state(tmp_path, tid) == "stalled"  # marker NOT cleared on a failed launch
+
+
+def test_open_session_failed_relaunch_does_not_false_live_a_no_marker_task(tmp_path, monkeypatch):
+    # the no-marker grace-expired stalled case: a failed relaunch must NOT bump updated_at, or the
+    # task would falsely read 'live' for the grace window. The grace bump is deferred to success.
+    import sqlite3
+    monkeypatch.setattr(dashboard_app, "_launch_session",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    tid = ss.record_task(tmp_path, "ops", "review", "no-marker stall", status="in_flight")
+    # age it past the startup grace with no marker -> reads 'stalled'
+    raw = sqlite3.connect(str(ss.db_path(tmp_path)))
+    raw.execute("UPDATE task SET updated_at=? WHERE id=?", ("2000-01-01T00:00:00+00:00", tid))
+    raw.commit()
+    raw.close()
+    assert dashboard_app._task_state(tmp_path, ss.get_task(tmp_path, tid)) == "stalled"  # precondition
+    app = dashboard_app.create_app(tmp_path)
+    hdr = {"X-SMBOS-Token": lib.dashboard_token(tmp_path)}
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.post("/api/open-session", json={"task_id": tid}, headers=hdr).status_code == 500
+    # still stalled: updated_at was NOT bumped by the failed relaunch (no false 'live')
+    assert dashboard_app._task_state(tmp_path, ss.get_task(tmp_path, tid)) == "stalled"
+    assert ss.get_task(tmp_path, tid)["updated_at"] == "2000-01-01T00:00:00+00:00"
+
+
 def test_inflight_annotated_with_liveness(tmp_path):
     # an in_flight task with a dead recorded session reads 'stalled'; one with no marker yet but a
     # fresh claim is 'live' (startup grace), so the dot tells the truth
