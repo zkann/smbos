@@ -14,12 +14,15 @@ const crypto = require('crypto')
 const store = require('./store')
 const { token } = require('./resolve')
 
-// GET endpoints the broker answers itself, from the local store, in FastAPI's exact response shape
-// (parity-tested against the live FastAPI). settings/procedures/pending follow in later increments:
-// settings reads an environment-detected terminal, so it isn't a pure static read yet.
+// GET endpoints the broker answers itself, from the local store, in FastAPI's response shape
+// (parity-tested against the live FastAPI). Cost/autonomy numbers ride as JSON numbers, so a whole
+// dollar serializes as `1` here vs `1.0` in Python -- semantically identical after JSON.parse (what
+// the SPA does), so the parity check compares parsed values, not bytes. settings/pending follow
+// later: settings reads an environment-detected terminal, so it isn't a pure static read yet.
 const SERVED = {
   '/api/plate': (sopDir) => ({ plate: store.plate(sopDir) }),
   '/api/queue': (sopDir) => ({ queue: store.queue(sopDir) }),
+  '/api/procedures': (sopDir) => ({ procedures: store.procedures(sopDir) }),
 }
 
 // Constant-time token compare (the broker now gates the reads it serves, mirroring FastAPI's check).
