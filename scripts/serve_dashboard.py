@@ -28,9 +28,9 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from generate_dashboard import SKIP_NAMES, build_html, parse_candidates, resolve_sop_dir, sop_next
 from smbos_lib import find_sop as lib_find_sop
-from smbos_lib import (NOTES_HEADING, append_suggestion, dashboard_token, frontmatter_field,
-                       has_unrecorded_changes, is_drifted, is_interactive_only, parse_frontmatter,
-                       required_inputs, resolve_pending_file, run_lock_held,
+from smbos_lib import (NOTES_HEADING, append_suggestion, dashboard_port, dashboard_token,
+                       frontmatter_field, has_unrecorded_changes, is_drifted, is_interactive_only,
+                       parse_frontmatter, required_inputs, resolve_pending_file, run_lock_held,
                        run_sop_command, sop_declared_folder, split_frontmatter)
 from smbos_lib import queue_run as _queue_run
 
@@ -67,21 +67,6 @@ def rotate_token(sop_dir):
     except OSError:
         pass
     return get_or_create_token(sop_dir)
-
-
-def dashboard_port(sop_dir):
-    env = os.environ.get("SMBOS_DASHBOARD_PORT")
-    if env and env.isdigit():
-        return int(env)
-    cfg = Path(sop_dir) / "triggers.json"
-    if cfg.exists():
-        try:
-            v = json.loads(cfg.read_text(encoding="utf-8")).get("dashboard_port")
-            if isinstance(v, int):
-                return v
-        except (OSError, ValueError):
-            pass
-    return DEFAULT_PORT
 
 
 def stable_url(sop_dir):

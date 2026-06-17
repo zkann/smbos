@@ -293,6 +293,13 @@ def test_notify_and_lock_helpers(monkeypatch, tmp_path):
     import subprocess as sp
     monkeypatch.setattr(sp, "run", lambda cmd, **kw: (calls.append(cmd), Done())[1])
     monkeypatch.setattr(lib.sys, "platform", "darwin")
+    # terminal-notifier present: click opens the dashboard via -open, not Script Editor
+    monkeypatch.setattr(lib, "_terminal_notifier", lambda: "/usr/local/bin/terminal-notifier")
+    assert lib.notify("T", "b", open_url="http://127.0.0.1:8765/?t=tok") is True
+    assert ("terminal-notifier" in calls[-1][0] and "-open" in calls[-1]
+            and "http://127.0.0.1:8765/?t=tok" in calls[-1])
+    # absent: osascript fallback, still escapes quotes
+    monkeypatch.setattr(lib, "_terminal_notifier", lambda: None)
     assert lib.notify("T", 'say "hi"') is True
     assert "osascript" in calls[-1][0] and '\\"hi\\"' in calls[-1][-1]
     monkeypatch.setattr(lib.sys, "platform", "linux")

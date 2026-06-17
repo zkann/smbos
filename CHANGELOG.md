@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.25.1 (2026-06-16)
+
+- Dashboard notifications open the dashboard when clicked, instead of launching Script Editor. macOS attributes `osascript` notifications to Script Editor and gives them no click target, so when `terminal-notifier` is present the app posts through it with the dashboard URL as the click action. The dashboard install adds `terminal-notifier` via Homebrew when it's available; without it, notifications still appear through the previous path.
+
 ## 0.25.0 (2026-06-16)
 
 - The live dashboard is now a single-page app served by a small local web service, replacing the generated-HTML daemon. It updates in real time as runs start and finish, with no refresh, and adds per-procedure controls: run or queue a SOP, prepare a draft, or pick up an interactive one. Alongside are panels for parked results waiting on you, what's coming up, recent runs, and settings. The URL and token are unchanged.

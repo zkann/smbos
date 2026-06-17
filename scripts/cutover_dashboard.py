@@ -13,6 +13,7 @@ orchestrates the venv creation.
 """
 import os
 import plistlib
+import shutil
 import socket
 import subprocess
 import sys
@@ -223,7 +224,19 @@ def build_env(venv=VENV):
             return False, "{} failed: {}".format(cmd[0], (r.stderr or r.stdout).strip()[:400])
     if not (FRONTEND / "dist" / "index.html").exists():
         return False, "SPA build produced no dist/index.html"
+    ensure_terminal_notifier()
     return True, "environment built"
+
+
+def ensure_terminal_notifier():
+    """Best-effort: terminal-notifier lets a notification click open the dashboard (osascript
+    notifications can't, they open Script Editor). Called from the install path too, not just
+    build_env, so an upgrade install that already has a built env still gets it. Never raises."""
+    if shutil.which("brew") and not shutil.which("terminal-notifier"):
+        try:
+            subprocess.run(["brew", "install", "terminal-notifier"], capture_output=True, timeout=300)
+        except (OSError, subprocess.SubprocessError):
+            pass
 
 
 def env_ready(venv=VENV):
@@ -264,6 +277,7 @@ def main(argv=None):
     else:  # install (also the default): build only if needed, then flip
         if env_ready():
             ok, msg = True, "environment already built"
+            ensure_terminal_notifier()  # upgrade installs skip build_env; still get the notifier
         else:
             ok, msg = build_env()
         if ok:
