@@ -298,7 +298,8 @@ export default function App() {
       // success: the SSE inflight frame drops this task; clear local state
       setTaskBusy((s) => { const n = { ...s }; delete n[id]; return n })
     } catch (_) {
-      setTaskBusy((s) => ({ ...s, [id]: 'error' }))
+      // remember WHICH action failed so its own button offers the retry (not whatever's last)
+      setTaskBusy((s) => ({ ...s, [id]: `error:${status}` }))
     }
   }
 
@@ -402,23 +403,24 @@ export default function App() {
           <div className="overline">In flight</div>
           <ol className="list">
             {inflight.map((t, i) => {
-              const busy = taskBusy[t.id]
-              const working = !!busy && busy !== 'error'
+              const busy = taskBusy[t.id]                         // a status (working), or `error:<status>`
+              const working = !!busy && !String(busy).startsWith('error')
+              // each button retries its OWN action: label is its progress, its own 'retry', or normal
+              const tbtn = (status, normal, prog, primary) => (
+                <button
+                  className={`act${primary ? ' act-primary' : ''}${busy === `error:${status}` ? ' act-err' : ''}`}
+                  onClick={() => resolveTask(t.id, status)} disabled={working}>
+                  {busy === status ? prog : busy === `error:${status}` ? 'retry' : normal}
+                </button>
+              )
               return (
                 <li key={t.id ?? i}>
                   <span className="dot live" aria-hidden="true"></span>
                   <span className="subj">{t.subject}</span>
                   <span className="chip chip-inflight">in flight</span>
-                  <button className="act act-primary" onClick={() => resolveTask(t.id, 'done')} disabled={working}>
-                    {busy === 'done' ? 'done…' : 'Done'}
-                  </button>
-                  <button className="act" onClick={() => resolveTask(t.id, 'waiting')} disabled={working}>
-                    {busy === 'waiting' ? 'returning…' : 'Put back'}
-                  </button>
-                  <button className={`act${busy === 'error' ? ' act-err' : ''}`}
-                    onClick={() => resolveTask(t.id, 'dismissed')} disabled={working}>
-                    {busy === 'dismissed' ? 'dismissing…' : busy === 'error' ? 'retry' : 'Dismiss'}
-                  </button>
+                  {tbtn('done', 'Done', 'done…', true)}
+                  {tbtn('waiting', 'Put back', 'returning…')}
+                  {tbtn('dismissed', 'Dismiss', 'dismissing…')}
                 </li>
               )
             })}

@@ -639,7 +639,10 @@ def create_app(sop_dir, dist_dir=None):
             raise HTTPException(status_code=400, detail=str(exc))
         if task is None:
             raise HTTPException(status_code=404, detail="no such task")
-        ss.set_task_status(sop_dir, task["id"], target)  # SSE inflight/plate frames reflect it
+        # gate on still-in_flight (atomic): a stale row/tab clicking again after a recovery must not
+        # flip the now-resolved task into a different state. SSE inflight/plate frames reflect it.
+        if not ss.resolve_in_flight_task(sop_dir, task["id"], target):
+            raise HTTPException(status_code=409, detail="task is not in flight (already resolved?)")
         return {"status": target, "task_id": task["id"]}
 
     @app.get("/events")

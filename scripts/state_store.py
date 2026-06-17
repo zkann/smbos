@@ -396,6 +396,25 @@ def claim_task(sop_dir, task_id):
         return cur.rowcount == 1
 
 
+def resolve_in_flight_task(sop_dir, task_id, status):
+    """Move a task OUT of 'in_flight' to `status` (the dashboard recovery: waiting/done/dismissed),
+    atomically and ONLY if it's currently in_flight. Returns True iff this call made the transition;
+    False if the task wasn't in_flight (missing, or a concurrent/stale action already resolved it).
+    The conditional UPDATE is the recovery gate, the mirror of claim_task: it closes the
+    read-check-act window so a stale double-click can't turn an already-recovered task into a
+    different state. Raises StateStoreError on a bad status or a non-integer id."""
+    if status not in TASK_STATUSES:
+        raise StateStoreError(f"invalid task status {status!r}; expected one of {sorted(TASK_STATUSES)}")
+    task_id = _coerce_task_id(task_id)
+    with connect(sop_dir) as conn:
+        cur = conn.execute(
+            "UPDATE task SET status=?, updated_at=? WHERE id=? AND status='in_flight'",
+            (status, _now(), task_id),
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
 def recent_runs(sop_dir, limit=50):
     with connect(sop_dir) as conn:
         rows = conn.execute(

@@ -157,7 +157,11 @@ def test_task_status_recovers_an_in_flight_task(tmp_path):
         assert missing.status_code == 404
         ok = client.post("/api/task-status", json={"task_id": tid, "status": "waiting"}, headers=hdr)
         assert ok.status_code == 200 and ok.json()["status"] == "waiting"
-    # the task is back on the plate (recovered), not stuck in_flight
+        # a stale second click (the task is no longer in_flight) is rejected, not allowed to
+        # flip the recovered task into done/dismissed
+        stale = client.post("/api/task-status", json={"task_id": tid, "status": "done"}, headers=hdr)
+        assert stale.status_code == 409
+    # the task is back on the plate (recovered) and the stale click did not change it
     assert ss.get_task(tmp_path, tid)["status"] == "waiting"
 
 
