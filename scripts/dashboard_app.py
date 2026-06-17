@@ -228,10 +228,49 @@ def _queue_sig(sop_dir):
     return _dir_mtime_sig(qdir) if qdir.is_dir() else ()
 
 
+def _cost_estimates(sop_dir):
+    """Per-SOP cost estimate and month-to-date spend, read once from runs.jsonl so the owner sees
+    the likely cost (and how much budget is left) BEFORE clicking Run / Queue / Prepare. The
+    estimate is the MEDIAN cost_usd of that SOP's prior SUCCESSFUL (result 'ok') runs: median, not
+    mean, so a single expensive outlier doesn't skew it; only 'ok' runs, so a cheap failed/refused
+    run doesn't lowball it. Returns {sop_id: {estimate, n}} (n = runs it's based on) plus the
+    month-to-date total. Best-effort: a malformed or non-numeric line is skipped, never raised."""
+    log = Path(sop_dir) / "runs.jsonl"
+    by_sop, month_total = {}, 0.0
+    month_prefix = datetime.now(timezone.utc).strftime("%Y-%m")
+    if log.exists():
+        try:
+            lines = log.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            lines = []
+        for line in lines:
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            cost = r.get("cost_usd")
+            # exclude bool (an int subclass: a stray True would count as $1) and non-finite/negatives
+            if isinstance(cost, bool) or not isinstance(cost, (int, float)) \
+                    or not math.isfinite(cost) or cost < 0:
+                continue
+            if str(r.get("ts", "")).startswith(month_prefix):
+                month_total += cost
+            if r.get("result") == "ok":
+                by_sop.setdefault(str(r.get("sop", "")), []).append(float(cost))
+    estimates = {}
+    for sop, costs in by_sop.items():
+        costs.sort()
+        n = len(costs)
+        med = costs[n // 2] if n % 2 else (costs[n // 2 - 1] + costs[n // 2]) / 2
+        estimates[sop] = {"estimate": round(med, 4), "n": n}
+    return {"estimates": estimates, "month_to_date": round(month_total, 2)}
+
+
 def _procedures(sop_dir):
     """The SOP library for the Procedures view: each SOP with the facts the UI needs to pick its
     action (Pick up for interactive_only, Prepare for a draft, Run/Queue otherwise). The server
     re-gates at run time, so this read doesn't need drift/lock state."""
+    ests = _cost_estimates(sop_dir)["estimates"]
     out = []
     for p in lib.iter_sops(sop_dir):
         try:
@@ -245,6 +284,7 @@ def _procedures(sop_dir):
             "draft": (m.get("status") or "").strip().lower() not in ("active", "trusted"),
             "interactive": (m.get("interactive_only") or "").strip().lower() in ("true", "yes", "1"),
             "needs_inputs": bool(m.get("run_inputs")),
+            "cost": ests.get(sid),  # {estimate, n} from prior 'ok' runs, or None (no history yet)
         })
     return sorted(out, key=lambda x: x["title"].lower())
 
@@ -277,6 +317,7 @@ def _settings(sop_dir):
         "launch_permission": legacy.launch_permission(sop_dir),  # trust / ask / skip
         "terminal": legacy.preferred_terminal(sop_dir),          # terminal / iterm
         "budget": budget,
+        "spent": _cost_estimates(sop_dir)["month_to_date"],      # month-to-date, for budget headroom
     }
 
 

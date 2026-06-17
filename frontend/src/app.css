@@ -91,9 +91,14 @@ ol.list > li::before {
 .proc-inputs:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-color: var(--border-strong); }
 .procedures .list li { flex-wrap: wrap; }
 .proc-err { flex-basis: 100%; color: var(--red); font-size: 12px; padding-top: 4px; }
-.setrow { display: flex; align-items: center; gap: 10px; padding: 7px 0; }
+/* pre-run cost estimate, a quiet monospace figure between the procedure title and its actions */
+.proc-cost { font: 11px/1 ui-monospace, monospace; color: var(--muted-fg); white-space: nowrap; }
+.proc-cost-none { color: var(--subtle-fg); }
+.setrow { display: flex; align-items: center; gap: 10px; padding: 7px 0; flex-wrap: wrap; }
 .setrow label { flex: 1; color: var(--muted-fg); font-size: 13px; }
 .setrow .prefix { color: var(--muted-fg); margin-left: auto; }
+/* budget headroom line: drops to its own row under the budget input */
+.setrow .setdesc { flex-basis: 100%; color: var(--subtle-fg); font-size: 12.5px; margin-top: 2px; }
 .setrow select, .setrow input {
   font: inherit; font-size: 13px; color: var(--foreground); background: transparent;
   border: 1px solid var(--input); border-radius: 6px; padding: 6px 9px; min-width: 200px;

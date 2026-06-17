@@ -938,3 +938,68 @@ def test_procedures_skips_unreadable_sop(tmp_path):
     (tmp_path / "ops" / "bad.md").write_bytes(b"---\nid: bad\n---\n\xff\xfe not utf-8\n")
     rows = dashboard_app._procedures(tmp_path)
     assert [r["id"] for r in rows] == ["good"]  # bad skipped, no crash
+
+
+# --- pre-run cost estimate + budget headroom (cutover PR cost legibility) ---
+
+def test_cost_estimates_median_excludes_non_ok_and_non_numeric(tmp_path):
+    import json
+    rows = [
+        {"sop": "weekly-report", "result": "ok", "cost_usd": 0.10, "ts": "2026-01-01T00:00:00+00:00"},
+        {"sop": "weekly-report", "result": "ok", "cost_usd": 0.30, "ts": "2026-01-02T00:00:00+00:00"},
+        {"sop": "weekly-report", "result": "ok", "cost_usd": 0.20, "ts": "2026-01-03T00:00:00+00:00"},
+        {"sop": "weekly-report", "result": "error", "cost_usd": 9.0, "ts": "2026-01-04T00:00:00+00:00"},  # not ok
+        {"sop": "weekly-report", "result": "ok", "cost_usd": True, "ts": "2026-01-05T00:00:00+00:00"},     # bool
+        {"sop": "weekly-report", "result": "ok", "cost_usd": -1, "ts": "2026-01-06T00:00:00+00:00"},       # negative
+        {"sop": "invoice", "result": "ok", "cost_usd": 0.08, "ts": "2026-01-01T00:00:00+00:00"},
+    ]
+    lines = [json.dumps(r) for r in rows] + ["{ not json }"]  # a malformed line is skipped
+    (tmp_path / "runs.jsonl").write_text("\n".join(lines), encoding="utf-8")
+    ests = dashboard_app._cost_estimates(tmp_path)["estimates"]
+    assert ests["weekly-report"] == {"estimate": 0.20, "n": 3}  # median of 0.1/0.2/0.3; non-ok/bool/neg excluded
+    assert ests["invoice"] == {"estimate": 0.08, "n": 1}
+
+
+def test_cost_estimates_month_to_date_current_month_only(tmp_path):
+    import json
+    from datetime import datetime, timezone
+    m = datetime.now(timezone.utc).strftime("%Y-%m")
+    rows = [
+        {"sop": "a", "result": "ok", "cost_usd": 0.10, "ts": m + "-05T00:00:00+00:00"},
+        {"sop": "a", "result": "error", "cost_usd": 0.25, "ts": m + "-06T00:00:00+00:00"},  # spend counts any result
+        {"sop": "a", "result": "ok", "cost_usd": 9.99, "ts": "2000-01-01T00:00:00+00:00"},  # other month, excluded
+    ]
+    (tmp_path / "runs.jsonl").write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+    assert dashboard_app._cost_estimates(tmp_path)["month_to_date"] == 0.35
+
+
+def test_cost_estimates_no_log(tmp_path):
+    assert dashboard_app._cost_estimates(tmp_path) == {"estimates": {}, "month_to_date": 0.0}
+
+
+def test_procedures_includes_cost_estimate(tmp_path):
+    import json
+    _make_sop(tmp_path, "weekly-report")
+    (tmp_path / "runs.jsonl").write_text("\n".join(
+        json.dumps({"sop": "weekly-report", "result": "ok", "cost_usd": c,
+                    "ts": "2026-01-0%dT00:00:00+00:00" % i}) for i, c in enumerate([0.10, 0.14], start=1)),
+        encoding="utf-8")
+    app = dashboard_app.create_app(tmp_path)
+    token = lib.dashboard_token(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        procs = {p["id"]: p for p in client.get("/api/procedures", params={"t": token}).json()["procedures"]}
+    assert procs["weekly-report"]["cost"] == {"estimate": 0.12, "n": 2}  # median of 0.10/0.14
+
+
+def test_settings_includes_month_to_date_spend(tmp_path):
+    import json
+    from datetime import datetime, timezone
+    m = datetime.now(timezone.utc).strftime("%Y-%m")
+    (tmp_path / "runs.jsonl").write_text(
+        json.dumps({"sop": "a", "result": "ok", "cost_usd": 0.12, "ts": m + "-10T00:00:00+00:00"}),
+        encoding="utf-8")
+    app = dashboard_app.create_app(tmp_path)
+    token = lib.dashboard_token(tmp_path)
+    with TestClient(app, base_url="http://localhost") as client:
+        s = client.get("/api/settings", params={"t": token}).json()["settings"]
+    assert s["spent"] == 0.12
