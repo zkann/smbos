@@ -128,11 +128,12 @@ def _liveness_sig(sop_dir):
 STARTUP_GRACE_SECONDS = _positive_env("SMBOS_INFLIGHT_GRACE", "120.0")
 
 
-def _task_state(sop_dir, task):
+def _task_state(sop_dir, task, verify=True):
     """Derived liveness for one in_flight task: 'live' if its picked-up session is running (or
     just launched, within the startup grace), else 'stalled' (the window closed/crashed, or no
-    session ever recorded after the grace). Mirrors the running/stalled split runs already get."""
-    state = lib.session_state(sop_dir, task["id"])
+    session ever recorded after the grace). Mirrors the running/stalled split runs already get.
+    `verify` is forwarded to session_state (the per-second SSE poll passes False; see _session_sig)."""
+    state = lib.session_state(sop_dir, task["id"], verify=verify)
     if state is not None:
         return state
     # No marker yet: live during the startup grace, then stalled (session never came up).
@@ -143,20 +144,21 @@ def _task_state(sop_dir, task):
     return "live" if age < STARTUP_GRACE_SECONDS else "stalled"
 
 
-def _inflight_with_liveness(sop_dir):
+def _inflight_with_liveness(sop_dir, verify=True):
     """in_flight tasks, each annotated with a derived `state` ('live'|'stalled') so the dashboard's
     in-flight dot tells the truth instead of always showing green."""
     rows = ss.in_flight(sop_dir)
     for t in rows:
-        t["state"] = _task_state(sop_dir, t)
+        t["state"] = _task_state(sop_dir, t, verify=verify)
     return rows
 
 
 def _session_sig(sop_dir):
     """A comparable signature of in_flight liveness. A session dying writes nothing to the DB, so
     the SSE loop watches this (like _liveness_sig for runs) to push a fresh inflight frame when a
-    task flips live -> stalled."""
-    return tuple((t["id"], t["state"]) for t in _inflight_with_liveness(sop_dir))
+    task flips live -> stalled. verify=False keeps this once-a-second poll cheap (os.kill only, no
+    ps fork): it catches the common window-closed flip; the rendered frame does the full check."""
+    return tuple((t["id"], t["state"]) for t in _inflight_with_liveness(sop_dir, verify=False))
 
 
 def _pending(sop_dir):

@@ -52,6 +52,31 @@ def test_pid_reuse_guard(tmp_path, live_pid):
     assert lib.session_state(tmp_path, 8) == "stalled"
 
 
+def test_ps_flake_at_read_keeps_a_live_session_live(tmp_path, live_pid, monkeypatch):
+    # a transient ps failure (returns None) must NOT flip a still-running session to stalled:
+    # os.kill already confirmed it's alive, so an inconclusive sig check stays 'live'
+    lib.record_session(tmp_path, 7, live_pid)
+    monkeypatch.setattr(lib, "_proc_start_sig", lambda pid: None)  # ps can't answer this time
+    assert lib.session_state(tmp_path, 7) == "live"
+
+
+def test_verify_false_skips_the_reuse_check(tmp_path, live_pid):
+    # the per-second SSE poll passes verify=False: alive pid -> live without the ps fork, even if
+    # the recorded sig wouldn't match
+    lib.record_session(tmp_path, 8, live_pid)
+    lib._session_marker(tmp_path, 8).write_text(f"{live_pid}\nmismatched sig\n", encoding="utf-8")
+    assert lib.session_state(tmp_path, 8, verify=False) == "live"
+    assert lib.session_state(tmp_path, 8, verify=True) == "stalled"  # full check still catches it
+
+
+def test_corrupt_pid_does_not_raise(tmp_path):
+    # an out-of-range pid in a hand-corrupted marker must not raise out of os.kill; reads stalled
+    marker = lib._session_marker(tmp_path, 9)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("99999999999999999999\nx\n", encoding="utf-8")
+    assert lib.session_state(tmp_path, 9) == "stalled"
+
+
 def test_malformed_marker_is_none(tmp_path):
     marker = lib._session_marker(tmp_path, 9)
     marker.parent.mkdir(parents=True, exist_ok=True)

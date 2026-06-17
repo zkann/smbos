@@ -319,10 +319,12 @@ def _proc_start_sig(pid):
 
 def record_session(sop_dir, task_id, pid):
     """Record that the picked-up session for `task_id` is running as `pid`. Stores the pid and its
-    start-time signature (the reuse guard) so session_state can later tell live from stalled."""
+    start-time signature (the reuse guard) so session_state can later tell live from stalled. The
+    sig is captured with a retry: an empty sig would disable the reuse guard for this marker, and
+    we're recording a process we know just started, so ps should answer."""
     marker = _session_marker(sop_dir, task_id)
     marker.parent.mkdir(parents=True, exist_ok=True)
-    sig = _proc_start_sig(pid) or ""
+    sig = _proc_start_sig(pid) or _proc_start_sig(pid) or ""
     tmp = marker.with_suffix(".tmp")
     tmp.write_text(f"{int(pid)}\n{sig}\n", encoding="utf-8")
     os.replace(tmp, marker)  # atomic: a reader never sees a half-written marker
@@ -332,17 +334,24 @@ def clear_session(sop_dir, task_id):
     """Drop the liveness marker for `task_id` (called when the task leaves in_flight)."""
     try:
         _session_marker(sop_dir, task_id).unlink()
-    except (FileNotFoundError, ValueError):
-        pass
+    except (OSError, ValueError):
+        pass  # already gone, or unlinkable: clearing is best-effort, never fail the caller
 
 
-def session_state(sop_dir, task_id):
+def session_state(sop_dir, task_id, verify=True):
     """Liveness of the picked-up session for `task_id`: 'live' if its process is still running,
     'stalled' if the process is gone (or its pid was recycled), or None if no marker was recorded
-    yet (the brief window between pickup and the session's hook firing). Never raises."""
+    yet (the brief window between pickup and the session's hook firing). Never raises.
+
+    `os.kill` is the authoritative, cheap signal for the common case (the window was closed -> the
+    process is gone -> stalled). `verify` toggles the pid-reuse guard (a ps fork): the SSE loop
+    polls this every second and only needs the cheap existence check, so it passes verify=False;
+    the rendered frame passes verify=True. The reuse guard declares stalled ONLY on a positive
+    start-time mismatch -- a ps that can't answer is inconclusive, so a live session that survived
+    a ps flake stays 'live' rather than flickering to a false 'stalled'."""
     try:
         raw = _session_marker(sop_dir, task_id).read_text(encoding="utf-8").splitlines()
-    except (FileNotFoundError, NotADirectoryError, ValueError, OSError):
+    except (OSError, ValueError):
         return None
     if not raw:
         return None
@@ -355,10 +364,14 @@ def session_state(sop_dir, task_id):
         os.kill(pid, 0)  # signal 0: existence check, doesn't actually signal
     except ProcessLookupError:
         return "stalled"               # the session's process is gone
+    except (OverflowError, ValueError):
+        return "stalled"               # a corrupt / out-of-range pid: not a live session
     except PermissionError:
         pass                           # alive but not ours; fall through to the reuse check
-    if recorded_sig and _proc_start_sig(pid) != recorded_sig:
-        return "stalled"               # pid was recycled into a different process
+    if verify and recorded_sig:
+        cur = _proc_start_sig(pid)
+        if cur is not None and cur != recorded_sig:
+            return "stalled"           # POSITIVE mismatch only: pid recycled into another process
     return "live"
 
 
