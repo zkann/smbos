@@ -131,8 +131,9 @@ def test_fit_width_shrinks_overlap_else_none():
     assert tray.fit_width(0, 1500, 0, 1600, panel_width=360) == 1240
     # window already left of the panel: no change
     assert tray.fit_width(0, 1000, 0, 1600, panel_width=360) is None
-    # never below the floor
-    assert tray.fit_width(1300, 300, 0, 1600, panel_width=360, min_width=320) == 320
+    # window starts past the panel boundary (x=1300 > limit_right=1240): width alone can't clear
+    # it, so skip rather than shrink to a width that still extends under the panel
+    assert tray.fit_width(1300, 300, 0, 1600, panel_width=360, min_width=320) is None
 
 
 def test_menu_identity_first_and_info_rows_disabled():
@@ -189,6 +190,13 @@ def test_fetch_counts_returns_none_when_daemon_down(tmp_path):
 def test_compute_state_maps_none_to_down():
     assert tray.compute_state(None) == {"status": "down"}
     assert tray.compute_state({"waiting": 1, "inflight": 0, "coming": 0})["status"] == "ok"
+
+
+def test_main_sop_dir_without_value_exits_cleanly():
+    # `--sop-dir` with no folder after it should exit with a message, not crash with IndexError.
+    with pytest.raises(SystemExit) as e:
+        tray.main(["--sop-dir"])
+    assert "folder" in str(e.value).lower()
 
 
 def test_accessibility_target_is_the_real_interpreter():

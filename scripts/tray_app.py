@@ -209,12 +209,18 @@ def peek_should_hide(mx, vx, vw, width=PANEL_WIDTH, hysteresis=PEEK_HYSTERESIS):
 
 
 def fit_width(win_x, win_w, vx, vw, panel_width=PANEL_WIDTH, min_width=320):
-    """The width a neighbor window should shrink to so its right edge clears the docked panel,
-    or None if it already fits. x-only, so the AX top-left/Cocoa bottom-left mismatch is moot."""
+    """The width a neighbor window should shrink to so its right edge clears the docked panel.
+    None when it already fits, OR when width alone can't clear it (the window starts so far right
+    that even min_width would still extend under the panel, so we skip it rather than shrink to a
+    width that doesn't actually uncover the panel). x-only, so AX top-left vs Cocoa bottom-left is
+    moot."""
     limit_right = vx + vw - panel_width
     if win_x + win_w <= limit_right:
-        return None
-    return max(min_width, limit_right - win_x)
+        return None  # already clears the panel
+    target = limit_right - win_x
+    if target < min_width:
+        return None  # starts too far right; shrinking width wouldn't clear the panel
+    return target
 
 
 # --- menu ---------------------------------------------------------------------------------
@@ -788,7 +794,10 @@ def main(argv=None):
     cmd = next((a for a in argv if a in {"install", "uninstall"}), None)
     positional = [a for a in argv if a not in {"install", "uninstall"} and not a.startswith("-")]
     if "--sop-dir" in argv:
-        sop_dir = Path(argv[argv.index("--sop-dir") + 1]).expanduser().resolve()
+        i = argv.index("--sop-dir")
+        if i + 1 >= len(argv) or argv[i + 1].startswith("-"):
+            sys.exit("Please pass a folder after --sop-dir.")
+        sop_dir = Path(argv[i + 1]).expanduser().resolve()
     elif positional:
         sop_dir = Path(positional[0]).expanduser().resolve()
     else:
@@ -796,8 +805,11 @@ def main(argv=None):
 
     if cmd == "install":
         ok, msg = install_agent(sop_dir)
-        print("SmbOS menu-bar tray installed (starts at login)." if ok
-              else "Install failed: {}".format(msg))
+        if ok:
+            print("SmbOS menu-bar tray installed and starts at login.")
+        else:
+            # plain lead; keep the detail because this is the setup CLI, not owner dashboard copy
+            print("Could not install the menu-bar tray.{}".format(" ({})".format(msg) if msg else ""))
         sys.exit(0 if ok else 1)
     if cmd == "uninstall":
         print("Menu-bar tray removed." if uninstall_agent() else "No menu-bar tray was installed.")
