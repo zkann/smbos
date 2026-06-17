@@ -88,3 +88,39 @@ test('procedures/queue skip a non-UTF-8 file (parity: Python read_text raises ->
   assert.deepEqual(store.queue(d), [])                              // bad queue file skipped
 })
 
+test('pending: status-pending files, with title, candidates, and next', () => {
+  const d = tmpSop(); fs.mkdirSync(path.join(d, 'pending')); fs.mkdirSync(path.join(d, 'ops'))
+  fs.writeFileSync(path.join(d, 'ops', 'dedupe.md'), '---\nid: dedupe\nnext: apply-dedupe, other\n---\n')
+  fs.writeFileSync(path.join(d, 'pending', 'p1.md'),
+    '---\nstatus: pending\nsop: dedupe\n---\n# Pending: Review 3 dupes\n\n## Candidates\n```json\n' +
+    '[{"title":"A","url":"http://a","note":"n"},{"url":"http://b"}]\n```\n')
+  fs.writeFileSync(path.join(d, 'pending', 'p2.md'), '---\nstatus: approved\nsop: x\n---\n# Done\n')  // not pending
+  const items = store.pending(d)
+  assert.equal(items.length, 1)
+  assert.equal(items[0].file, 'p1.md')
+  assert.equal(items[0].sop, 'dedupe')
+  assert.equal(items[0].title, 'Review 3 dupes')  // '# Pending: ' prefix stripped
+  assert.deepEqual(items[0].candidates, [
+    { title: 'A', url: 'http://a', note: 'n' },
+    { title: 'http://b', url: 'http://b', note: '' },  // title falls back to url
+  ])
+  assert.equal(items[0].next, 'apply-dedupe')  // first id of the source SOP's next: list
+})
+
+test('pending candidates: a non-string field coerces to empty; title falls back to url', () => {
+  const d = tmpSop(); fs.mkdirSync(path.join(d, 'pending'))
+  fs.writeFileSync(path.join(d, 'pending', 'p.md'),
+    '---\nstatus: pending\nsop: s\n---\n# T\n## Candidates\n```json\n' +
+    '[{"title":["a","b"],"url":"http://u","note":42}]\n```\n')  // title is a list, note a number
+  assert.deepEqual(store.pending(d)[0].candidates, [{ title: 'http://u', url: 'http://u', note: '' }])
+})
+
+test('pending: no candidates -> next null; plain heading -> title; no dir -> empty', () => {
+  const d = tmpSop(); fs.mkdirSync(path.join(d, 'pending'))
+  fs.writeFileSync(path.join(d, 'pending', 'p.md'), '---\nstatus: pending\nsop: s\n---\n# Just a note\n')
+  const items = store.pending(d)
+  assert.equal(items[0].title, 'Just a note')
+  assert.deepEqual(items[0].candidates, []); assert.equal(items[0].next, null)
+  assert.deepEqual(store.pending(tmpSop()), [])
+})
+
