@@ -285,137 +285,162 @@ export default function App() {
     }
   }
 
+  // ?compact: the menu-bar side panel loads this. The "needs you" zone (plate + pending) stays at
+  // top; the rest collapses. The full browser dashboard (no ?compact) is unchanged.
+  const compact = new URLSearchParams(window.location.search).has('compact')
+
+  // Panel bodies, computed once and arranged by layout below, so the full dashboard and the
+  // compact sidebar share one source of truth for each panel's contents.
+  const plateBody = plate.length === 0 ? (
+    <p className="empty">Nothing waiting for you right now.</p>
+  ) : (
+    <ol className="list">
+      {plate.map((t, i) => (
+        <li key={t.id ?? i}>
+          <span className="subj" title={t.subject}>{t.subject}</span>
+          <span className={`chip chip-${t.status}`}>{t.status}</span>
+          <button
+            className={`pickup${launch[t.id] === 'error' ? ' pickup-err' : ''}`}
+            onClick={() => pickUp(t.id)}
+            disabled={t.id == null || launch[t.id] === 'launching'}
+          >
+            {pickupLabel(t.id)}
+          </button>
+        </li>
+      ))}
+    </ol>
+  )
+
+  const pendingBody = (
+    <ol className="list">
+      {pending.map((it, i) => (
+        <li key={it.file ?? i} className="pending-li">
+          <div className="pending-head">
+            <span className="subj" title={it.title}>{it.title}</span>
+            <span className="chip chip-pending">pending</span>
+            {it.candidates.length === 0 ? (
+              <>
+                <button className="act act-primary" onClick={() => resolve(it.file, 'approve')}
+                  disabled={pend[it.file] === 'approve' || pend[it.file] === 'discard'}>
+                  {pend[it.file] === 'approve' ? 'approving…' : 'Approve'}
+                </button>
+                <button className={`act${pend[it.file] === 'error' ? ' act-err' : ''}`}
+                  onClick={() => resolve(it.file, 'discard')}
+                  disabled={pend[it.file] === 'approve' || pend[it.file] === 'discard'}>
+                  {pend[it.file] === 'discard' ? 'discarding…' : pend[it.file] === 'error' ? 'retry' : 'Reject'}
+                </button>
+              </>
+            ) : (
+              <span className="chip">{it.candidates.length} to pick</span>
+            )}
+          </div>
+          {it.candidates.length > 0 && (
+            <ul className="candidates">
+              {it.candidates.map((c, j) => {
+                const key = `${it.file}#${j}`
+                return (
+                  <li key={j}>
+                    <span className="subj cand" title={c.title}>{c.title}</span>
+                    <button className={`act${pend[key] === 'error' ? ' act-err' : ''}`}
+                      onClick={() => applyItem(it.file, j)}
+                      disabled={pend[key] === 'applying' || pend[key] === 'applied'}>
+                      {pend[key] === 'applying' ? 'applying…'
+                        : pend[key] === 'applied' ? 'applied ✓'
+                        : pend[key] === 'error' ? 'retry' : 'Apply'}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </li>
+      ))}
+    </ol>
+  )
+
+  const inflightBody = (
+    <ol className="list">
+      {inflight.map((t, i) => (
+        <li key={t.id ?? i}>
+          <span className="dot live" aria-hidden="true"></span>
+          <span className="subj" title={t.subject}>{t.subject}</span>
+          <span className="chip chip-inflight">in flight</span>
+        </li>
+      ))}
+    </ol>
+  )
+
+  const queuedBody = (
+    <ol className="list">
+      {queued.map((q, i) => (
+        <li key={q.file ?? i}>
+          <span className="subj">{q.sop}{q.project ? ` · ${q.project}` : ''}</span>
+          <span className="chip">queued</span>
+          <button className={`act${qbusy[q.file] === 'error' ? ' act-err' : ''}`}
+            onClick={() => dequeue(q.file)} disabled={qbusy[q.file] === 'canceling'}>
+            {qbusy[q.file] === 'canceling' ? 'canceling…' : qbusy[q.file] === 'error' ? 'retry' : 'Cancel'}
+          </button>
+        </li>
+      ))}
+    </ol>
+  )
+
+  const recentBody = runs.length === 0 ? (
+    <p className="empty">No runs yet.</p>
+  ) : (
+    <ul className="list">
+      {runs.map((r, i) => {
+        const dot = runDot(r)
+        return (
+          <li key={r.id ?? i}>
+            <span className={`dot ${dot}`} aria-hidden="true"></span>
+            <span className="subj">{r.sop_id}</span>
+            <span className={`chip${dot === 'stalled' ? ' chip-stalled' : ''}`}>{runLabel(r)}</span>
+          </li>
+        )
+      })}
+    </ul>
+  )
+
+  // A panel as a plain <section> (full dashboard), or in compact mode (when collapsible) a
+  // tap-to-open <details> with the count on its summary, so the sidebar stays glanceable.
+  const section = (label, count, body, collapsible = false) =>
+    compact && collapsible ? (
+      <details className="panel collapsible">
+        <summary className="overline">{label}{count ? <span className="count">{count}</span> : null}</summary>
+        {body}
+      </details>
+    ) : (
+      <section className="panel">
+        <div className="overline">{label}</div>
+        {body}
+      </section>
+    )
+
   return (
-    <main>
+    <main className={compact ? 'compact' : undefined}>
       {stale && <div className="banner" role="status">Reconnecting, data may be stale</div>}
 
-      <header><span className="dot live" aria-hidden="true"></span><h1>SmbOS</h1></header>
-
-      <section className="panel">
-        <div className="overline">On your plate</div>
-        {plate.length === 0 ? (
-          <p className="empty">Nothing waiting for you right now.</p>
-        ) : (
-          <ol className="list">
-            {plate.map((t, i) => (
-              <li key={t.id ?? i}>
-                <span className="subj">{t.subject}</span>
-                <span className={`chip chip-${t.status}`}>{t.status}</span>
-                <button
-                  className={`pickup${launch[t.id] === 'error' ? ' pickup-err' : ''}`}
-                  onClick={() => pickUp(t.id)}
-                  disabled={t.id == null || launch[t.id] === 'launching'}
-                >
-                  {pickupLabel(t.id)}
-                </button>
-              </li>
-            ))}
-          </ol>
+      <header>
+        <span className="dot live" aria-hidden="true"></span>
+        <h1>SmbOS</h1>
+        {compact && (
+          <span className="counts">
+            <span className={plate.length ? undefined : 'count-zero'}>{plate.length} waiting</span>
+            <span className={inflight.length ? undefined : 'count-zero'}>{inflight.length} in flight</span>
+            <span className={queued.length ? undefined : 'count-zero'}>{queued.length} coming up</span>
+          </span>
         )}
-      </section>
+      </header>
 
-      {pending.length > 0 && (
-        <section className="panel">
-          <div className="overline">Needs your eyes</div>
-          <ol className="list">
-            {pending.map((it, i) => (
-              <li key={it.file ?? i} className="pending-li">
-                <div className="pending-head">
-                  <span className="subj">{it.title}</span>
-                  <span className="chip chip-pending">pending</span>
-                  {it.candidates.length === 0 ? (
-                    <>
-                      <button className="act act-primary" onClick={() => resolve(it.file, 'approve')}
-                        disabled={pend[it.file] === 'approve' || pend[it.file] === 'discard'}>
-                        {pend[it.file] === 'approve' ? 'approving…' : 'Approve'}
-                      </button>
-                      <button className={`act${pend[it.file] === 'error' ? ' act-err' : ''}`}
-                        onClick={() => resolve(it.file, 'discard')}
-                        disabled={pend[it.file] === 'approve' || pend[it.file] === 'discard'}>
-                        {pend[it.file] === 'discard' ? 'discarding…' : pend[it.file] === 'error' ? 'retry' : 'Reject'}
-                      </button>
-                    </>
-                  ) : (
-                    <span className="chip">{it.candidates.length} to pick</span>
-                  )}
-                </div>
-                {it.candidates.length > 0 && (
-                  <ul className="candidates">
-                    {it.candidates.map((c, j) => {
-                      const key = `${it.file}#${j}`
-                      return (
-                        <li key={j}>
-                          <span className="subj cand">{c.title}</span>
-                          <button className={`act${pend[key] === 'error' ? ' act-err' : ''}`}
-                            onClick={() => applyItem(it.file, j)}
-                            disabled={pend[key] === 'applying' || pend[key] === 'applied'}>
-                            {pend[key] === 'applying' ? 'applying…'
-                              : pend[key] === 'applied' ? 'applied ✓'
-                              : pend[key] === 'error' ? 'retry' : 'Apply'}
-                          </button>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                )}
-              </li>
-            ))}
-          </ol>
-        </section>
-      )}
+      {/* needs you: plate + pending, always visible in both layouts */}
+      {section('On your plate', null, plateBody)}
+      {pending.length > 0 && section('Needs your eyes', null, pendingBody)}
 
-      {inflight.length > 0 && (
-        <section className="panel">
-          <div className="overline">In flight</div>
-          <ol className="list">
-            {inflight.map((t, i) => (
-              <li key={t.id ?? i}>
-                <span className="dot live" aria-hidden="true"></span>
-                <span className="subj">{t.subject}</span>
-                <span className="chip chip-inflight">in flight</span>
-              </li>
-            ))}
-          </ol>
-        </section>
-      )}
-
-      {queued.length > 0 && (
-        <section className="panel">
-          <div className="overline">Coming up</div>
-          <ol className="list">
-            {queued.map((q, i) => (
-              <li key={q.file ?? i}>
-                <span className="subj">{q.sop}{q.project ? ` · ${q.project}` : ''}</span>
-                <span className="chip">queued</span>
-                <button className={`act${qbusy[q.file] === 'error' ? ' act-err' : ''}`}
-                  onClick={() => dequeue(q.file)} disabled={qbusy[q.file] === 'canceling'}>
-                  {qbusy[q.file] === 'canceling' ? 'canceling…' : qbusy[q.file] === 'error' ? 'retry' : 'Cancel'}
-                </button>
-              </li>
-            ))}
-          </ol>
-        </section>
-      )}
-
-      <section className="panel">
-        <div className="overline">Recent runs</div>
-        {runs.length === 0 ? (
-          <p className="empty">No runs yet.</p>
-        ) : (
-          <ul className="list">
-            {runs.map((r, i) => {
-              const dot = runDot(r)
-              return (
-                <li key={r.id ?? i}>
-                  <span className={`dot ${dot}`} aria-hidden="true"></span>
-                  <span className="subj">{r.sop_id}</span>
-                  <span className={`chip${dot === 'stalled' ? ' chip-stalled' : ''}`}>{runLabel(r)}</span>
-                </li>
-              )
-            })}
-          </ul>
-        )}
-      </section>
+      {/* secondary: collapsible in the sidebar, plain sections in the full dashboard */}
+      {inflight.length > 0 && section('In flight', inflight.length, inflightBody, true)}
+      {queued.length > 0 && section('Coming up', queued.length, queuedBody, true)}
+      {section('Recent runs', null, recentBody, true)}
 
       {procedures.length > 0 && (
         <details className="panel procedures" onToggle={(e) => { if (e.target.open) refreshProcedures() }}>
