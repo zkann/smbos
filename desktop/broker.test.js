@@ -189,6 +189,9 @@ test('POST actions: header-token gated; maps each engine exit code to the HTTP s
     '  task-status) echo \'{"detail":"conflict"}\'; exit 9;;\n' +  // -> 409
     '  queue) echo \'{"status":"queued","sop":"x"}\'; exit 0;;\n' +  // -> 200
     '  autonomy) echo \'{"id":"x","autonomy":"with_me"}\'; exit 0;;\n' +  // -> 200
+    '  launch) echo \'{"status":"launched","task_id":1}\'; exit 0;;\n' +  // -> 200
+    '  launch-sop) echo \'{"status":"launched","sop":"x"}\'; exit 0;;\n' +  // -> 200
+    '  apply-item) echo \'{"status":"applied"}\'; exit 0;;\n' +  // -> 200
     '  run) case "$3" in\n' +
     '    refuse) echo \'{"detail":"nope"}\'; exit 3;;\n' +     // -> 409
     '    boom) echo \'{"detail":"boom"}\'; exit 1;;\n' +       // -> 500
@@ -213,7 +216,10 @@ test('POST actions: header-token gated; maps each engine exit code to the HTTP s
     assert.equal((await post('/api/task-status', '{"task_id":1,"status":"done"}', T)).status, 409)  // exit 9 -> 409
     assert.equal((await post('/api/queue', '{"id":"x"}', T)).status, 200)               // dispatched -> 200
     assert.equal((await post('/api/autonomy', '{"id":"x","level":"with_me"}', T)).status, 200)  // dispatched -> 200
-    assert.equal((await post('/api/autonomy', '{}', {})).status, 401)                   // every action is token-gated
+    assert.equal((await post('/api/launch', '{"task_id":1}', T)).status, 200)           // dispatched -> 200
+    assert.equal((await post('/api/launch-sop', '{"id":"x"}', T)).status, 200)          // dispatched -> 200
+    assert.equal((await post('/api/apply-item', '{"file":"p.md","index":0}', T)).status, 200)  // dispatched -> 200
+    assert.equal((await post('/api/launch', '{}', {})).status, 401)                     // every action is token-gated
     broker.close()
   } finally {
     // restore, but DELETE if originally unset (env[x] = undefined would set the string "undefined")

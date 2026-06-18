@@ -15,13 +15,58 @@ Stdlib-only, runs under the system Python 3.9 like the rest of the engine.
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 import run_gate
 import sop_writes
+import launch_actions
+import serve_dashboard as legacy
 import smbos_lib as lib
 import state_store as ss
+
+
+def _launch(args):
+    try:
+        result = launch_actions.launch_task(args.sop_dir, args.task_id)
+    except launch_actions.BadTaskId as exc:
+        print(json.dumps({"detail": str(exc)}))
+        return 8
+    except launch_actions.UnknownTask as exc:
+        print(json.dumps({"detail": str(exc)}))
+        return 4
+    except launch_actions.AlreadyPickedUp as exc:
+        print(json.dumps({"detail": str(exc)}))
+        return 9
+    except launch_actions.LaunchRefused as exc:
+        print(json.dumps({"detail": str(exc)}))
+        return 8
+    print(json.dumps(result))
+    return 0
+
+
+def _launch_sop(args):
+    try:
+        result = launch_actions.launch_sop(args.sop_dir, args.id)
+    except launch_actions.UnknownTask as exc:
+        print(json.dumps({"detail": str(exc)}))
+        return 4
+    except launch_actions.LaunchRefused as exc:
+        print(json.dumps({"detail": str(exc)}))
+        return 8
+    print(json.dumps(result))
+    return 0
+
+
+def _apply_item(args):
+    try:
+        result = launch_actions.apply_item(args.sop_dir, args.file, args.index)
+    except launch_actions.LaunchRefused as exc:
+        print(json.dumps({"detail": str(exc)}))
+        return 8
+    print(json.dumps(result))
+    return 0
 
 
 def _queue(args):
@@ -119,6 +164,12 @@ def _task_status(args):
 
 
 def main(argv=None):
+    # serve_dashboard.LAUNCH_CWD defaults to THIS process's cwd at import -- for the broker-spawned
+    # engine that's the Electron/app dir, not a meaningful launch folder. A folder-less launch-sop /
+    # apply-item would otherwise open Claude there. Use the configured $SMBOS_LAUNCH_CWD (inherited
+    # from the broker), else $HOME -> the fallback treats home as 'no particular project'. Only the
+    # engine process does this; the FastAPI dashboard never runs main(), so its LAUNCH_CWD stands.
+    legacy.LAUNCH_CWD = os.environ.get("SMBOS_LAUNCH_CWD") or str(Path.home())
     ap = argparse.ArgumentParser(prog="engine_action")
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="gate + spawn a run of an SOP")
@@ -160,6 +211,22 @@ def main(argv=None):
     au.add_argument("id")
     au.add_argument("--level", default="")
     au.set_defaults(func=_autonomy)
+
+    lt = sub.add_parser("launch", help="pick up a plate task (open a primed session)")
+    lt.add_argument("sop_dir")
+    lt.add_argument("--task-id", dest="task_id", default="")
+    lt.set_defaults(func=_launch)
+
+    ls = sub.add_parser("launch-sop", help="pick up an interactive procedure")
+    ls.add_argument("sop_dir")
+    ls.add_argument("id")
+    ls.set_defaults(func=_launch_sop)
+
+    ai = sub.add_parser("apply-item", help="apply one candidate from a parked result")
+    ai.add_argument("sop_dir")
+    ai.add_argument("--file", default="")
+    ai.add_argument("--index", default="")
+    ai.set_defaults(func=_apply_item)
 
     args = ap.parse_args(argv)
     try:
