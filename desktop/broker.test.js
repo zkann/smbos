@@ -153,8 +153,8 @@ test('serves /api/plate from the store (token-gated), forwards unknown paths', a
   assert.equal(ok.status, 200)
   assert.deepEqual(JSON.parse(ok.body).plate.map((r) => r.subject), ['on plate'])
   assert.equal(forwarded, false, 'a served read never hits the upstream')
-  // an unserved path still forwards to FastAPI (settings stays forwarded -- env-detected terminal)
-  await request(brPort, '/api/settings?t=tok')
+  // an unhandled path still forwards to FastAPI: the broker proxies anything it doesn't own
+  await request(brPort, '/api/unknown?t=tok')
   assert.equal(forwarded, true)
   upstream.close(); broker.close()
 })
@@ -193,6 +193,8 @@ test('POST actions: header-token gated; maps each engine exit code to the HTTP s
     '  open-session) echo \'{"status":"opened","task_id":1}\'; exit 0;;\n' +  // -> 200
     '  launch-sop) echo \'{"status":"launched","sop":"x"}\'; exit 0;;\n' +  // -> 200
     '  apply-item) echo \'{"status":"applied"}\'; exit 0;;\n' +  // -> 200
+    '  settings-get) echo \'{"settings":{"launch_permission":"trust","terminal":"terminal","budget":0,"spent":0}}\'; exit 0;;\n' +  // GET via engine
+    '  settings-set) echo \'{"settings":{"launch_permission":"ask","terminal":"terminal","budget":0,"spent":0}}\'; exit 0;;\n' +  // -> 200
     '  run) case "$3" in\n' +
     '    refuse) echo \'{"detail":"nope"}\'; exit 3;;\n' +     // -> 409
     '    boom) echo \'{"detail":"boom"}\'; exit 1;;\n' +       // -> 500
@@ -221,6 +223,9 @@ test('POST actions: header-token gated; maps each engine exit code to the HTTP s
     assert.equal((await post('/api/open-session', '{"task_id":1}', T)).status, 200)     // dispatched -> 200
     assert.equal((await post('/api/launch-sop', '{"id":"x"}', T)).status, 200)          // dispatched -> 200
     assert.equal((await post('/api/apply-item', '{"file":"p.md","index":0}', T)).status, 200)  // dispatched -> 200
+    assert.equal((await post('/api/settings', '{"key":"launch_permission","value":"ask"}', T)).status, 200)  // POST dispatched
+    assert.equal((await request(brPort, '/api/settings?t=tok')).status, 200)            // GET via the engine, ?t= gated
+    assert.equal((await request(brPort, '/api/settings')).status, 401)                  // GET needs the token
     assert.equal((await post('/api/launch', '{}', {})).status, 401)                     // every action is token-gated
     broker.close()
   } finally {

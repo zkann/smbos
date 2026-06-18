@@ -39,6 +39,7 @@ import generate_dashboard as gd  # collect_pending/collect_queued/parse_candidat
 import run_gate  # the run gate + spawn, shared with the engine-action CLI the broker invokes
 import sop_writes  # set_autonomy (gate + fingerprint re-stamp), shared with the engine-action CLI
 import launch_actions  # _launch_prompt + _launch_session + launch_task/launch_sop/apply_item, shared with the engine CLI
+import settings_io  # read_settings + write_setting, shared with the engine CLI
 import smbos_lib as lib
 import state_store as ss
 import serve_dashboard as legacy  # reuse the daemon's osascript launch + apply_item (launch-coupled)
@@ -289,33 +290,9 @@ async def _body_obj(request):
     return body
 
 
-def _settings(sop_dir):
-    """Current owner config for the Settings panel, reusing the daemon's config readers
-    (they read triggers.json). Digest controls are deferred to the launchd-cutover PR."""
-    budget = 0.0
-    try:
-        tj = json.loads((Path(sop_dir) / "triggers.json").read_text(encoding="utf-8"))
-        if isinstance(tj, dict):
-            parsed = float(tj.get("monthly_budget_usd") or 0)
-            # float('nan'/'inf') parses without raising; clamp so a bad stored value can't break
-            # JSON serialization of this response (set_budget rejects them, but be defensive)
-            budget = parsed if (math.isfinite(parsed) and parsed >= 0) else 0.0
-    except (OSError, ValueError, TypeError):
-        pass
-    return {
-        "launch_permission": legacy.launch_permission(sop_dir),  # trust / ask / skip
-        "terminal": legacy.preferred_terminal(sop_dir),          # terminal / iterm
-        "budget": budget,
-        "spent": _cost_estimates(sop_dir)["month_to_date"],      # month-to-date, for budget headroom
-    }
-
-
-# Per-setting writers (reuse the daemon's validators; each raises ValueError on a bad value).
-_SETTERS = {
-    "launch_permission": legacy.set_launch_permission,
-    "terminal": legacy.set_terminal,
-    "budget": legacy.set_budget,
-}
+# Settings read + apply-on-change write now live in settings_io (stdlib), shared with the engine-action
+# CLI the broker invokes, so the app + the broker read/write settings through ONE implementation.
+_settings = settings_io.read_settings
 
 
 # The run gate + spawn now live in run_gate (stdlib), shared with the engine-action CLI the Node
@@ -383,12 +360,6 @@ def create_app(sop_dir, dist_dir=None):
     sop_dir = Path(sop_dir)
     dist_dir = Path(dist_dir) if dist_dir is not None else DIST_DIR
     token = lib.dashboard_token(sop_dir)
-    # Serialize settings writes: the reused setters do an unlocked read-modify-replace of the whole
-    # triggers.json, so two concurrent apply-on-change POSTs (e.g. a terminal select that also blurs
-    # the budget field) could each read the old file and the later replace drop the earlier setting.
-    # Created lazily on first use: asyncio.Lock() binds to the running loop, and on Python 3.9
-    # constructing one with no running loop raises "no current event loop" (the system py CI catches).
-    settings_lock = None
     # The folder the dashboard was launched from, captured ONCE at startup (mirrors the legacy
     # daemon's LAUNCH_CWD): a queued folder-less SOP inherits it. Read live, Path.cwd() would be the
     # same value (the server never chdir's), but binding it once is explicit and future-proof.
@@ -475,20 +446,16 @@ def create_app(sop_dir, dist_dir=None):
         # gated by an inline confirm in the SPA, not here -- the owner authoritatively owns config.
         check(request.headers.get("x-smbos-token", ""))
         body = await _body_obj(request)
-        setter = _SETTERS.get(str(body.get("key") or ""))
-        if setter is None:
-            raise HTTPException(status_code=400, detail="unknown setting")
-        nonlocal settings_lock
-        if settings_lock is None:  # first request: a loop is running, so this is py3.9-safe
-            settings_lock = asyncio.Lock()
-        async with settings_lock:  # one read-modify-replace of triggers.json at a time
-            try:
-                await asyncio.to_thread(setter, sop_dir, body.get("value"))
-            except ValueError as exc:  # bad posture / non-numeric or negative budget / bad terminal
-                raise HTTPException(status_code=400, detail=str(exc))
-            except OSError:            # triggers.json write failed (perms / disk) -- server-side
-                raise HTTPException(status_code=500, detail="could not save the setting")
-            return {"settings": _settings(sop_dir)}  # echo the full new state so the SPA syncs
+        # write_setting serializes the triggers.json read-modify-replace with a cross-process flock
+        # (shared with the engine CLI), so the in-process asyncio.Lock is no longer needed.
+        try:
+            return await asyncio.to_thread(settings_io.write_setting, sop_dir, body.get("key"), body.get("value"))
+        except settings_io.BadSetting as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except ValueError as exc:  # bad posture / non-numeric or negative budget / bad terminal
+            raise HTTPException(status_code=400, detail=str(exc))
+        except OSError:            # triggers.json write failed (perms / disk) -- server-side
+            raise HTTPException(status_code=500, detail="could not save the setting")
 
     @app.post("/api/run")
     async def run(request: Request):

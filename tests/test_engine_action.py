@@ -182,6 +182,20 @@ def test_engine_launch_sop_and_apply_item(tmp_path, monkeypatch):
     assert engine_action.main(["apply-item", str(tmp_path), "--file=p.md", "--index=0"]) == 0
 
 
+def test_engine_settings_get_and_set(tmp_path, capsys):
+    import json as _json
+    assert engine_action.main(["settings-set", str(tmp_path), "--key=nope", "--value=x"]) == 8     # unknown key -> 400
+    assert engine_action.main(["settings-set", str(tmp_path), "--key=budget", "--value=-5"]) == 8   # bad value -> 400
+    capsys.readouterr()
+    assert engine_action.main(["settings-set", str(tmp_path), "--key=budget", "--value=25"]) == 0   # applied
+    applied = _json.loads(capsys.readouterr().out)["settings"]
+    assert applied["budget"] == 25.0                                                                # echoes the new state
+    assert engine_action.main(["settings-get", str(tmp_path)]) == 0
+    read = _json.loads(capsys.readouterr().out)["settings"]
+    assert read["budget"] == 25.0                                                                   # persisted
+    assert set(read) == {"launch_permission", "terminal", "budget", "spent"}
+
+
 def test_engine_open_session(tmp_path, monkeypatch):
     import launch_actions
     import smbos_lib as lib
