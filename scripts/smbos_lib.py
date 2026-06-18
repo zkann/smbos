@@ -390,6 +390,32 @@ def session_state(sop_dir, task_id, verify=True):
     return "live"
 
 
+def _inflight_grace_seconds():
+    """The startup grace ($SMBOS_INFLIGHT_GRACE, default 120s): a just-picked-up task with no marker
+    yet reads 'live', not 'stalled', until the session's hook records one. Clamped positive + finite
+    (a non-positive/inf value would mis-classify forever)."""
+    try:
+        v = float(os.environ.get("SMBOS_INFLIGHT_GRACE", "120.0"))
+        return v if (v > 0 and v != float("inf")) else 120.0
+    except (TypeError, ValueError):
+        return 120.0
+
+
+def task_state(sop_dir, task, verify=True):
+    """Derived liveness for one in_flight task: 'live' if its picked-up session is running (or just
+    launched, within the startup grace), else 'stalled' (the window closed/crashed, or no session
+    ever recorded after the grace). Shared by the dashboard's inflight read and the open-session
+    recovery (only a stalled session is reopenable)."""
+    state = session_state(sop_dir, task["id"], verify=verify)
+    if state is not None:
+        return state
+    try:
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(task["updated_at"])).total_seconds()
+    except (KeyError, ValueError, TypeError):
+        return "live"  # can't age it: don't cry stalled
+    return "live" if age < _inflight_grace_seconds() else "stalled"
+
+
 # --- Run gating + parked-result helpers --------------------------------------
 # Relocated from serve_dashboard so both the legacy daemon and the FastAPI app
 # share one implementation (the daemon now imports these). Pure: each takes a
