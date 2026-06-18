@@ -11,19 +11,36 @@
 // dashboard_token: $SMBOS_DASHBOARD_PORT, else triggers.json dashboard_port, else 8765; token from
 // <sop_dir>/.dashboard-token; sop_dir from $SOP_DIR, else ~/sops.
 
-const { app, BrowserWindow, Tray, Menu, Notification, nativeImage } = require('electron')
+const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, screen, globalShortcut } = require('electron')
 const path = require('path')
+const fs = require('fs')
 const http = require('http')
 const { dashboardPort, token, sopDir } = require('./resolve')
 const { createBroker } = require('./broker')
 
 const POLL_MS = 5000          // tray/notification poll cadence (matches the live mirror's calm cadence)
+const DOCK_WIDTH = 400        // sidebar width when docked to a screen edge (~standard sidebar footprint)
+const FLOAT_SIZE = { width: 480, height: 860 }  // the normal (undocked) floating window
+const TOGGLE_HOTKEY = 'Control+Command+S'  // global show/hide; ^⌘S is rarely a system/app global
 
 let win = null
 let tray = null
 let lastPlateCount = null  // null until the first successful poll, so we don't notify on startup
 let broker = null
 let brokerPort = null      // the broker's bound port; the window + poll talk to the broker, not FastAPI
+let docked = true          // sidebar mode: right-edge, always-on-top, all-Spaces (the default the user asked for)
+
+// Persist the dock choice across restarts (userData is the standard per-app store).
+function prefsFile() { return path.join(app.getPath('userData'), 'window-prefs.json') }
+function loadPrefs() {
+  try {
+    const p = JSON.parse(fs.readFileSync(prefsFile(), 'utf8'))
+    if (p && typeof p.docked === 'boolean') docked = p.docked
+  } catch (_) { /* no prefs yet: keep the default (docked) */ }
+}
+function savePrefs() {
+  try { fs.writeFileSync(prefsFile(), JSON.stringify({ docked })) } catch (_) { /* best-effort */ }
+}
 
 // The renderer and the tray poll go through the BROKER (Phase 2), which forwards to FastAPI. The
 // token is still FastAPI's; the broker passes ?t= and the header token straight through.
@@ -33,12 +50,56 @@ function brokerUrl(pathname = '/') {
   return u.toString()
 }
 
+// Pin the window to the right edge of the window's CURRENT display, full work-area height. Keying off
+// the window (not the cursor) keeps a re-pin after a display change from flinging it to whichever
+// screen the pointer happens to be on, and clamps to the nearest remaining display if one is unplugged.
+function dockToRightEdge() {
+  if (!win) return
+  const area = screen.getDisplayMatching(win.getBounds()).workArea
+  win.setBounds({ x: area.x + area.width - DOCK_WIDTH, y: area.y, width: DOCK_WIDTH, height: area.height })
+}
+
+// Apply the current dock state to the live window. Docked = an edge-pinned sidebar that floats over
+// other windows and rides along to every Space; undocked = a normal floating window. (The NSPanel
+// `type: 'panel'` -- set at creation -- is what lets it sit over full-screen apps without stealing
+// focus from your editor either way.)
+function applyDockState() {
+  if (!win) return
+  const wasVisible = win.isVisible()  // toggling flags/geometry must not surface a deliberately-hidden panel
+  if (docked) {
+    win.setAlwaysOnTop(true, 'floating')
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+    dockToRightEdge()
+  } else {
+    win.setAlwaysOnTop(false)
+    win.setVisibleOnAllWorkspaces(false)
+    win.setSize(FLOAT_SIZE.width, FLOAT_SIZE.height)
+    win.center()
+  }
+  if (!wasVisible && win.isVisible()) win.hide()  // setAlwaysOnTop(false) can resurface a hidden window
+}
+
+function setDocked(next) {
+  docked = next
+  savePrefs()
+  // type:'panel' is fixed at window creation, so flipping modes REBUILDS the window rather than just
+  // repositioning the same panel: docked -> an NSPanel sidebar, undocked -> a normal activating window
+  // (its own z-order, one Space). createWindow reads `docked` for the type and applies the geometry.
+  if (win) { win.destroy(); win = null }
+  createWindow()
+  refreshTrayMenu()
+}
+
 function createWindow() {
-  if (win) { win.show(); win.focus(); return }
+  // a panel is non-activating, so show() (not focus) is the right nudge; re-apply the dock state first
+  // so "Open dashboard" always normalizes geometry (e.g. after a display change while hidden)
+  if (win) { applyDockState(); win.show(); return }
   win = new BrowserWindow({
-    width: 480,
-    height: 860,
+    ...FLOAT_SIZE,
     title: 'SmbOS',
+    // macOS NSPanel only when docked: floats over full-screen apps, all Spaces, no focus-steal.
+    // Undocked rebuilds WITHOUT it, so it's a normal activating window (own z-order, one Space).
+    ...(docked ? { type: 'panel' } : {}),
     backgroundColor: '#09090b',  // the dashboard's --background, so there's no white flash on load
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -49,6 +110,14 @@ function createWindow() {
   })
   win.loadURL(brokerUrl('/'))
   win.on('closed', () => { win = null })  // keep the app alive in the tray when the window closes
+  applyDockState()  // honor the persisted dock/float choice on every (re)open
+}
+
+// Auto-hide convention: the global hotkey shows the panel if hidden, hides it if already showing.
+function toggleWindowVisible() {
+  if (!win) { createWindow(); return }
+  if (win.isVisible()) win.hide()
+  else win.show()
 }
 
 // GET a token-gated JSON endpoint through the broker. Resolves null on any failure (server down, bad
@@ -96,18 +165,28 @@ async function pollPlate() {
   lastPlateCount = n
 }
 
+function refreshTrayMenu() {
+  if (!tray) return
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Open dashboard', click: createWindow },
+    // one item that reflects + flips the state (don't strand the user in one mode)
+    docked
+      ? { label: 'Undock (floating window)', click: () => setDocked(false) }
+      : { label: 'Dock to right edge', click: () => setDocked(true) },
+    { label: `Show / hide (${TOGGLE_HOTKEY.replace('Control+Command+', '⌃⌘')})`, click: toggleWindowVisible },
+    { label: 'Reload', click: () => { if (win) win.loadURL(brokerUrl('/')) } },
+    { type: 'separator' },
+    { label: 'Quit SmbOS', click: () => app.quit() },
+  ]))
+}
+
 function createTray() {
   const icon = nativeImage.createFromPath(path.join(__dirname, 'assets', 'iconTemplate.png'))
   icon.setTemplateImage(true)  // macOS tints a template image for light/dark menu bars
   tray = new Tray(icon)
   tray.setToolTip('SmbOS')
   tray.on('click', createWindow)
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Open dashboard', click: createWindow },
-    { label: 'Reload', click: () => { if (win) win.loadURL(brokerUrl('/')) } },
-    { type: 'separator' },
-    { label: 'Quit SmbOS', click: () => app.quit() },
-  ]))
+  refreshTrayMenu()
 }
 
 app.whenReady().then(() => {
@@ -127,8 +206,20 @@ app.whenReady().then(() => {
   const bindPort = Number.isInteger(wantPort) && wantPort >= 0 && wantPort <= 65535 ? wantPort : 0
   broker.listen(bindPort, '127.0.0.1', () => {
     brokerPort = broker.address().port
+    loadPrefs()        // restore the dock/float choice before the window opens
     createWindow()
     createTray()
+    // Global show/hide (the auto-hide convention). Best-effort: a registration clash just means no
+    // hotkey, not a crash -- the tray item does the same thing.
+    if (!globalShortcut.register(TOGGLE_HOTKEY, toggleWindowVisible)) {
+      console.error(`SmbOS: could not register the ${TOGGLE_HOTKEY} hotkey (in use); use the tray instead`)
+    }
+    // Re-pin to the edge when the display layout changes (resolution change / a monitor unplugged),
+    // so the docked panel can't be stranded off-screen.
+    const repin = () => { if (docked) dockToRightEdge() }
+    screen.on('display-metrics-changed', repin)
+    screen.on('display-removed', repin)
+    screen.on('display-added', repin)
     pollPlate()
     setInterval(pollPlate, POLL_MS)
   })
@@ -139,5 +230,8 @@ app.whenReady().then(() => {
 // the tray menu / Cmd-Q.
 app.on('window-all-closed', () => { /* intentionally keep running in the tray */ })
 
-// Release the broker's port on quit so a restart can re-bind cleanly.
-app.on('will-quit', () => { if (broker) { broker.close(); broker = null } })
+// Release the broker's port + the global hotkey on quit so a restart can re-bind cleanly.
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll()
+  if (broker) { broker.close(); broker = null }
+})
