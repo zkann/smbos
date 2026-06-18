@@ -22,9 +22,31 @@ from pathlib import Path
 import run_gate
 import sop_writes
 import launch_actions
+import settings_io
 import serve_dashboard as legacy
 import smbos_lib as lib
 import state_store as ss
+
+
+def _settings_get(args):
+    print(json.dumps({"settings": settings_io.read_settings(args.sop_dir)}))
+    return 0
+
+
+def _settings_set(args):
+    try:
+        result = settings_io.write_setting(args.sop_dir, args.key, args.value)
+    except settings_io.BadSetting as exc:
+        print(json.dumps({"detail": str(exc)}))
+        return 8
+    except ValueError as exc:  # bad posture / non-numeric or negative budget / bad terminal
+        print(json.dumps({"detail": str(exc)}))
+        return 8
+    except OSError:
+        print(json.dumps({"detail": "could not save the setting"}))
+        return 1
+    print(json.dumps(result))
+    return 0
 
 
 def _launch(args):
@@ -251,6 +273,16 @@ def main(argv=None):
     osess.add_argument("sop_dir")
     osess.add_argument("--task-id", dest="task_id", default="")
     osess.set_defaults(func=_open_session)
+
+    sg = sub.add_parser("settings-get", help="read the owner settings")
+    sg.add_argument("sop_dir")
+    sg.set_defaults(func=_settings_get)
+
+    sset = sub.add_parser("settings-set", help="apply one owner setting")
+    sset.add_argument("sop_dir")
+    sset.add_argument("--key", default="")
+    sset.add_argument("--value", default="")
+    sset.set_defaults(func=_settings_set)
 
     args = ap.parse_args(argv)
     try:

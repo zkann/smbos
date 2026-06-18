@@ -77,12 +77,14 @@ function actionRequest(pathname, sopDir, body) {
       return { argv: ['dequeue', sopDir, '--file=' + String(body.file || '')] }
     case '/api/task-status':
       return { argv: ['task-status', sopDir, '--task-id=' + String(body.task_id || ''), '--status=' + String(body.status || '')] }
+    case '/api/settings':
+      return { argv: ['settings-set', sopDir, '--key=' + String(body.key || ''), '--value=' + String(body.value ?? '')] }
     default:
       return null
   }
 }
 
-const ACTION_PATHS = new Set(['/api/run', '/api/queue', '/api/autonomy', '/api/launch', '/api/open-session', '/api/launch-sop', '/api/apply-item', '/api/resolve', '/api/dequeue', '/api/task-status'])
+const ACTION_PATHS = new Set(['/api/run', '/api/queue', '/api/autonomy', '/api/launch', '/api/open-session', '/api/launch-sop', '/api/apply-item', '/api/resolve', '/api/dequeue', '/api/task-status', '/api/settings'])
 const EXIT_STATUS = { 0: 200, 3: 409, 4: 404, 8: 400, 9: 409 }  // engine exit code -> HTTP status; anything else -> 500
 
 // GET endpoints the broker answers itself, in FastAPI's response shape (parity-tested against the
@@ -191,6 +193,21 @@ function createBroker({ targetHost = '127.0.0.1', targetPort, sopDir }) {
         })
       }, () => sendJson(400, { detail: 'could not read the request body' }))  // readBody rejection ONLY
         .catch(() => { try { if (!res.headersSent) sendJson(500, { detail: 'internal error' }) } catch (_) { /* sent */ } })
+      return
+    }
+    // GET /api/settings is answered via the engine (its terminal field is env-detected, not a pure
+    // file read), token-gated by ?t= like the other reads.
+    if (req.method === 'GET' && pathname === '/api/settings' && sopDir) {
+      const t = new URL(req.url, 'http://x').searchParams.get('t')
+      if (!tokenOk(t, token({ SOP_DIR: sopDir }))) {
+        res.writeHead(401, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ detail: 'bad or missing token' }))
+        return
+      }
+      actions.runAction(['settings-get', sopDir]).then(({ code, json }) => {
+        res.writeHead(code === 0 ? 200 : 500, { 'content-type': 'application/json' })
+        res.end(JSON.stringify(code === 0 ? (json || {}) : { detail: 'could not read the settings' }))
+      }).catch(() => { try { if (!res.headersSent) { res.writeHead(500); res.end() } } catch (_) { /* sent */ } })
       return
     }
     const serve = req.method === 'GET' && sopDir ? SERVED[pathname] : undefined
