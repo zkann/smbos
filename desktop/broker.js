@@ -38,16 +38,30 @@ function readBody(req, limit = 1 << 20, timeoutMs = 15000) {
 // POST action routes -> { argv, input } for the engine CLI. A value that could begin with '-' uses
 // the --opt=value form so argparse never misparses it as an option; the run id is slug-sanitized
 // (the engine re-sanitizes). Returns null for an unknown path.
+const sanitizeId = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9-]/g, '').replace(/^-+/, '')  // slug, no leading '-' (engine re-sanitizes)
+
 function actionRequest(pathname, sopDir, body) {
   switch (pathname) {
     case '/api/run': {
-      const id = String(body.id || '').toLowerCase().replace(/[^a-z0-9-]/g, '').replace(/^-+/, '')
-      const argv = ['run', sopDir, id]
+      const argv = ['run', sopDir, sanitizeId(body.id)]
       if (String(body.mode || '').trim().toLowerCase() === 'prepare') argv.push('--prepare')
       const inputs = String(body.inputs || '').trim()
       if (inputs) argv.push('--inputs-stdin')  // inputs ride on stdin (unbounded; no argparse misparse)
       return { argv, input: inputs }
     }
+    case '/api/queue': {
+      const argv = ['queue', sopDir, sanitizeId(body.id), '--scope=' + String(body.scope || 'here')]
+      // 'Queue here' persists a project: folder that LATER launches the run's session. The broker's
+      // own cwd (an Electron app dir, maybe /) is NOT a meaningful launch folder, so pass it only when
+      // the desktop app sets $SMBOS_LAUNCH_CWD; otherwise omit it -> the engine uses None and a
+      // folder-less SOP just gets no project (never an unrelated directory).
+      if (process.env.SMBOS_LAUNCH_CWD) argv.push('--launch-cwd=' + process.env.SMBOS_LAUNCH_CWD)
+      const inputs = String(body.inputs || '').trim()
+      if (inputs) argv.push('--inputs-stdin')
+      return { argv, input: inputs }
+    }
+    case '/api/autonomy':
+      return { argv: ['autonomy', sopDir, sanitizeId(body.id), '--level=' + String(body.level || '')] }
     case '/api/resolve':
       return { argv: ['resolve', sopDir, '--file=' + String(body.file || ''), '--decision=' + String(body.decision || '')] }
     case '/api/dequeue':
@@ -59,7 +73,7 @@ function actionRequest(pathname, sopDir, body) {
   }
 }
 
-const ACTION_PATHS = new Set(['/api/run', '/api/resolve', '/api/dequeue', '/api/task-status'])
+const ACTION_PATHS = new Set(['/api/run', '/api/queue', '/api/autonomy', '/api/resolve', '/api/dequeue', '/api/task-status'])
 const EXIT_STATUS = { 0: 200, 3: 409, 4: 404, 8: 400, 9: 409 }  // engine exit code -> HTTP status; anything else -> 500
 
 // GET endpoints the broker answers itself, in FastAPI's response shape (parity-tested against the

@@ -86,6 +86,43 @@ def test_engine_run_inputs_from_stdin(tmp_path, capsys, monkeypatch):
     assert captured["inputs"] == "--leading-dash and spaces"  # stripped, passed through, not a flag
 
 
+def test_engine_autonomy_gate_and_write(tmp_path):
+    (tmp_path / "ops").mkdir()
+    (tmp_path / "ops" / "act.md").write_text("---\nid: act\ntitle: A\nstatus: active\n---\n# A\n", encoding="utf-8")
+    (tmp_path / "ops" / "wip.md").write_text("---\nid: wip\ntitle: W\nstatus: draft\n---\n# W\n", encoding="utf-8")
+    assert engine_action.main(["autonomy", str(tmp_path), "act", "--level=bogus"]) == 8       # 400 bad level
+    assert engine_action.main(["autonomy", str(tmp_path), "nope", "--level=with_me"]) == 4     # 404 unknown
+    assert engine_action.main(["autonomy", str(tmp_path), "wip", "--level=on_its_own"]) == 9   # 409 draft
+    assert engine_action.main(["autonomy", str(tmp_path), "act", "--level=with_me"]) == 0
+    import smbos_lib as lib
+    assert lib.autonomy_level(str(tmp_path), "act") == "with_me"  # persisted to frontmatter
+
+
+def test_engine_autonomy_refuses_drift_and_restamps(tmp_path):
+    # the trust property THROUGH the engine path (stdlib test job): a clean write re-stamps; a body
+    # that drifted out-of-band makes the next write refuse (SopDrifted -> exit 9 -> 409), not bless it.
+    import smbos_lib as lib
+    (tmp_path / "ops").mkdir()
+    p = tmp_path / "ops" / "act.md"
+    p.write_text("---\nid: act\ntitle: A\nstatus: active\n---\n# A\nbody\n", encoding="utf-8")
+    meta, body = lib.split_frontmatter(p.read_text(encoding="utf-8"))
+    p.write_text(lib.set_frontmatter_fields(p.read_text(encoding="utf-8"),
+                 {"content_hash": lib.content_fingerprint(body, meta)}), encoding="utf-8")  # stamp it
+    assert lib.has_unrecorded_changes(str(tmp_path), "act") is False
+    assert engine_action.main(["autonomy", str(tmp_path), "act", "--level=prepare_ask"]) == 0
+    assert lib.has_unrecorded_changes(str(tmp_path), "act") is False  # re-stamped, not drift
+    p.write_text(p.read_text(encoding="utf-8") + "\nout-of-band edit\n", encoding="utf-8")
+    assert engine_action.main(["autonomy", str(tmp_path), "act", "--level=on_its_own"]) == 9  # drift -> 409
+
+
+def test_engine_queue(tmp_path):
+    (tmp_path / "ops").mkdir()
+    (tmp_path / "ops" / "act.md").write_text("---\nid: act\ntitle: A\nstatus: active\n---\n# A\n", encoding="utf-8")
+    assert engine_action.main(["queue", str(tmp_path), "nope"]) == 8  # unknown task -> 400
+    assert engine_action.main(["queue", str(tmp_path), "act"]) == 0
+    assert any((tmp_path / "queue").glob("*.md"))  # a queue file was written
+
+
 def test_engine_run_internal_error_is_caught(tmp_path, capsys, monkeypatch):
     # an unexpected failure in the engine -> exit 1 (the broker maps this to 500), never an unhandled crash
     def boom(*a, **k):

@@ -19,8 +19,39 @@ import sys
 from pathlib import Path
 
 import run_gate
+import sop_writes
 import smbos_lib as lib
 import state_store as ss
+
+
+def _queue(args):
+    raw = sys.stdin.read() if args.inputs_stdin else (args.inputs or "")
+    inputs = raw.strip() or None
+    try:
+        sid, project = lib.queue_run(args.sop_dir, args.id, inputs=inputs,
+                                     scope=args.scope or "here", launch_cwd=args.launch_cwd or None)
+    except ValueError as exc:  # unknown task
+        print(json.dumps({"detail": str(exc)}))
+        return 8
+    print(json.dumps({"status": "queued", "sop": sid, "project": Path(project).name if project else ""}))
+    return 0
+
+
+def _autonomy(args):
+    try:
+        result = sop_writes.set_autonomy(args.sop_dir, args.id, args.level)
+    except sop_writes.BadLevel as exc:
+        print(json.dumps({"detail": str(exc)}))
+        return 8
+    except sop_writes.UnknownSop as exc:
+        print(json.dumps({"detail": str(exc)}))
+        return 4
+    except (sop_writes.DraftNotAllowed, sop_writes.SopDrifted) as exc:
+        print(json.dumps({"detail": str(exc)}))
+        return 9
+    # OSError/ValueError on the write -> the top-level handler -> exit 1 -> 500 (matches FastAPI)
+    print(json.dumps(result))
+    return 0
 
 
 def _run(args):
@@ -114,6 +145,21 @@ def main(argv=None):
     ts.add_argument("--task-id", dest="task_id", default="")
     ts.add_argument("--status", default="")
     ts.set_defaults(func=_task_status)
+
+    q = sub.add_parser("queue", help="enqueue a run for later")
+    q.add_argument("sop_dir")
+    q.add_argument("id")
+    q.add_argument("--inputs", default=None)
+    q.add_argument("--inputs-stdin", action="store_true")
+    q.add_argument("--scope", default="here")
+    q.add_argument("--launch-cwd", dest="launch_cwd", default=None)
+    q.set_defaults(func=_queue)
+
+    au = sub.add_parser("autonomy", help="set a procedure's autonomy dial")
+    au.add_argument("sop_dir")
+    au.add_argument("id")
+    au.add_argument("--level", default="")
+    au.set_defaults(func=_autonomy)
 
     args = ap.parse_args(argv)
     try:
