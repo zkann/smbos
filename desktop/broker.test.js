@@ -176,6 +176,33 @@ test('a served read is DENIED when the token file is missing/empty (fails closed
   upstream.close(); broker.close()
 })
 
+test('POST /api/run: header-token gated; maps the engine exit code to the HTTP status', async () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'smbos-run-'))
+  fs.writeFileSync(path.join(d, '.dashboard-token'), 'tok')
+  // a stub "engine": /bin/sh reads argv [stub, run, sopDir, id, ...]; branch on the id ($3)
+  const stub = path.join(d, 'stub.sh')
+  fs.writeFileSync(stub, 'case "$3" in\n  refuse) echo \'{"detail":"nope"}\'; exit 3;;\n  boom) echo \'{"detail":"boom"}\'; exit 1;;\n  *) echo "{\\"status\\":\\"started\\",\\"sop\\":\\"$3\\"}"; exit 0;;\nesac\n')
+  const prevPy = process.env.SMBOS_PYTHON, prevEng = process.env.SMBOS_ENGINE
+  process.env.SMBOS_PYTHON = '/bin/sh'; process.env.SMBOS_ENGINE = stub
+  try {
+    const broker = createBroker({ targetPort: 9, sopDir: d })  // targetPort unused: /api/run is handled, not forwarded
+    const brPort = await listen(broker)
+    const post = (body, headers) => request(brPort, '/api/run', { method: 'POST', body, headers })
+    assert.equal((await post('{"id":"x"}', {})).status, 401)                        // no token
+    assert.equal((await post('not json', { 'x-smbos-token': 'tok' })).status, 400)  // bad body
+    assert.equal((await post('{"id":"refuse"}', { 'x-smbos-token': 'tok' })).status, 409)  // engine exit 3 -> refused
+    assert.equal((await post('{"id":"boom"}', { 'x-smbos-token': 'tok' })).status, 500)    // engine exit 1 -> error
+    const ok = await post('{"id":"weekly"}', { 'x-smbos-token': 'tok' })
+    assert.equal(ok.status, 200)
+    assert.equal(JSON.parse(ok.body).sop, 'weekly')                                 // engine exit 0 -> 200 body
+    broker.close()
+  } finally {
+    // restore, but DELETE if originally unset (env[x] = undefined would set the string "undefined")
+    if (prevPy === undefined) delete process.env.SMBOS_PYTHON; else process.env.SMBOS_PYTHON = prevPy
+    if (prevEng === undefined) delete process.env.SMBOS_ENGINE; else process.env.SMBOS_ENGINE = prevEng
+  }
+})
+
 test('rejects a non-loopback Host (DNS-rebinding defense) before forwarding', async () => {
   let reached = false
   const upstream = http.createServer((req, res) => { reached = true; res.end('ok') })

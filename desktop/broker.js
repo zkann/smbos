@@ -14,7 +14,26 @@ const crypto = require('crypto')
 const store = require('./store')
 const liveness = require('./liveness')
 const sse = require('./sse')
+const actions = require('./actions')
 const { token } = require('./resolve')
+
+// POST action endpoints the broker owns (Phase 4): it gates the HTTP (Host + HEADER token, the CSRF
+// posture the writes use) then invokes the Python engine-action CLI, which reuses the exact stdlib
+// gate/spawn -- no FastAPI in the action path, no re-implemented cage in Node.
+function readBody(req, limit = 1 << 20, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    const chunks = []
+    let len = 0
+    const timer = setTimeout(() => { reject(new Error('body timeout')); req.destroy() }, timeoutMs)  // slow-loris guard
+    req.on('data', (c) => {
+      len += c.length  // bytes
+      if (len > limit) { clearTimeout(timer); reject(new Error('body too large')); req.destroy(); return }
+      chunks.push(c)  // buffer the raw chunks; decode once at the end so a multibyte char split
+    })                // across a TCP chunk boundary isn't corrupted
+    req.on('end', () => { clearTimeout(timer); resolve(Buffer.concat(chunks).toString('utf8')) })
+    req.on('error', (e) => { clearTimeout(timer); reject(e) })
+  })
+}
 
 // GET endpoints the broker answers itself, in FastAPI's response shape (parity-tested against the
 // live FastAPI). The static reads come from the store; inflight/runs add the Node-derived liveness
@@ -87,6 +106,36 @@ function createBroker({ targetHost = '127.0.0.1', targetPort, sopDir }) {
       try { sse.createEventStream(req, res, sopDir) } catch (_) {
         try { if (!res.headersSent) res.writeHead(500); res.end() } catch (_) { /* already closed */ }
       }
+      return
+    }
+    // POST /api/run (Phase 4): gate the HTTP, then invoke the engine. HEADER token (the writes' CSRF
+    // posture), not ?t=, matching FastAPI's check(request.headers["x-smbos-token"]).
+    if (req.method === 'POST' && pathname === '/api/run' && sopDir) {
+      if (!tokenOk(req.headers['x-smbos-token'], token({ SOP_DIR: sopDir }))) {
+        res.writeHead(401, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ detail: 'bad or missing token' }))
+        return
+      }
+      const sendJson = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)) }
+      readBody(req).then(async (raw) => {
+        let body
+        try { body = JSON.parse(raw) } catch (_) { return sendJson(400, { detail: 'invalid JSON body' }) }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) return sendJson(400, { detail: 'body must be a JSON object' })
+        const id = String(body.id || '').toLowerCase().replace(/[^a-z0-9-]/g, '').replace(/^-+/, '')  // engine re-sanitizes
+        const inputs = String(body.inputs || '').trim()
+        const prepare = String(body.mode || '').trim().toLowerCase() === 'prepare'
+        const argv = ['run', sopDir, id]
+        if (prepare) argv.push('--prepare')
+        // inputs ride on STDIN (not argv): avoids the ARG_MAX limit for long owner inputs and the
+        // argparse "looks like an option" misparse of a dash-leading value -- matches FastAPI's
+        // in-process pass-through.
+        if (inputs) argv.push('--inputs-stdin')
+        const { code, json } = await actions.runAction(argv, inputs || '')
+        if (code === 0) sendJson(200, json || {})
+        else if (code === 3) sendJson(409, json || { detail: 'refused' })       // gate refusal
+        else sendJson(500, json || { detail: 'the engine could not start that run' })
+      }, () => sendJson(400, { detail: 'could not read the request body' }))  // readBody rejection ONLY
+        .catch(() => { try { if (!res.headersSent) sendJson(500, { detail: 'internal error' }) } catch (_) { /* sent */ } })
       return
     }
     const serve = req.method === 'GET' && sopDir ? SERVED[pathname] : undefined
