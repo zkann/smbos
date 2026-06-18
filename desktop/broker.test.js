@@ -153,8 +153,8 @@ test('serves /api/plate from the store (token-gated), forwards unknown paths', a
   assert.equal(ok.status, 200)
   assert.deepEqual(JSON.parse(ok.body).plate.map((r) => r.subject), ['on plate'])
   assert.equal(forwarded, false, 'a served read never hits the upstream')
-  // an unserved path still forwards to FastAPI
-  await request(brPort, '/api/runs?t=tok')
+  // an unserved path still forwards to FastAPI (settings stays forwarded -- env-detected terminal)
+  await request(brPort, '/api/settings?t=tok')
   assert.equal(forwarded, true)
   upstream.close(); broker.close()
 })

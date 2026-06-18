@@ -1,3 +1,4 @@
+import os
 import json
 import threading
 
@@ -122,6 +123,11 @@ def test_run_marker_running_then_clear(library):
     lock = lib.acquire_run_lock(library, "weekly-metrics-report")
     try:
         m = lib.mark_run_active(library, "weekly-metrics-report", "prepare", "dashboard")
+        # the marker records this runner's pid + start-sig, so a Node liveness reader can reproduce
+        # active_runs' running/stalled split via pid+sig (the flock stays the run gate)
+        rec = json.loads(m.read_text(encoding="utf-8"))
+        assert rec["pid"] == os.getpid()
+        assert "proc_sig" in rec
         runs = lib.active_runs(library)
         assert len(runs) == 1
         assert runs[0]["sop"] == "weekly-metrics-report"
