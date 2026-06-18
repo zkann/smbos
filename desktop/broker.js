@@ -13,6 +13,7 @@ const http = require('http')
 const crypto = require('crypto')
 const store = require('./store')
 const liveness = require('./liveness')
+const sse = require('./sse')
 const { token } = require('./resolve')
 
 // GET endpoints the broker answers itself, in FastAPI's response shape (parity-tested against the
@@ -74,6 +75,20 @@ function createBroker({ targetHost = '127.0.0.1', targetPort, sopDir }) {
     // Serve a static read directly from the store (Phase 3). The broker owns the token gate for
     // these, since FastAPI's check never runs on a broker-served response.
     const pathname = req.url.split('?')[0]
+    // The /events live-mirror stream is served by the broker (Phase 3 complete): token-gated, then
+    // a long-lived SSE response instead of a JSON body.
+    if (req.method === 'GET' && pathname === '/events' && sopDir) {
+      const t = new URL(req.url, 'http://x').searchParams.get('t')
+      if (!tokenOk(t, token({ SOP_DIR: sopDir }))) {
+        res.writeHead(401, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ detail: 'bad or missing token' }))
+        return
+      }
+      try { sse.createEventStream(req, res, sopDir) } catch (_) {
+        try { if (!res.headersSent) res.writeHead(500); res.end() } catch (_) { /* already closed */ }
+      }
+      return
+    }
     const serve = req.method === 'GET' && sopDir ? SERVED[pathname] : undefined
     if (serve) {
       const t = new URL(req.url, 'http://x').searchParams.get('t')
