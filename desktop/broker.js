@@ -35,6 +35,33 @@ function readBody(req, limit = 1 << 20, timeoutMs = 15000) {
   })
 }
 
+// POST action routes -> { argv, input } for the engine CLI. A value that could begin with '-' uses
+// the --opt=value form so argparse never misparses it as an option; the run id is slug-sanitized
+// (the engine re-sanitizes). Returns null for an unknown path.
+function actionRequest(pathname, sopDir, body) {
+  switch (pathname) {
+    case '/api/run': {
+      const id = String(body.id || '').toLowerCase().replace(/[^a-z0-9-]/g, '').replace(/^-+/, '')
+      const argv = ['run', sopDir, id]
+      if (String(body.mode || '').trim().toLowerCase() === 'prepare') argv.push('--prepare')
+      const inputs = String(body.inputs || '').trim()
+      if (inputs) argv.push('--inputs-stdin')  // inputs ride on stdin (unbounded; no argparse misparse)
+      return { argv, input: inputs }
+    }
+    case '/api/resolve':
+      return { argv: ['resolve', sopDir, '--file=' + String(body.file || ''), '--decision=' + String(body.decision || '')] }
+    case '/api/dequeue':
+      return { argv: ['dequeue', sopDir, '--file=' + String(body.file || '')] }
+    case '/api/task-status':
+      return { argv: ['task-status', sopDir, '--task-id=' + String(body.task_id || ''), '--status=' + String(body.status || '')] }
+    default:
+      return null
+  }
+}
+
+const ACTION_PATHS = new Set(['/api/run', '/api/resolve', '/api/dequeue', '/api/task-status'])
+const EXIT_STATUS = { 0: 200, 3: 409, 4: 404, 8: 400, 9: 409 }  // engine exit code -> HTTP status; anything else -> 500
+
 // GET endpoints the broker answers itself, in FastAPI's response shape (parity-tested against the
 // live FastAPI). The static reads come from the store; inflight/runs add the Node-derived liveness
 // (Phase 5 pulled forward -- pid+sig in place of the flock). Cost/autonomy numbers ride as JSON
@@ -108,32 +135,25 @@ function createBroker({ targetHost = '127.0.0.1', targetPort, sopDir }) {
       }
       return
     }
-    // POST /api/run (Phase 4): gate the HTTP, then invoke the engine. HEADER token (the writes' CSRF
-    // posture), not ?t=, matching FastAPI's check(request.headers["x-smbos-token"]).
-    if (req.method === 'POST' && pathname === '/api/run' && sopDir) {
+    // POST action endpoints (Phase 4): HEADER token (the writes' CSRF posture, not ?t=, matching
+    // FastAPI's check(headers["x-smbos-token"])), then invoke the engine CLI and map its exit code.
+    if (req.method === 'POST' && ACTION_PATHS.has(pathname) && sopDir) {
       if (!tokenOk(req.headers['x-smbos-token'], token({ SOP_DIR: sopDir }))) {
         res.writeHead(401, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ detail: 'bad or missing token' }))
         return
       }
       const sendJson = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)) }
-      readBody(req).then(async (raw) => {
+      readBody(req).then((raw) => {
         let body
         try { body = JSON.parse(raw) } catch (_) { return sendJson(400, { detail: 'invalid JSON body' }) }
         if (!body || typeof body !== 'object' || Array.isArray(body)) return sendJson(400, { detail: 'body must be a JSON object' })
-        const id = String(body.id || '').toLowerCase().replace(/[^a-z0-9-]/g, '').replace(/^-+/, '')  // engine re-sanitizes
-        const inputs = String(body.inputs || '').trim()
-        const prepare = String(body.mode || '').trim().toLowerCase() === 'prepare'
-        const argv = ['run', sopDir, id]
-        if (prepare) argv.push('--prepare')
-        // inputs ride on STDIN (not argv): avoids the ARG_MAX limit for long owner inputs and the
-        // argparse "looks like an option" misparse of a dash-leading value -- matches FastAPI's
-        // in-process pass-through.
-        if (inputs) argv.push('--inputs-stdin')
-        const { code, json } = await actions.runAction(argv, inputs || '')
-        if (code === 0) sendJson(200, json || {})
-        else if (code === 3) sendJson(409, json || { detail: 'refused' })       // gate refusal
-        else sendJson(500, json || { detail: 'the engine could not start that run' })
+        const spec = actionRequest(pathname, sopDir, body)
+        if (!spec) return sendJson(404, { detail: 'unknown action' })
+        return actions.runAction(spec.argv, spec.input || '').then(({ code, json }) => {
+          const status = EXIT_STATUS[code] || 500
+          sendJson(status, json || { detail: status === 500 ? 'the engine could not complete that action' : 'refused' })
+        })
       }, () => sendJson(400, { detail: 'could not read the request body' }))  // readBody rejection ONLY
         .catch(() => { try { if (!res.headersSent) sendJson(500, { detail: 'internal error' }) } catch (_) { /* sent */ } })
       return

@@ -176,25 +176,40 @@ test('a served read is DENIED when the token file is missing/empty (fails closed
   upstream.close(); broker.close()
 })
 
-test('POST /api/run: header-token gated; maps the engine exit code to the HTTP status', async () => {
+test('POST actions: header-token gated; maps each engine exit code to the HTTP status', async () => {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'smbos-run-'))
   fs.writeFileSync(path.join(d, '.dashboard-token'), 'tok')
-  // a stub "engine": /bin/sh reads argv [stub, run, sopDir, id, ...]; branch on the id ($3)
+  // a stub "engine": /bin/sh reads argv [stub, <cmd>, sopDir, ...]; branch on the subcommand ($1),
+  // and for `run` on the id ($3). Covers the exit-code -> HTTP map for every action path.
   const stub = path.join(d, 'stub.sh')
-  fs.writeFileSync(stub, 'case "$3" in\n  refuse) echo \'{"detail":"nope"}\'; exit 3;;\n  boom) echo \'{"detail":"boom"}\'; exit 1;;\n  *) echo "{\\"status\\":\\"started\\",\\"sop\\":\\"$3\\"}"; exit 0;;\nesac\n')
+  fs.writeFileSync(stub,
+    'case "$1" in\n' +
+    '  resolve) echo \'{"detail":"nf"}\'; exit 4;;\n' +        // -> 404
+    '  dequeue) echo \'{"status":"dequeued"}\'; exit 0;;\n' +  // -> 200
+    '  task-status) echo \'{"detail":"conflict"}\'; exit 9;;\n' +  // -> 409
+    '  run) case "$3" in\n' +
+    '    refuse) echo \'{"detail":"nope"}\'; exit 3;;\n' +     // -> 409
+    '    boom) echo \'{"detail":"boom"}\'; exit 1;;\n' +       // -> 500
+    '    *) echo "{\\"status\\":\\"started\\",\\"sop\\":\\"$3\\"}"; exit 0;;\n' +
+    '  esac;;\n' +
+    'esac\n')
   const prevPy = process.env.SMBOS_PYTHON, prevEng = process.env.SMBOS_ENGINE
   process.env.SMBOS_PYTHON = '/bin/sh'; process.env.SMBOS_ENGINE = stub
   try {
-    const broker = createBroker({ targetPort: 9, sopDir: d })  // targetPort unused: /api/run is handled, not forwarded
+    const broker = createBroker({ targetPort: 9, sopDir: d })  // targetPort unused: actions are handled, not forwarded
     const brPort = await listen(broker)
-    const post = (body, headers) => request(brPort, '/api/run', { method: 'POST', body, headers })
-    assert.equal((await post('{"id":"x"}', {})).status, 401)                        // no token
-    assert.equal((await post('not json', { 'x-smbos-token': 'tok' })).status, 400)  // bad body
-    assert.equal((await post('{"id":"refuse"}', { 'x-smbos-token': 'tok' })).status, 409)  // engine exit 3 -> refused
-    assert.equal((await post('{"id":"boom"}', { 'x-smbos-token': 'tok' })).status, 500)    // engine exit 1 -> error
-    const ok = await post('{"id":"weekly"}', { 'x-smbos-token': 'tok' })
-    assert.equal(ok.status, 200)
-    assert.equal(JSON.parse(ok.body).sop, 'weekly')                                 // engine exit 0 -> 200 body
+    const post = (route, body, headers) => request(brPort, route, { method: 'POST', body, headers })
+    const T = { 'x-smbos-token': 'tok' }
+    assert.equal((await post('/api/run', '{"id":"x"}', {})).status, 401)               // no token
+    assert.equal((await post('/api/run', 'not json', T)).status, 400)                  // bad body
+    assert.equal((await post('/api/run', '{"id":"refuse"}', T)).status, 409)           // exit 3 -> 409
+    assert.equal((await post('/api/run', '{"id":"boom"}', T)).status, 500)             // exit 1 -> 500
+    const ok = await post('/api/run', '{"id":"weekly"}', T)
+    assert.equal(ok.status, 200); assert.equal(JSON.parse(ok.body).sop, 'weekly')      // exit 0 -> 200 body
+    assert.equal((await post('/api/resolve', '{"file":"x.md","decision":"approve"}', T)).status, 404)  // exit 4 -> 404
+    assert.equal((await post('/api/dequeue', '{"file":"x.md"}', T)).status, 200)        // exit 0 -> 200
+    assert.equal((await post('/api/task-status', '{"task_id":1,"status":"done"}', T)).status, 409)  // exit 9 -> 409
+    assert.equal((await post('/api/resolve', '{}', {})).status, 401)                    // every action is token-gated
     broker.close()
   } finally {
     // restore, but DELETE if originally unset (env[x] = undefined would set the string "undefined")

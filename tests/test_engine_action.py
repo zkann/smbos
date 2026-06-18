@@ -3,6 +3,38 @@ import json
 
 import engine_action
 import run_gate
+import state_store as ss
+
+
+def test_engine_resolve_dequeue_taskstatus_refusals(tmp_path):
+    (tmp_path / "queue").mkdir()
+    assert engine_action.main(["resolve", str(tmp_path), "--file=nope.md", "--decision=approve"]) == 4  # 404
+    assert engine_action.main(["dequeue", str(tmp_path), "--file=nope.md"]) == 4                          # 404
+    assert engine_action.main(["task-status", str(tmp_path), "--task-id=1", "--status=bogus"]) == 8       # 400
+
+
+def test_engine_dequeue_basename_only_no_traversal(tmp_path):
+    (tmp_path / "queue").mkdir()
+    # a traversal attempt is reduced to its basename -> not found, never escapes queue/
+    assert engine_action.main(["dequeue", str(tmp_path), "--file=../../secret.md"]) == 4
+
+
+def test_engine_dequeue_removes_a_queued_file(tmp_path, capsys):
+    (tmp_path / "queue").mkdir()
+    (tmp_path / "queue" / "q.md").write_text("---\nsop: x\nstatus: queued\n---\n", encoding="utf-8")
+    assert engine_action.main(["dequeue", str(tmp_path), "--file=q.md"]) == 0
+    assert not (tmp_path / "queue" / "q.md").exists()
+    assert json.loads(capsys.readouterr().out)["status"] == "dequeued"
+
+
+def test_engine_task_status_recovers_in_flight(tmp_path, capsys):
+    ss.upsert_task(str(tmp_path), "ops", "x", "task", status="in_flight")
+    tid = ss.in_flight(str(tmp_path))[0]["id"]
+    assert engine_action.main(["task-status", str(tmp_path), "--task-id=" + str(tid), "--status=waiting"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"status": "waiting", "task_id": tid}
+    assert ss.in_flight(str(tmp_path)) == []  # left in_flight -> now waiting (back on the plate)
+    # a second click (now not in flight) is the CAS conflict -> 9 (409)
+    assert engine_action.main(["task-status", str(tmp_path), "--task-id=" + str(tid), "--status=done"]) == 9
 
 
 def test_engine_run_refuses_draft(tmp_path, capsys):
