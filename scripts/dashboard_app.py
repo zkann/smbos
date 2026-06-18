@@ -126,26 +126,10 @@ def _liveness_sig(sop_dir):
     return tuple(sorted((r.get("sop", ""), r.get("state", "")) for r in lib.active_runs(sop_dir)))
 
 
-# A picked-up session's window can take a few seconds to open and run its SessionStart hook (which
-# records the liveness marker). Until that grace passes, an in_flight task with no marker yet reads
-# as 'live' (just launched) rather than 'stalled', so the dot doesn't flicker at pickup.
-STARTUP_GRACE_SECONDS = _positive_env("SMBOS_INFLIGHT_GRACE", "120.0")
-
-
-def _task_state(sop_dir, task, verify=True):
-    """Derived liveness for one in_flight task: 'live' if its picked-up session is running (or
-    just launched, within the startup grace), else 'stalled' (the window closed/crashed, or no
-    session ever recorded after the grace). Mirrors the running/stalled split runs already get.
-    `verify` is forwarded to session_state (the per-second SSE poll passes False; see _session_sig)."""
-    state = lib.session_state(sop_dir, task["id"], verify=verify)
-    if state is not None:
-        return state
-    # No marker yet: live during the startup grace, then stalled (session never came up).
-    try:
-        age = (datetime.now(timezone.utc) - datetime.fromisoformat(task["updated_at"])).total_seconds()
-    except (KeyError, ValueError, TypeError):
-        return "live"  # can't age it: don't cry stalled
-    return "live" if age < STARTUP_GRACE_SECONDS else "stalled"
+# Per-in_flight-task liveness (live within a startup grace, then stalled) now lives in smbos_lib,
+# shared with the open-session recovery in launch_actions. Aliased here so _inflight_with_liveness
+# and the tests keep the name.
+_task_state = lib.task_state
 
 
 def _inflight_with_liveness(sop_dir, verify=True):
@@ -677,40 +661,17 @@ def create_app(sop_dir, dist_dir=None):
         check(request.headers.get("x-smbos-token", ""))
         body = await _body_obj(request)
         try:
-            task = ss.get_task(sop_dir, body.get("task_id"))
-        except ss.StateStoreError as exc:
+            return await asyncio.to_thread(launch_actions.open_session, sop_dir, body.get("task_id"))
+        except launch_actions.BadTaskId as exc:
             raise HTTPException(status_code=400, detail=str(exc))
-        if task is None:
-            raise HTTPException(status_code=404, detail="no such task")
-        if (task.get("status") or "") != "in_flight":
-            # only an in-flight task has a session to reopen; a resolved/waiting one does not
-            raise HTTPException(status_code=409, detail="task is not in flight")
-        # Only a STALLED session is reopenable: a live in-flight task already has a running session,
-        # so reopening would just spawn a duplicate window. The UI offers this on stalled cards
-        # only; this enforces it server-side. (Checked BEFORE the touch below, which bumps
-        # updated_at and would otherwise make a grace-expired task read 'live'.)
-        if _task_state(sop_dir, task) != "stalled":
-            raise HTTPException(status_code=409, detail="this task's session is still running")
-        # Atomic in_flight gate with NO side effect: catches a resolve that raced the checks above
-        # (the mirror of resolve_in_flight_task), WITHOUT bumping updated_at -- the grace restart is
-        # deferred to a successful launch below, so a failed relaunch can't leave a no-marker task
-        # falsely reading 'live'.
-        if not ss.assert_in_flight(sop_dir, task["id"]):
-            raise HTTPException(status_code=409, detail="task is not in flight")
-        try:
-            await asyncio.to_thread(launch_actions._launch_session, sop_dir,
-                                    launch_actions._launch_prompt(task, sop_dir), task["id"])
-        except ValueError as exc:  # non-macOS / missing folder: a clean, client-visible reason
+        except launch_actions.UnknownTask as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        except (launch_actions.NotInFlight, launch_actions.StillRunning) as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        except launch_actions.LaunchRefused as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         except Exception:
             raise HTTPException(status_code=500, detail="could not open a session")
-        # Launch succeeded: restart the liveness grace (so the reopened task reads 'live' until the
-        # new session's hook records a marker, not 'stalled'), then clear the prior (dead) marker.
-        # Both only on success, so a failed relaunch leaves the task exactly as it was (stalled,
-        # marker intact) -- recoverable by trying again.
-        ss.touch_in_flight_task(sop_dir, task["id"])
-        lib.clear_session(sop_dir, task["id"])
-        return {"status": "opened", "task_id": task["id"]}
 
     @app.get("/events")
     async def events(request: Request, t: str = ""):

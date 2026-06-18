@@ -64,6 +64,8 @@ function actionRequest(pathname, sopDir, body) {
       return { argv: ['autonomy', sopDir, sanitizeId(body.id), '--level=' + String(body.level || '')] }
     case '/api/launch':
       return { argv: ['launch', sopDir, '--task-id=' + String(body.task_id || '')] }
+    case '/api/open-session':
+      return { argv: ['open-session', sopDir, '--task-id=' + String(body.task_id || '')] }
     case '/api/launch-sop':
       return { argv: ['launch-sop', sopDir, sanitizeId(body.id)] }
     case '/api/apply-item':
@@ -79,7 +81,7 @@ function actionRequest(pathname, sopDir, body) {
   }
 }
 
-const ACTION_PATHS = new Set(['/api/run', '/api/queue', '/api/autonomy', '/api/launch', '/api/launch-sop', '/api/apply-item', '/api/resolve', '/api/dequeue', '/api/task-status'])
+const ACTION_PATHS = new Set(['/api/run', '/api/queue', '/api/autonomy', '/api/launch', '/api/open-session', '/api/launch-sop', '/api/apply-item', '/api/resolve', '/api/dequeue', '/api/task-status'])
 const EXIT_STATUS = { 0: 200, 3: 409, 4: 404, 8: 400, 9: 409 }  // engine exit code -> HTTP status; anything else -> 500
 
 // GET endpoints the broker answers itself, in FastAPI's response shape (parity-tested against the

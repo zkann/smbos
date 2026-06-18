@@ -69,6 +69,25 @@ def _apply_item(args):
     return 0
 
 
+def _open_session(args):
+    try:
+        result = launch_actions.open_session(args.sop_dir, args.task_id)
+    except launch_actions.BadTaskId as exc:
+        print(json.dumps({"detail": str(exc)}))
+        return 8
+    except launch_actions.UnknownTask as exc:
+        print(json.dumps({"detail": str(exc)}))
+        return 4
+    except (launch_actions.NotInFlight, launch_actions.StillRunning) as exc:
+        print(json.dumps({"detail": str(exc)}))
+        return 9
+    except launch_actions.LaunchRefused as exc:
+        print(json.dumps({"detail": str(exc)}))
+        return 8
+    print(json.dumps(result))
+    return 0
+
+
 def _queue(args):
     raw = sys.stdin.read() if args.inputs_stdin else (args.inputs or "")
     inputs = raw.strip() or None
@@ -227,6 +246,11 @@ def main(argv=None):
     ai.add_argument("--file", default="")
     ai.add_argument("--index", default="")
     ai.set_defaults(func=_apply_item)
+
+    osess = sub.add_parser("open-session", help="reopen a stalled in_flight task's session")
+    osess.add_argument("sop_dir")
+    osess.add_argument("--task-id", dest="task_id", default="")
+    osess.set_defaults(func=_open_session)
 
     args = ap.parse_args(argv)
     try:

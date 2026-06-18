@@ -283,7 +283,7 @@ def test_inflight_annotated_with_liveness(tmp_path):
 def test_inflight_stalls_after_startup_grace(tmp_path, monkeypatch):
     # a task that's been in_flight past the grace with no session marker ever recorded is stalled
     # (the window never came up), not forever-live
-    monkeypatch.setattr(dashboard_app, "STARTUP_GRACE_SECONDS", 0.0)
+    monkeypatch.setattr(lib, "_inflight_grace_seconds", lambda: 0.0)  # grace now lives in smbos_lib
     tid = ss.record_task(tmp_path, "ops", "review", "never started", status="in_flight")
     rows = {r["id"]: r["state"] for r in dashboard_app._inflight_with_liveness(tmp_path)}
     assert rows[tid] == "stalled"

@@ -182,6 +182,21 @@ def test_engine_launch_sop_and_apply_item(tmp_path, monkeypatch):
     assert engine_action.main(["apply-item", str(tmp_path), "--file=p.md", "--index=0"]) == 0
 
 
+def test_engine_open_session(tmp_path, monkeypatch):
+    import launch_actions
+    import smbos_lib as lib
+    import state_store as ss
+    monkeypatch.setattr(launch_actions, "_launch_session", lambda *a, **k: None)  # no real Terminal
+    monkeypatch.setattr(lib, "_inflight_grace_seconds", lambda: 0.0)  # an in_flight task w/ no marker -> stalled
+    assert engine_action.main(["open-session", str(tmp_path), "--task-id=999"]) == 4   # no such task -> 404
+    ss.upsert_task(str(tmp_path), "ops", "x", "waiting task", status="waiting")
+    wid = ss.plate(str(tmp_path))[0]["id"]
+    assert engine_action.main(["open-session", str(tmp_path), "--task-id=" + str(wid)]) == 9  # not in flight -> 409
+    ss.upsert_task(str(tmp_path), "ops", "y", "stalled task", status="in_flight")
+    fid = ss.in_flight(str(tmp_path))[0]["id"]
+    assert engine_action.main(["open-session", str(tmp_path), "--task-id=" + str(fid)]) == 0  # stalled -> reopened
+
+
 def test_engine_run_internal_error_is_caught(tmp_path, capsys, monkeypatch):
     # an unexpected failure in the engine -> exit 1 (the broker maps this to 500), never an unhandled crash
     def boom(*a, **k):

@@ -190,6 +190,7 @@ test('POST actions: header-token gated; maps each engine exit code to the HTTP s
     '  queue) echo \'{"status":"queued","sop":"x"}\'; exit 0;;\n' +  // -> 200
     '  autonomy) echo \'{"id":"x","autonomy":"with_me"}\'; exit 0;;\n' +  // -> 200
     '  launch) echo \'{"status":"launched","task_id":1}\'; exit 0;;\n' +  // -> 200
+    '  open-session) echo \'{"status":"opened","task_id":1}\'; exit 0;;\n' +  // -> 200
     '  launch-sop) echo \'{"status":"launched","sop":"x"}\'; exit 0;;\n' +  // -> 200
     '  apply-item) echo \'{"status":"applied"}\'; exit 0;;\n' +  // -> 200
     '  run) case "$3" in\n' +
@@ -217,6 +218,7 @@ test('POST actions: header-token gated; maps each engine exit code to the HTTP s
     assert.equal((await post('/api/queue', '{"id":"x"}', T)).status, 200)               // dispatched -> 200
     assert.equal((await post('/api/autonomy', '{"id":"x","level":"with_me"}', T)).status, 200)  // dispatched -> 200
     assert.equal((await post('/api/launch', '{"task_id":1}', T)).status, 200)           // dispatched -> 200
+    assert.equal((await post('/api/open-session', '{"task_id":1}', T)).status, 200)     // dispatched -> 200
     assert.equal((await post('/api/launch-sop', '{"id":"x"}', T)).status, 200)          // dispatched -> 200
     assert.equal((await post('/api/apply-item', '{"file":"p.md","index":0}', T)).status, 200)  // dispatched -> 200
     assert.equal((await post('/api/launch', '{}', {})).status, 401)                     // every action is token-gated

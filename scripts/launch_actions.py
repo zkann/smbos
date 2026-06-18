@@ -34,6 +34,14 @@ class LaunchRefused(LaunchError):
     pass        # -> 400 (non-macOS / missing folder; a clean client-visible reason)
 
 
+class NotInFlight(LaunchError):
+    pass        # -> 409 (the task isn't in flight / a resolve raced the reopen)
+
+
+class StillRunning(LaunchError):
+    pass        # -> 409 (a live in-flight session: reopening would spawn a duplicate window)
+
+
 def _launch_prompt(task, sop_dir):
     """The prompt that primes the picked-up session. Derived SERVER-SIDE from the owner's stored
     task and the library it lives in, never from the request body, so a browser can only name a task
@@ -141,3 +149,29 @@ def apply_item(sop_dir, file, index):
     except ValueError as exc:  # bad index / no candidates / no next SOP / non-macOS launch
         raise LaunchRefused(str(exc))
     return {"status": msg}
+
+
+def open_session(sop_dir, task_id):
+    """Re-open a primed session for a STALLED in_flight task (recover a pickup whose window closed),
+    WITHOUT re-claiming it. Only a stalled session is reopenable (a live one already has a window);
+    an atomic in_flight gate catches a resolve that raced the checks. The grace restart + clearing
+    the dead marker happen only on a successful launch, so a failed relaunch leaves it recoverable."""
+    try:
+        task = ss.get_task(sop_dir, task_id)
+    except ss.StateStoreError as exc:
+        raise BadTaskId(str(exc))
+    if task is None:
+        raise UnknownTask("no such task")
+    if (task.get("status") or "") != "in_flight":
+        raise NotInFlight("task is not in flight")
+    if lib.task_state(sop_dir, task) != "stalled":  # checked BEFORE the touch (which would bump it 'live')
+        raise StillRunning("this task's session is still running")
+    if not ss.assert_in_flight(sop_dir, task["id"]):  # no side effect: catches a raced resolve
+        raise NotInFlight("task is not in flight")
+    try:
+        _launch_session(sop_dir, _launch_prompt(task, sop_dir), task["id"])
+    except ValueError as exc:  # non-macOS / missing folder
+        raise LaunchRefused(str(exc))
+    ss.touch_in_flight_task(sop_dir, task["id"])  # restart the grace (reopened reads 'live'), then
+    lib.clear_session(sop_dir, task["id"])        # drop the prior dead marker -- only on success
+    return {"status": "opened", "task_id": task["id"]}
