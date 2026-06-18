@@ -37,6 +37,22 @@ function plate(sopDir) {
     db.prepare("SELECT * FROM task WHERE status='waiting' ORDER BY priority DESC, created_at ASC, id ASC").all())
 }
 
+// in_flight tasks, same ordering as the plate (mirrors state_store.in_flight). The liveness `state`
+// is added by liveness.inflightWithLiveness, not here.
+function inFlight(sopDir) {
+  if (!fs.existsSync(dbPath(sopDir))) return []
+  return withDb(sopDir, (db) =>
+    db.prepare("SELECT * FROM task WHERE status='in_flight' ORDER BY priority DESC, created_at ASC, id ASC").all())
+}
+
+// Recent run rows, newest first (mirrors state_store.recent_runs). The liveness `state` is added by
+// liveness.runsWithLiveness, not here.
+function recentRuns(sopDir, limit = 50) {
+  if (!fs.existsSync(dbPath(sopDir))) return []
+  return withDb(sopDir, (db) =>
+    db.prepare('SELECT * FROM run ORDER BY started_at DESC, id DESC LIMIT ?').all(limit))
+}
+
 // Queued runs (status: queued), for 'Coming up'. Mirrors dashboard_app._queue.
 function queue(sopDir) {
   const qdir = path.join(sopDir, 'queue')
@@ -243,4 +259,4 @@ function parseFrontmatter(text) {
   return out
 }
 
-module.exports = { plate, queue, procedures, pending }
+module.exports = { plate, queue, procedures, pending, inFlight, recentRuns }

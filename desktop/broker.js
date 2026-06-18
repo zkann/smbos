@@ -12,19 +12,22 @@
 const http = require('http')
 const crypto = require('crypto')
 const store = require('./store')
+const liveness = require('./liveness')
 const { token } = require('./resolve')
 
-// GET endpoints the broker answers itself, from the local store, in FastAPI's response shape
-// (parity-tested against the live FastAPI). Cost/autonomy numbers ride as JSON numbers, so a whole
-// dollar serializes as `1` here vs `1.0` in Python -- semantically identical after JSON.parse (what
-// the SPA does), so the parity check compares parsed values, not bytes. Still forwarded: settings
-// (reads an environment-detected terminal, not a pure static read) and the liveness-bearing reads
-// (inflight/runs) + the SSE live mirror (Phase 5 flock/pid migration).
+// GET endpoints the broker answers itself, in FastAPI's response shape (parity-tested against the
+// live FastAPI). The static reads come from the store; inflight/runs add the Node-derived liveness
+// (Phase 5 pulled forward -- pid+sig in place of the flock). Cost/autonomy numbers ride as JSON
+// numbers, so a whole dollar serializes as `1` here vs `1.0` in Python -- semantically identical
+// after JSON.parse (what the SPA does), so the parity check compares parsed values, not bytes.
+// Still forwarded: settings (reads an environment-detected terminal) and the /events SSE stream.
 const SERVED = {
   '/api/plate': (sopDir) => ({ plate: store.plate(sopDir) }),
   '/api/queue': (sopDir) => ({ queue: store.queue(sopDir) }),
   '/api/procedures': (sopDir) => ({ procedures: store.procedures(sopDir) }),
   '/api/pending': (sopDir) => ({ pending: store.pending(sopDir) }),
+  '/api/inflight': (sopDir) => ({ inflight: liveness.inflightWithLiveness(store, sopDir) }),
+  '/api/runs': (sopDir) => ({ runs: liveness.runsWithLiveness(store, sopDir) }),
 }
 
 // Constant-time token compare (the broker now gates the reads it serves, mirroring FastAPI's check).

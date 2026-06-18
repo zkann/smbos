@@ -605,7 +605,13 @@ def mark_run_active(sop_dir, sop_id, mode="triggered", source="manual"):
         except OSError:
             pass
     marker = d / f"{sop_id}__{os.getpid()}.json"
+    # proc_sig (this runner's start-time signature) lets a Node liveness reader reproduce the flock's
+    # running/stalled split via pid + start-sig (the flock stays the run gate; this only aids reads).
+    # retry the sig (like record_session): an empty proc_sig would disable the Node reader's pid-reuse
+    # guard for this marker, and we're recording a process we know just started, so ps should answer.
+    sig = _proc_start_sig(os.getpid()) or _proc_start_sig(os.getpid()) or ""
     marker.write_text(json.dumps({"sop": sop_id, "pid": os.getpid(),
+                                  "proc_sig": sig,
                                   "started": datetime.now(timezone.utc).isoformat(),
                                   "mode": mode, "source": source}), encoding="utf-8")
     return marker
