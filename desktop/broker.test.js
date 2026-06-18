@@ -263,6 +263,25 @@ test('serves the SPA: / token-gated + token-injected, /assets bundle, traversal 
   }
 })
 
+test('does not proxy to itself: when targetPort == its own port, an unowned path 404s (no loop)', async () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'smbos-broker-'))
+  fs.writeFileSync(path.join(d, '.dashboard-token'), 'tok')
+  // grab a free port, then bind the broker to it with targetPort == that same port (the cutover case:
+  // the broker IS the dashboard server, so there's no upstream -- a forward would loop back forever)
+  const probe = http.createServer()
+  const selfPort = await listen(probe)
+  await new Promise((r) => probe.close(r))
+  const broker = createBroker({ targetPort: selfPort, sopDir: d })
+  await new Promise((r) => broker.listen(selfPort, '127.0.0.1', r))
+  try {
+    const res = await request(selfPort, '/api/unknown?t=tok')  // would self-forward without the guard
+    assert.equal(res.status, 404)                              // 404'd immediately, no hang
+    assert.equal(JSON.parse(res.body).detail, 'not found')
+  } finally {
+    await new Promise((r) => broker.close(r))                  // guaranteed teardown even if an assert throws
+  }
+})
+
 test('rejects a non-loopback Host (DNS-rebinding defense) before forwarding', async () => {
   let reached = false
   const upstream = http.createServer((req, res) => { reached = true; res.end('ok') })

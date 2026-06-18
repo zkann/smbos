@@ -120,7 +120,12 @@ app.whenReady().then(() => {
     console.error('SmbOS broker failed to start:', (e && e.message) || e)
     app.quit()
   })
-  broker.listen(0, '127.0.0.1', () => {
+  // Bind port: $SMBOS_BROKER_PORT (the cutover sets this to the dashboard port so the broker takes
+  // over 8765 -- the window, the browser bookmark, and the tray's open-browser all keep working),
+  // else 0 for a free loopback port (dev / a second instance).
+  const wantPort = Number(process.env.SMBOS_BROKER_PORT)
+  const bindPort = Number.isInteger(wantPort) && wantPort >= 0 && wantPort <= 65535 ? wantPort : 0
+  broker.listen(bindPort, '127.0.0.1', () => {
     brokerPort = broker.address().port
     createWindow()
     createTray()
