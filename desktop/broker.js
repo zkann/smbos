@@ -15,6 +15,7 @@ const store = require('./store')
 const liveness = require('./liveness')
 const sse = require('./sse')
 const actions = require('./actions')
+const spa = require('./spa')
 const { token } = require('./resolve')
 
 // POST action endpoints the broker owns (Phase 4): it gates the HTTP (Host + HEADER token, the CSRF
@@ -143,6 +144,18 @@ function createBroker({ targetHost = '127.0.0.1', targetPort, sopDir }) {
     // Serve a static read directly from the store (Phase 3). The broker owns the token gate for
     // these, since FastAPI's check never runs on a broker-served response.
     const pathname = req.url.split('?')[0]
+    // The broker serves the built SPA itself (/ token-gated with the token injected, /assets the
+    // secret-free bundle), so FastAPI no longer serves the page.
+    if (req.method === 'GET' && pathname === '/' && sopDir) {
+      try { spa.serveIndex(req, res, sopDir) } catch (_) { try { if (!res.headersSent) res.writeHead(500); res.end() } catch (_) { /* sent */ } }
+      return
+    }
+    if (req.method === 'GET' && pathname.startsWith('/assets/') && sopDir) {
+      let rel
+      try { rel = decodeURIComponent(pathname.slice('/assets/'.length)) } catch (_) { res.writeHead(404); res.end(); return }
+      try { spa.serveAsset(req, res, rel) } catch (_) { try { if (!res.headersSent) res.writeHead(500); res.end() } catch (_) { /* sent */ } }
+      return
+    }
     // The /events live-mirror stream is served by the broker (Phase 3 complete): token-gated, then
     // a long-lived SSE response instead of a JSON body.
     if (req.method === 'GET' && pathname === '/events' && sopDir) {
