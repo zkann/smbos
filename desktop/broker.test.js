@@ -230,6 +230,34 @@ test('POST actions: header-token gated; maps each engine exit code to the HTTP s
   }
 })
 
+test('serves the SPA: / token-gated + token-injected, /assets bundle, traversal blocked', async () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'smbos-spa-'))
+  fs.writeFileSync(path.join(d, '.dashboard-token'), 'tok')
+  const dist = path.join(d, 'dist'); fs.mkdirSync(path.join(dist, 'assets'), { recursive: true })
+  fs.writeFileSync(path.join(dist, 'index.html'), '<html><head></head><body>app</body></html>')
+  fs.writeFileSync(path.join(dist, 'assets', 'app.js'), 'console.log(1)')
+  fs.writeFileSync(path.join(d, 'secret.txt'), 'SECRET')  // outside assets/, for the traversal test
+  const prev = process.env.SMBOS_DIST; process.env.SMBOS_DIST = dist
+  try {
+    const broker = createBroker({ targetPort: 9, sopDir: d }); const brPort = await listen(broker)
+    const noTok = await request(brPort, '/')
+    assert.equal(noTok.status, 401); assert.ok(noTok.body.includes('needs its access token'))
+    const ok = await request(brPort, '/?t=tok')
+    assert.equal(ok.status, 200)
+    assert.ok(ok.body.includes('window.__SMBOS_TOKEN__="tok"'))  // the server token, injected
+    assert.equal(ok.headers['cache-control'], 'no-store')
+    const asset = await request(brPort, '/assets/app.js')        // no token needed for the bundle
+    assert.equal(asset.status, 200); assert.equal(asset.body, 'console.log(1)')
+    assert.ok(asset.headers['content-type'].includes('javascript'))
+    assert.equal((await request(brPort, '/assets/..%2f..%2fsecret.txt')).status, 404)  // traversal blocked
+    fs.symlinkSync(path.join(d, 'secret.txt'), path.join(dist, 'assets', 'link'))  // symlink escaping assets/
+    assert.equal((await request(brPort, '/assets/link')).status, 404)             // realpath containment blocks it
+    broker.close()
+  } finally {
+    if (prev === undefined) delete process.env.SMBOS_DIST; else process.env.SMBOS_DIST = prev
+  }
+})
+
 test('rejects a non-loopback Host (DNS-rebinding defense) before forwarding', async () => {
   let reached = false
   const upstream = http.createServer((req, res) => { reached = true; res.end('ok') })
