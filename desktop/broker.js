@@ -230,6 +230,14 @@ function createBroker({ targetHost = '127.0.0.1', targetPort, sopDir }) {
       res.end(JSON.stringify(payload))
       return
     }
+    // Don't proxy to ourselves: when the broker IS the dashboard server (it bound the dashboard port,
+    // so targetPort == our own port), an unowned path would otherwise loop back into this same server
+    // forever. Once the broker owns the whole surface there's no upstream to reach, so 404 it.
+    if (targetPort === req.socket.localPort) {
+      res.writeHead(404, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ detail: 'not found' }))
+      return
+    }
     // address the upstream correctly (override Host); forward everything else verbatim
     const headers = filterHeaders(req.headers, { host: `${targetHost}:${targetPort}` })
     const upstream = http.request(
