@@ -467,7 +467,7 @@ export default function App() {
         // v8 dossier: the producer's plain-English "why this is here" (refreshed each sync). It leads the
         // details block and, like facts, un-gates the caret -- a why-only task (no facts) still expands.
         const why = typeof t.why === 'string' && t.why.trim() ? t.why.trim() : null
-        const urgent = facts.some(f => f.urgent)     // a deadline-bearing row (drives the amber treatment)
+        const urgent = inlineFacts.some(f => f.urgent)  // an INLINE urgent fact (Due) -> matches the row's amber left bar
         const hasDetails = !!why || facts.length > 0
         const open = !!openRows[t.id]
         return (
