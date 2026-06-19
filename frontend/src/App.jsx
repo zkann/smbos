@@ -45,6 +45,11 @@ export default function App() {
   // Electron main process via the preload bridge; always false in a browser / undocked window.
   const [collapsed, setCollapsed] = useState(false)
   useEffect(() => window.smbosPanel?.onCollapsed(setCollapsed), [])
+  // pinned = the desktop sidebar is held open (auto-hide off). Toggled by the header pin button,
+  // which only shows inside the Electron panel (window.smbosPanel present).
+  const inPanel = typeof window !== 'undefined' && !!window.smbosPanel
+  const [pinned, setPinnedState] = useState(false)
+  useEffect(() => window.smbosPanel?.onPinned(setPinnedState), [])
   const [plate, setPlate] = useState([])
   const [inflight, setInflight] = useState([])
   const [pending, setPending] = useState([])
@@ -590,6 +595,21 @@ export default function App() {
             <span className={inflight.length ? undefined : 'count-zero'}>{inflight.length} in flight</span>
             <span className={queued.length ? undefined : 'count-zero'}>{queued.length} coming up</span>
           </span>
+        )}
+        {inPanel && (
+          <button
+            type="button"
+            className={`pin-btn${pinned ? ' on' : ''}`}
+            aria-pressed={pinned}
+            title={pinned ? 'Sidebar pinned open — click to let it auto-hide' : 'Pin sidebar open'}
+            onClick={() => window.smbosPanel.setPinned(!pinned)}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 17v5" />
+              <path d="M9 10.8V4h6v6.8l1.7 2.5a1 1 0 0 1-.8 1.6H8.1a1 1 0 0 1-.8-1.6L9 10.8Z" />
+            </svg>
+          </button>
         )}
       </header>
 
