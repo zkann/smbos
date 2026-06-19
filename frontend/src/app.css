@@ -360,14 +360,16 @@ ol.list > li::before {
   box-shadow: inset 3px 0 0 var(--amber); padding-left: 11px;
 }
 
-/* The default action recedes but stays READABLE AS A BUTTON. "Hand to Claude" is on every plate row,
-   so as a filled pill it marched down the column. Drop the fill, but keep a FAINT resting border so it
-   reads as a control at rest (not a label) -- the core action should never depend on hover to look
-   clickable. The border + green wash strengthen on hover/focus. The green "Open" LEADS and keeps its
-   solid fill (excluded via :not(.open-act)). */
-.compact .pickup:not(.open-act) {
-  background: none; border-color: color-mix(in srgb, var(--border) 70%, transparent);
-}
+/* The default action recedes but stays READABLE AS A BUTTON, in two tiers by ROLE. Both drop the
+   filled pill (no marching fills) and fill green on hover/focus, but:
+   - tier 2, the SOLE action (no Open sibling): a CLEAR outlined button (full --border, muted text). It
+     is the row's PRIMARY action, so it must read as a control -- not a faint, secondary-looking thing.
+   - tier 3, the fallback BEHIND an Open (.pickup-2nd): the FAINTEST (soft border, subtle text), since
+     the green Open leads. This is the one that should recede.
+   The green "Open" keeps its solid fill (excluded via :not(.open-act)). */
+.compact .pickup:not(.open-act) { background: none; }
+.compact .pickup:not(.open-act):not(.pickup-2nd) { border-color: var(--border); }
+.compact .pickup-2nd { border-color: color-mix(in srgb, var(--border) 55%, transparent); }
 .compact .pickup:not(.open-act):hover:not(:disabled),
 .compact .pickup:not(.open-act):focus-visible:not(:disabled) {
   background: color-mix(in srgb, var(--primary) 10%, var(--card-raised));
