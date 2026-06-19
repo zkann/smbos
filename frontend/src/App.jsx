@@ -26,7 +26,27 @@ function fmtCost(n) {
   return n >= 0.005 ? `$${n.toFixed(2)}` : '<$0.01'
 }
 
+// The parked "count spine": a thin vertical rail shown when the desktop panel is collapsed to the
+// screen edge. Left-anchored so it's exactly what's visible in the edge sliver -- the plate count +
+// a status dot (amber = something waiting, green = clear), with the in-flight count if any.
+function Rail({ plate, inflight }) {
+  const waiting = plate.length
+  const flight = inflight.length
+  return (
+    <div className="rail" title={waiting ? `${waiting} waiting for you` : 'Nothing waiting'}>
+      <div className={`rail-dot ${waiting ? 'amber' : 'green'}`} />
+      <div className="rail-count">{waiting}</div>
+      <div className="rail-sub">waiting</div>
+      {flight > 0 && <div className="rail-flight">{flight}<span>in flight</span></div>}
+    </div>
+  )
+}
+
 export default function App() {
+  // collapsed = the desktop panel is parked to the edge (the count spine shows). Driven by the
+  // Electron main process via the preload bridge; always false in a browser / undocked window.
+  const [collapsed, setCollapsed] = useState(false)
+  useEffect(() => window.smbosPanel?.onCollapsed(setCollapsed), [])
   const [plate, setPlate] = useState([])
   const [inflight, setInflight] = useState([])
   const [pending, setPending] = useState([])
@@ -556,6 +576,8 @@ export default function App() {
         {body}
       </section>
     )
+
+  if (collapsed) return <Rail plate={plate} inflight={inflight} />
 
   return (
     <main className={compact ? 'compact' : undefined}>

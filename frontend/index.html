@@ -4,6 +4,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>SmbOS</title>
+    <script>
+      // Panel (Electron sidebar) mode: the desktop app loads with ?panel=1 so the dashboard can go
+      // translucent for the window's native vibrancy. Set before paint to avoid an opaque flash.
+      try { if (new URLSearchParams(location.search).get('panel')) document.documentElement.classList.add('smbos-panel') } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>
