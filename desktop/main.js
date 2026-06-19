@@ -26,7 +26,7 @@ const FLOAT_SIZE = { width: 480, height: 860 }  // the normal (undocked) floatin
 const TOGGLE_HOTKEY = 'Control+Command+S'  // global summon/dismiss; ^⌘S is rarely a system/app global
 const SLIDE_MS = 140          // edge slide duration
 const SLIDE_STEPS = 9         // frames per slide (ease-out)
-const HIDE_GRACE_MS = 450     // wait after the cursor leaves before parking (no flicker on a brief mouse-out)
+const HIDE_GRACE_MS = 180     // wait after the cursor leaves before parking (short, but debounces a jitter)
 const EDGE_POLL_MS = 110      // how often the cursor is checked for an edge-reveal
 
 let win = null
