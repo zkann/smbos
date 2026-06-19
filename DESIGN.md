@@ -6,6 +6,7 @@ The dashboard's design system, extracted from the rendered product and locked in
 
 - System font stack (`-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, ...`). **Deliberate, not a default:** the product ships with zero dependencies and no network calls, so webfonts are out; the native stack reads as quiet macOS-grade chrome, which fits a tool that lives next to Terminal and Obsidian. Do not "upgrade" to a hosted font.
 - Body 16px / 1.55. Microcopy floor 12px, with one sanctioned exception: monospace overline labels and badges may sit at 11-11.5px because uppercase + letterspacing keeps them legible. Panel headings are the 11px mono overlines; card titles 15.5px/600; the H1 is 20px/650.
+- Compact sidebar exception (the ~400px Electron panel, `.compact`): list-row titles sit at 14px/400, not the 15.5px/600 card-title size. These are scannable list rows, not card copy, and the tighter scale fits more of the plate in one glance; 14px stays above the 12px reading floor. Inline row facts (mono "Due", "2d ago") sit at the 11px mono-exception floor. Deliberate, per-surface, not drift.
 - Numbers that line up in columns get `font-variant-numeric: tabular-nums` (add when a true table appears).
 
 ## Color (Command Center, since 0.18.0)
@@ -15,19 +16,19 @@ shadcn zinc-dark tokens hand-ported to plain CSS (`assets/style.css` :root), fus
 - Surfaces: `--background #09090b`, `--card #0f0f12`, `--card-raised #17171b`, `--border #27272a`
 - Ink: `--foreground #fafafa`, `--muted-fg #a1a1aa`, `--subtle-fg #85858f` (AA-checked at 5.2:1)
 - Primary signal: green `#22c55e` (live dot, current stage, progress, primary buttons with `#052e16` text)
-- Status: draft = neutral (`--chip-bg` / `--muted-fg`), active = blue `#60a5fa`, trusted = green `#4ade80`, the latter two as soft translucent badges (10-12% tint + 25% border). Draft is the expected starting state of a fresh library, not a caution, so it stays quiet; that keeps a draft-dominant grid calm and lets the few active/trusted badges read as the real signal. Amber is reserved for genuine caution (pending approval, drift, flags), not status-by-default.
+- Status: draft = neutral (`--chip-bg` / `--muted-fg`), active = blue `#60a5fa`, trusted = green `#4ade80`, the latter two as soft translucent badges (10-12% tint + 25% border). Draft is the expected starting state of a fresh library, not a caution, so it stays quiet; that keeps a draft-dominant grid calm and lets the few active/trusted badges read as the real signal. Amber marks ATTENTION: caution (pending approval, drift, flags) AND urgency (a task's deadline, the header "N due" count, the urgent-row left bar), not status-by-default. Urgency and caution share the one amber token; they read apart by treatment (badge vs left bar vs count), not a second hue. Use the `--amber` token, never a second hardcoded amber.
 - Badges carry one meaning per color: `pending` (awaiting your approval) is amber; `partial` (a prepared deliverable that came back incomplete) is a quiet neutral chip (`--card-raised` / `--muted-fg`), not amber, because it's a factual caveat rather than an attention state.
-- Risk: red `--red #f87171` is reserved for danger, not status. It marks the lost-connection banner and the "skip approval" permission warning (`.setwarn`). Amber stays caution; red stays "this removes a safeguard." Don't reuse red for a benign state.
+- Risk: red `--red #f87171` is reserved for danger, not status: it marks the "skip approval" permission warning (`.setwarn`): "this removes a safeguard." The lost-connection / stale-data banner is NOT red: reconnecting is a transient, self-recovering condition, a caution not a danger, so it renders as a calm muted notice (`--card-raised`) with an amber attention dot. Don't reuse red for a benign or recoverable state.
 - Secondary surfaces: `--chip-bg #18181b` (chips, tab rail), `--inset #0c0c0f` (sub-panels inside the dialog), `--border-strong #3f3f46` (hover borders, disabled dashes), `--primary-hover #1eb554`.
 - Rules: dark surfaces gain elevation by lightness steps, not shadows; status colors always ship with text labels; zero counts render neutral, never tinted; every text/surface pair stays WCAG AA (verified in the 0.18.0 PR). No hex literals outside `:root`.
 - Monospace (`ui-monospace`) marks the command-center DNA: panel labels (11px uppercase, .14em tracking), figures (counts, dollars), badges stay sans.
 
 ## Layout & spacing
 
-- One content column, max-width 1180px, 32px page gutters; panels and cards on `--radius` (12px) with 1px `--border` borders.
+- One content column, max-width 1180px, 32px page gutters; panels and cards on `--radius` (12px) with 1px `--border` borders. Compact sidebar exception (`.compact`): sections go FLAT (no card border/radius/background), separated by the mono overline + whitespace. In the Electron panel the frost already lives on `<main>`, so a per-section card was a second opaque layer boxing a 400px column; flat sections are one clean surface (and consistent with "cards only when the card is the clickable object" below, since these sections were never clickable).
 - Radius scale: 14 dialog, 12 surfaces (panels, cards, banner), 10 tab container and inset sub-panels, 7 tab items (nested = outer minus gap), 6 controls and inline chips, 999 pills and badges.
 - Spacing lands on even 4px-base steps; no odd one-off values.
-- Shadows: the modal, the active tab's 1px lift, and the live dot's glow are the only three. Dark surfaces otherwise gain elevation by lightness steps (`--card` to `--card-raised`), never shadow.
+- Shadows/glows are reserved, never decorative: the modal and the active tab's 1px lift, plus a soft glow on STATUS DOTS (the live dot, the stalled dot, the reconnect-banner dot) to mark an attention state. Dark surfaces otherwise gain elevation by lightness steps (`--card` to `--card-raised`), never shadow.
 - Panels are functional sections with one job each (inbox, plate, board, calendar); cards exist only when the card is the clickable object (a procedure). No decorative card grids.
 - Today tab leads with what needs the owner; the library lives behind the Procedures tab.
 
