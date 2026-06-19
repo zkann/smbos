@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.33.0 (2026-06-19)
+
+- A task's details can now include links. When a task carries a piece of context that lives at a link (a spec, a requirements doc, the email thread), it shows in the task's details as a clickable link in the app's accent color instead of plain text. This is the first step toward richer context for tasks that need more than a one-line reason, like a coding challenge with a spec and a deadline.
+
 ## 0.32.0 (2026-06-19)
 
 - The "why this is here" line now shows directly on a task in the sidebar, under its title, instead of only inside the task's details. It's trimmed to one line (the full text is still in the details when you open them), so you can tell what a task is and why it's on your plate at a glance. On a task with a deadline the line turns amber, matching the due date and the row's amber edge, so an urgent reason can't hide.
