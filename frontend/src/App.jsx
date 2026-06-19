@@ -657,6 +657,10 @@ export default function App() {
 
   if (collapsed) return <Tab plate={plate} inflight={inflight} />
 
+  // status-bar urgency: how many plate items carry a deadline (an urgent fact). Surfaced in the
+  // header counts so the glance answers "is anything on fire" without scrolling the plate.
+  const dueCount = compact ? plate.filter(t => parseFacts(t.facts).some(f => f.urgent)).length : 0
+
   return (
     <main className={compact ? 'compact' : undefined}>
       {stale && <div className="banner" role="status">Reconnecting, data may be stale</div>}
@@ -682,6 +686,7 @@ export default function App() {
         {compact && (
           <span className="counts">
             <span className={plate.length ? undefined : 'count-zero'}>{plate.length} waiting</span>
+            {dueCount > 0 && <span className="count-urgent">{dueCount} due</span>}
             <span className={inflight.length ? undefined : 'count-zero'}>{inflight.length} in flight</span>
             <span className={queued.length ? undefined : 'count-zero'}>{queued.length} coming up</span>
           </span>
