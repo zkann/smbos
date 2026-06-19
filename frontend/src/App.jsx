@@ -326,8 +326,10 @@ export default function App() {
   function pickupLabel(id) {
     if (launch[id] === 'launching') return 'launching…'
     if (launch[id] === 'error') return 'retry'
-    return 'Pick up ▶'
+    return 'Hand to Claude'
   }
+  // What every "Hand to Claude" button does, spelled out on hover.
+  const HANDOFF_TIP = 'Opens a Claude session in iTerm, primed for this — moves it to In flight'
 
   // POST a JSON body with the header token (same CSRF posture as Pick up). `busyVal` marks the
   // row in flight. On success: resolve clears the key (the SSE pending frame then drops the whole
@@ -442,6 +444,7 @@ export default function App() {
           <button
             className={`pickup${openUrl ? ' pickup-2nd' : ''}${launch[t.id] === 'error' ? ' pickup-err' : ''}`}
             onClick={() => pickUp(t.id)}
+            title={HANDOFF_TIP}
             disabled={t.id == null || launch[t.id] === 'launching'}
           >
             {pickupLabel(t.id)}
@@ -453,8 +456,9 @@ export default function App() {
             <span className={`chip chip-${t.status}`}>{t.status}</span>
             {openUrl ? (
               <>
-                {/* primary: open the source (email/doc) in the browser; Pick up stays as a fallback */}
-                <a className="pickup open-act" href={openUrl} target="_blank" rel="noopener noreferrer">Open ▸</a>
+                {/* primary: open the source (email/doc) in the browser; the handoff stays as a fallback */}
+                <a className="pickup open-act" href={openUrl} target="_blank" rel="noopener noreferrer"
+                  title="Open the source (email/doc) in your browser">Open ▸</a>
                 {pick}
               </>
             ) : pick}
@@ -547,7 +551,8 @@ export default function App() {
             {stalled && (
               <button
                 className={`act act-primary${busy === 'error:open' ? ' act-err' : ''}`}
-                onClick={() => openSession(t.id)} disabled={working}>
+                onClick={() => openSession(t.id)} disabled={working}
+                title="Reopen a Claude session for this stalled task (its window was closed)">
                 {busy === 'opening' ? 'opening…' : busy === 'error:open' ? 'retry' : 'Open session ▸'}
               </button>
             )}
@@ -680,8 +685,9 @@ export default function App() {
                   )}
                   {p.interactive || p.autonomy === 'with_me' ? (
                     <button className={`act${err ? ' act-err' : ''}`} onClick={() => launchSop(p.id)}
+                      title="Opens a Claude session in iTerm to run this procedure with you"
                       disabled={b === 'launching'}>
-                      {b === 'launching' ? 'launching…' : err ? 'retry' : 'Pick up ▶'}
+                      {b === 'launching' ? 'launching…' : err ? 'retry' : 'Hand to Claude'}
                     </button>
                   ) : p.autonomy === 'prepare_ask' ? (
                     <>
