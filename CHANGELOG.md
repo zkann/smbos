@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.32.0 (2026-06-19)
+
+- The "why this is here" line now shows directly on a task in the sidebar, under its title, instead of only inside the task's details. It's trimmed to one line (the full text is still in the details when you open them), so you can tell what a task is and why it's on your plate at a glance. On a task with a deadline the line turns amber, matching the due date and the row's amber edge, so an urgent reason can't hide.
+
 ## 0.31.0 (2026-06-19)
 
 - A task on your plate can now show a short "why this is here" line. When the source that created a task explains why it landed on your plate, that reason leads the task's details, so you can tell what a task is at a glance without opening the source. Tasks with details now open from the toggle on the row even when the only thing inside is that reason, and tasks that carry no reason look exactly as before. This is the first step toward a fuller task view, and it also quietly records which workflow produced each task for later use.

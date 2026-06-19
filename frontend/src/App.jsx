@@ -467,6 +467,7 @@ export default function App() {
         // v8 dossier: the producer's plain-English "why this is here" (refreshed each sync). It leads the
         // details block and, like facts, un-gates the caret -- a why-only task (no facts) still expands.
         const why = typeof t.why === 'string' && t.why.trim() ? t.why.trim() : null
+        const urgent = facts.some(f => f.urgent)     // a deadline-bearing row (drives the amber treatment)
         const hasDetails = !!why || facts.length > 0
         const open = !!openRows[t.id]
         return (
@@ -481,6 +482,11 @@ export default function App() {
               <span key={k} className={`fact-inline${f.urgent ? ' urgent' : ''}`} title={f.label}>{f.value}</span>
             ))}
             <span className={`chip chip-${t.status}`}>{t.status}</span>
+            {/* the "why this is here" inline under the subject (compact sidebar only), truncated to one
+                line; the full text stays in the details expansion. Amber on an urgent (deadline) row. */}
+            {compact && why && !open && (
+              <span className={`why-line${urgent ? ' urgent' : ''}`} title={why}>{why}</span>
+            )}
             {/* actions grouped so they wrap to their own line as a unit (compact), leaving the caret
                 attached to the title line instead of orphaning above it */}
             <span className="acts">

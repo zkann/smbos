@@ -362,6 +362,16 @@ ol.list > li::before {
   box-shadow: inset 3px 0 0 var(--amber); padding-left: 11px;
 }
 
+/* The producer's "why this is here", inline under the subject (compact sidebar only) on its own line,
+   truncated to one line; the full text stays in the details expansion. Muted by default, but amber on
+   an urgent (deadline) row so the reason reads urgent alongside the Due chip and the left bar. */
+.compact .why-line {
+  flex-basis: 100%; min-width: 0; margin: 0; color: var(--muted-fg);
+  font: 12px/1.35 ui-sans-serif, system-ui, sans-serif;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.compact .why-line.urgent { color: var(--amber); }
+
 /* The default action recedes but stays READABLE AS A BUTTON, in two tiers by ROLE. Both drop the
    filled pill (no marching fills) and fill green on hover/focus, but:
    - tier 2, the SOLE action (no Open sibling): a CLEAR outlined button (full --border, muted text). It
