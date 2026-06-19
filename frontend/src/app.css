@@ -103,6 +103,10 @@ h1 { font-size: 20px; font-weight: 650; margin: 0; }
   padding: 8px 0; border-top: 1px solid var(--border);
 }
 .list li:first-child { border-top: none; }
+/* An expanded row's details block (.fact-details) wants a full line; the row must wrap so the flex:1
+   title keeps its width instead of collapsing to 0. The compact plate already wraps via its
+   :has(> .acts) rule; this covers the non-compact list, where the row was a single nowrap line. */
+.list li:has(> .fact-details) { flex-wrap: wrap; }
 ol.list { counter-reset: rank; }
 /* direct children only: rank the plate / parked-result items, not nested candidate sub-rows */
 ol.list > li::before {
