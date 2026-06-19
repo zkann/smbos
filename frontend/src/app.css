@@ -283,3 +283,14 @@ ol.list > li::before {
 /* the action drops to the right under its now-full-width title */
 .compact .list > li:has(> .pickup) > .pickup,
 .compact .candidates > li > .act { margin-left: auto; }
+
+/* In-flight rows carry a leading dot + a chip + several recovery buttons -- far too much for the
+   narrow column on one line (the title was getting crushed to one character per line). Wrap them like
+   the plate rows: the title owns the first line, the chip + recovery actions wrap below it. The chip
+   already shows live/stalled, so drop the now-redundant leading dot to give the title the full width. */
+.compact .list > li:has(.chip-inflight),
+.compact .list > li:has(.chip-stalled) { flex-wrap: wrap; row-gap: 7px; }
+.compact .list > li:has(.chip-inflight) > .dot,
+.compact .list > li:has(.chip-stalled) > .dot { display: none; }
+.compact .list > li:has(.chip-inflight) > .subj,
+.compact .list > li:has(.chip-stalled) > .subj { flex-basis: 100%; }
