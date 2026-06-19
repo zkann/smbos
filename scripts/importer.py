@@ -55,6 +55,8 @@ def map_record(record, domain, source_key="id", kind_default="item"):
         "source_ref": None if source in (None, "") else str(source),  # empty source means no source
         # optional: when set, the plate row leads with "Open" (this link) instead of "Hand to Claude"
         "action_url": str(record["action_url"]) if record.get("action_url") else None,
+        # optional: working folder a picked-up ("Hand to Claude") session opens in (else $HOME)
+        "cwd": str(record["cwd"]) if record.get("cwd") else None,
     }
 
 

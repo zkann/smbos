@@ -80,17 +80,21 @@ def _launch_prompt(task, sop_dir):
     return prompt
 
 
-def _launch_session(sop_dir, prompt, task_id=None):
+def _launch_session(sop_dir, prompt, task_id=None, cwd=None):
     """Open an interactive Claude session primed with `prompt`, reusing the legacy daemon's osascript
-    launch (terminal detection, permission posture, shlex-escaping). Launches in $HOME, but exports
-    SOP_DIR so the new session resolves THIS library (the app may run with a non-default --sop-dir),
-    and SMBOS_TASK_ID (for a plate task) so the SessionStart hook records the task's liveness handle."""
+    launch (terminal detection, permission posture, shlex-escaping). Opens in the task's `cwd` when it
+    names an existing folder, else $HOME. Exports SOP_DIR so the new session resolves THIS library (the
+    app may run with a non-default --sop-dir), and SMBOS_TASK_ID (for a plate task) so the SessionStart
+    hook records the task's liveness handle."""
     sop_dir = Path(sop_dir)
     env = {"SOP_DIR": str(sop_dir.resolve())}
     if task_id is not None:
         env["SMBOS_TASK_ID"] = str(task_id)
+    folder = Path(cwd).expanduser() if cwd else None  # task-specified folder, else fall back to $HOME
+    if folder is None or not folder.is_dir():
+        folder = Path.home()
     legacy.open_terminal_with_claude(
-        str(Path.home()), prompt,
+        str(folder), prompt,
         terminal=legacy.preferred_terminal(sop_dir),
         permission=legacy.launch_permission(sop_dir),
         env=env,
@@ -110,7 +114,7 @@ def launch_task(sop_dir, task_id):
         raise AlreadyPickedUp("task is not on your plate (already picked up?)")
     lib.clear_session(sop_dir, task["id"])  # drop a prior session's stale marker; the new one re-records
     try:
-        _launch_session(sop_dir, _launch_prompt(task, sop_dir), task["id"])
+        _launch_session(sop_dir, _launch_prompt(task, sop_dir), task["id"], cwd=task.get("cwd"))
     except ValueError as exc:  # non-macOS / missing folder
         ss.set_task_status(sop_dir, task["id"], "waiting")  # release the claim
         raise LaunchRefused(str(exc))
@@ -169,7 +173,7 @@ def open_session(sop_dir, task_id):
     if not ss.assert_in_flight(sop_dir, task["id"]):  # no side effect: catches a raced resolve
         raise NotInFlight("task is not in flight")
     try:
-        _launch_session(sop_dir, _launch_prompt(task, sop_dir), task["id"])
+        _launch_session(sop_dir, _launch_prompt(task, sop_dir), task["id"], cwd=task.get("cwd"))
     except ValueError as exc:  # non-macOS / missing folder
         raise LaunchRefused(str(exc))
     ss.touch_in_flight_task(sop_dir, task["id"])  # restart the grace (reopened reads 'live'), then
