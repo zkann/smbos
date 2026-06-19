@@ -239,7 +239,9 @@ function createWindow() {
     return { action: 'deny' }
   })
   win.webContents.on('will-navigate', (e, url) => {
-    if (!url.startsWith(`http://127.0.0.1:${brokerPort}`)) {
+    let sameOrigin = false  // EXACT origin, not a startsWith prefix (http://127.0.0.1:PORT.evil.com slips past startsWith)
+    try { sameOrigin = new URL(url).origin === `http://127.0.0.1:${brokerPort}` } catch (_) { /* unparseable */ }
+    if (!sameOrigin) {
       e.preventDefault()
       if (/^https?:\/\//i.test(url)) shell.openExternal(url)
     }
