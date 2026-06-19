@@ -577,11 +577,14 @@ export default function App() {
           <li key={t.id ?? i} className="inflight">
             <span className={`dot ${stalled ? 'stalled' : 'live'}`} aria-hidden="true"></span>
             <span className="subj" title={t.subject}>{t.subject}</span>
-            {/* live rows carry no chip: the "In flight" section header is the context, so only the
-                EXCEPTION (stalled) wears a chip and earns the eye. */}
-            {stalled && (
+            {/* live rows carry no VISIBLE chip: the "In flight" section header is the context, so only
+                the EXCEPTION (stalled) wears a chip and earns the eye. A live row still announces its
+                state to screen readers via an sr-only label (the dot is aria-hidden). */}
+            {stalled ? (
               <span className="chip chip-stalled tip"
                 data-tip="No live session for this task (its window was closed, or it stopped without reporting). Put it back on your plate, or mark it done or dismissed.">stalled</span>
+            ) : (
+              <span className="sr-only">in flight</span>
             )}
             {/* stalled: its session is gone, so the primary recovery is to reopen it and resume;
                 Put back / Done / Dismiss stay as the other outs. Live: Done is the primary. */}

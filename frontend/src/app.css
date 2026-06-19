@@ -202,6 +202,13 @@ ol.list > li::before {
    line). Base layout here; the compact override drops it to a full-width line. */
 .acts { display: flex; align-items: center; gap: 8px; flex: none; }
 
+/* visually hidden but read by screen readers (e.g. a live in-flight row's state, which is otherwise
+   carried only by an aria-hidden dot + the section label). */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
 /* Fast custom tooltip. The native title= attribute has a browser-fixed ~1.5s delay we can't shorten;
    this shows in ~120ms. Opt in with class "tip" + data-tip="text". Sits above the element, right
    edges aligned (so right-side buttons extend left and stay inside the panel), and wraps. */
