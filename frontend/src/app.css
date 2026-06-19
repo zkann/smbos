@@ -55,6 +55,7 @@ html.smbos-panel main {
 .tab-flight span { font-size: 7px; }
 main { max-width: 1180px; margin: 0 auto; padding: 32px; }
 header { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+.logo { flex: none; display: block; }
 /* Pin button (Electron panel only): keep the sidebar open vs let it auto-hide. */
 .pin-btn {
   margin-left: auto; flex: none; display: inline-flex; align-items: center; justify-content: center;
