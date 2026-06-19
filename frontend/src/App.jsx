@@ -33,8 +33,7 @@ function Tab({ plate, inflight }) {
   const waiting = plate.length
   const flight = inflight.length
   return (
-    <div className={`tab ${waiting ? 'amber' : 'green'}`} title={waiting ? `${waiting} waiting for you` : 'Nothing waiting'}>
-      <div className="tab-dot" />
+    <div className={`tab ${waiting ? 'waiting' : 'clear'}`} title={waiting ? `${waiting} waiting for you` : 'Nothing waiting'}>
       <div className="tab-count">{waiting}</div>
       {flight > 0 && <div className="tab-flight">{flight}<span>▶</span></div>}
     </div>
