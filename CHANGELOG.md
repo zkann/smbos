@@ -2,7 +2,7 @@
 
 ## 0.34.0 (2026-06-19)
 
-- The sidebar is easier to use. To open a task's details, click its title (the whole title is the target) instead of the tiny caret that was hard to hit and easy to miss. The caret stays as a small marker showing which tasks have more to see. The per-task buttons (Open, Hand to Claude) are a little larger too, so they are easier to hit. Same dense, glanceable plate, with bigger targets and clearer affordances.
+- The sidebar is easier to use. To open a task's details, click its title (the whole title is the target) instead of the tiny caret that was hard to hit and easy to miss. The caret stays as a small marker showing which tasks have more to see. The per-task buttons (Open, Hand to Claude) are a little larger too, so they are easier to hit. Everything on your plate stays as dense and quick to read as before, with bigger targets and clearer affordances.
 
 ## 0.33.0 (2026-06-19)
 

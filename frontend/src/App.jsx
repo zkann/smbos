@@ -469,15 +469,16 @@ export default function App() {
         const why = typeof t.why === 'string' && t.why.trim() ? t.why.trim() : null
         const urgent = inlineFacts.some(f => f.urgent)  // an INLINE urgent fact (Due) -> matches the row's amber left bar
         const hasDetails = !!why || facts.length > 0
-        const open = !!openRows[t.id]
+        const rowKey = t.id ?? i        // disclosure + React key: stable id when present, index fallback for id-less rows
+        const open = !!openRows[rowKey]
         return (
-          <li key={t.id ?? i}>
+          <li key={rowKey}>
             {hasDetails ? (
               /* the TITLE is the expand control: a full-width hit target + an obvious affordance
                  (hover + focus ring), replacing the old 12px gutter caret. The caret rides along as a
                  rotating indicator. The action buttons are siblings (not nested), so they toggle nothing. */
               <button type="button" className="subj subj-toggle" aria-expanded={open}
-                onClick={() => setOpenRows(s => ({ ...s, [t.id]: !s[t.id] }))}
+                onClick={() => setOpenRows(s => ({ ...s, [rowKey]: !s[rowKey] }))}
                 title={open ? 'Hide details' : 'Show details'}>
                 <span className="caret" aria-hidden="true">{open ? '▾' : '▸'}</span>
                 <span className="subj-text" title={t.subject}>{t.subject}</span>
