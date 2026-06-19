@@ -11,7 +11,7 @@
 // dashboard_token: $SMBOS_DASHBOARD_PORT, else triggers.json dashboard_port, else 8765; token from
 // <sop_dir>/.dashboard-token; sop_dir from $SOP_DIR, else ~/sops.
 
-const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, screen, globalShortcut, ipcMain } = require('electron')
+const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, screen, globalShortcut, ipcMain, shell } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const http = require('http')
@@ -232,6 +232,18 @@ function createWindow() {
     },
   })
   collapsedSent = null  // fresh window: let the first collapse/expand signal land
+  // A task's "Open" action is a target=_blank http(s) link: send it to the default browser, never a
+  // child Electron window. (will-navigate is belt-and-suspenders: the panel must never leave the SPA.)
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  win.webContents.on('will-navigate', (e, url) => {
+    if (!url.startsWith(`http://127.0.0.1:${brokerPort}`)) {
+      e.preventDefault()
+      if (/^https?:\/\//i.test(url)) shell.openExternal(url)
+    }
+  })
   win.loadURL(windowUrl())
   // The renderer can miss an IPC sent before it loaded, so (re)send the current collapse state once
   // the page is up.

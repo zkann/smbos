@@ -24,9 +24,10 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 3  # bump when SCHEMA_STATEMENTS changes; migrations key off PRAGMA user_version
+SCHEMA_VERSION = 4  # bump when SCHEMA_STATEMENTS changes; migrations key off PRAGMA user_version
 # v2: partial unique index on (domain, source_ref) so imports can upsert idempotently.
 # v3: run.summary holds the run's one-line "what it did" line, surfaced on Recent runs.
+# v4: task.action_url -- when set, the dashboard leads with "Open" (this link) over "Pick up".
 DB_NAME = "state.db"
 BUSY_TIMEOUT_MS = 5000
 
@@ -49,7 +50,8 @@ SCHEMA_STATEMENTS = (
         priority INTEGER NOT NULL DEFAULT 0,
         source_ref TEXT,
         created_at TEXT NOT NULL,   -- ISO-8601 UTC from _now(); callers must not write local/naive times
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        action_url TEXT             -- optional: when set, the plate row leads with "Open" (this link)
     )""",
     "CREATE INDEX IF NOT EXISTS idx_task_status_priority ON task(status, priority DESC, created_at, id)",
     # v2: a sourced task is unique per (domain, source_ref) so re-imports upsert instead of
@@ -169,6 +171,12 @@ def _apply_migrations(conn, from_ver):
         cols = [r[1] for r in conn.execute("PRAGMA table_info(run)").fetchall()]
         if "summary" not in cols:
             conn.execute("ALTER TABLE run ADD COLUMN summary TEXT")
+    # 3 -> 4: add task.action_url to an existing task table (CREATE ... IF NOT EXISTS won't alter it).
+    # Idempotent (guarded on the column not existing); no-op on a fresh DB (task table created below).
+    if from_ver < 4 and _table_exists(conn, "task"):
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(task)").fetchall()]
+        if "action_url" not in cols:
+            conn.execute("ALTER TABLE task ADD COLUMN action_url TEXT")
     for stmt in SCHEMA_STATEMENTS:
         conn.execute(stmt)
 
@@ -232,22 +240,22 @@ def data_version(conn):
 
 # --- writes (called directly from any process) -----------------------------------
 
-def record_task(sop_dir, domain, kind, subject, status="waiting", priority=0, source_ref=None):
+def record_task(sop_dir, domain, kind, subject, status="waiting", priority=0, source_ref=None, action_url=None):
     if status not in TASK_STATUSES:
         raise StateStoreError(f"invalid task status {status!r}; expected one of {sorted(TASK_STATUSES)}")
     source_ref = _norm_source(source_ref)
     now = _now()
     with connect(sop_dir) as conn:
         cur = conn.execute(
-            "INSERT INTO task(domain,kind,subject,status,priority,source_ref,created_at,updated_at)"
-            " VALUES(?,?,?,?,?,?,?,?)",
-            (domain, kind, subject, status, priority, source_ref, now, now),
+            "INSERT INTO task(domain,kind,subject,status,priority,source_ref,created_at,updated_at,action_url)"
+            " VALUES(?,?,?,?,?,?,?,?,?)",
+            (domain, kind, subject, status, priority, source_ref, now, now, action_url),
         )
         conn.commit()
         return cur.lastrowid
 
 
-def upsert_task(sop_dir, domain, kind, subject, status=None, priority=0, source_ref=None):
+def upsert_task(sop_dir, domain, kind, subject, status=None, priority=0, source_ref=None, action_url=None):
     """Insert a task, or update the existing one with the same (domain, source_ref).
 
     Idempotent for imports: re-running with the same source_ref updates that row in place
@@ -267,9 +275,9 @@ def upsert_task(sop_dir, domain, kind, subject, status=None, priority=0, source_
     with connect(sop_dir) as conn:
         if source_ref is None:
             cur = conn.execute(
-                "INSERT INTO task(domain,kind,subject,status,priority,source_ref,created_at,updated_at)"
-                " VALUES(?,?,?,?,?,?,?,?)",
-                (domain, kind, subject, insert_status, priority, None, now, now),
+                "INSERT INTO task(domain,kind,subject,status,priority,source_ref,created_at,updated_at,action_url)"
+                " VALUES(?,?,?,?,?,?,?,?,?)",
+                (domain, kind, subject, insert_status, priority, None, now, now, action_url),
             )
             return cur.lastrowid
         # On conflict, always refresh content fields; refresh status ONLY when the caller
@@ -277,13 +285,13 @@ def upsert_task(sop_dir, domain, kind, subject, status=None, priority=0, source_
         # set_status is a fixed literal (no user input), so the f-string carries no injection risk.
         set_status = "status=excluded.status, " if status is not None else ""
         conn.execute(
-            "INSERT INTO task(domain,kind,subject,status,priority,source_ref,created_at,updated_at)"
-            " VALUES(?,?,?,?,?,?,?,?)"
+            "INSERT INTO task(domain,kind,subject,status,priority,source_ref,created_at,updated_at,action_url)"
+            " VALUES(?,?,?,?,?,?,?,?,?)"
             # the partial index's WHERE predicate must be repeated here for ON CONFLICT to match it
             " ON CONFLICT(domain, source_ref) WHERE source_ref IS NOT NULL DO UPDATE SET"
             "   kind=excluded.kind, subject=excluded.subject, " + set_status +
-            "   priority=excluded.priority, updated_at=excluded.updated_at",
-            (domain, kind, subject, insert_status, priority, source_ref, now, now),
+            "   priority=excluded.priority, updated_at=excluded.updated_at, action_url=excluded.action_url",
+            (domain, kind, subject, insert_status, priority, source_ref, now, now, action_url),
         )
         row = conn.execute(
             "SELECT id FROM task WHERE domain=? AND source_ref=?", (domain, source_ref)
