@@ -259,6 +259,8 @@ ol.list > li::before {
 }
 .fact-details dt { color: var(--subtle-fg); }
 .fact-details dd { color: var(--foreground); margin: 0; overflow-wrap: anywhere; }
+/* the dossier "why this is here" leads the details block; a touch of weight, no new color token. */
+.fact-details dd.fact-why { font-weight: 500; }
 
 .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--subtle-fg); flex: none; }
 .dot.live { background: var(--primary); box-shadow: 0 0 6px color-mix(in srgb, var(--primary) 70%, transparent); }

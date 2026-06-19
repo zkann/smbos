@@ -25,7 +25,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 7  # bump when SCHEMA_STATEMENTS changes; migrations key off PRAGMA user_version
+SCHEMA_VERSION = 8  # bump when SCHEMA_STATEMENTS changes; migrations key off PRAGMA user_version
 # v2: partial unique index on (domain, source_ref) so imports can upsert idempotently.
 # v3: run.summary holds the run's one-line "what it did" line, surfaced on Recent runs.
 # v4: task.action_url -- when set, the dashboard leads with "Open" (this link) over "Pick up".
@@ -34,6 +34,9 @@ SCHEMA_VERSION = 7  # bump when SCHEMA_STATEMENTS changes; migrations key off PR
 #     the rest fold into a per-row details expansion.
 # v7: routed_item -- the ingestion broker's source-agnostic assignment store. One reader per source
 #     routes each item ONCE to a lane/consumer; PK (source,item_id) = routed-once + cross-source dedup.
+# v8: task.why / producer / sop_id -- the dossier's provenance. why = the producer's plain-English reason
+#     this task is on the plate (REFRESHES on re-import); producer = the workflow that made it and sop_id =
+#     its governing SOP (both SET-ONCE via COALESCE, so a later sync that omits them never blanks them).
 DB_NAME = "state.db"
 BUSY_TIMEOUT_MS = 5000
 
@@ -60,7 +63,10 @@ SCHEMA_STATEMENTS = (
         updated_at TEXT NOT NULL,
         action_url TEXT,            -- optional: when set, the plate row leads with "Open" (this link)
         cwd TEXT,                   -- optional: working folder a picked-up session opens in (else $HOME)
-        facts TEXT                  -- optional: JSON [{label,value,inline}] surfaced inline / in details
+        facts TEXT,                 -- optional: JSON [{label,value,inline}] surfaced inline / in details
+        why TEXT,                   -- v8: producer's plain-English reason this task is on the plate (refreshes)
+        producer TEXT,              -- v8: stable workflow id that created the task, set-once (provenance)
+        sop_id TEXT                 -- v8: governing SOP id, set-once (the dossier's link/handle)
     )""",
     "CREATE INDEX IF NOT EXISTS idx_task_status_priority ON task(status, priority DESC, created_at, id)",
     # v2: a sourced task is unique per (domain, source_ref) so re-imports upsert instead of
@@ -212,6 +218,14 @@ def _apply_migrations(conn, from_ver):
         cols = [r[1] for r in conn.execute("PRAGMA table_info(task)").fetchall()]
         if "facts" not in cols:
             conn.execute("ALTER TABLE task ADD COLUMN facts TEXT")
+    # 6/7 -> 8: add the dossier provenance columns (why/producer/sop_id). One guarded ALTER per missing
+    # column, looped over FIXED literals (no user input -> no SQL-injection risk), so it stays idempotent
+    # and DRY. No-op on a fresh DB (the task table is created below WITH these columns by SCHEMA_STATEMENTS).
+    if from_ver < 8 and _table_exists(conn, "task"):
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(task)").fetchall()]
+        for col, decl in (("why", "TEXT"), ("producer", "TEXT"), ("sop_id", "TEXT")):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE task ADD COLUMN {col} {decl}")
     for stmt in SCHEMA_STATEMENTS:
         conn.execute(stmt)
 
@@ -276,23 +290,23 @@ def data_version(conn):
 # --- writes (called directly from any process) -----------------------------------
 
 def record_task(sop_dir, domain, kind, subject, status="waiting", priority=0, source_ref=None,
-                action_url=None, cwd=None, facts=None):
+                action_url=None, cwd=None, facts=None, why=None, producer=None, sop_id=None):
     if status not in TASK_STATUSES:
         raise StateStoreError(f"invalid task status {status!r}; expected one of {sorted(TASK_STATUSES)}")
     source_ref = _norm_source(source_ref)
     now = _now()
     with connect(sop_dir) as conn:
         cur = conn.execute(
-            "INSERT INTO task(domain,kind,subject,status,priority,source_ref,created_at,updated_at,action_url,cwd,facts)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-            (domain, kind, subject, status, priority, source_ref, now, now, action_url, cwd, facts),
+            "INSERT INTO task(domain,kind,subject,status,priority,source_ref,created_at,updated_at,action_url,cwd,facts,why,producer,sop_id)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (domain, kind, subject, status, priority, source_ref, now, now, action_url, cwd, facts, why, producer, sop_id),
         )
         conn.commit()
         return cur.lastrowid
 
 
 def upsert_task(sop_dir, domain, kind, subject, status=None, priority=0, source_ref=None,
-                action_url=None, cwd=None, facts=None):
+                action_url=None, cwd=None, facts=None, why=None, producer=None, sop_id=None):
     """Insert a task, or update the existing one with the same (domain, source_ref).
 
     Idempotent for imports: re-running with the same source_ref updates that row in place
@@ -312,9 +326,9 @@ def upsert_task(sop_dir, domain, kind, subject, status=None, priority=0, source_
     with connect(sop_dir) as conn:
         if source_ref is None:
             cur = conn.execute(
-                "INSERT INTO task(domain,kind,subject,status,priority,source_ref,created_at,updated_at,action_url,cwd,facts)"
-                " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                (domain, kind, subject, insert_status, priority, None, now, now, action_url, cwd, facts),
+                "INSERT INTO task(domain,kind,subject,status,priority,source_ref,created_at,updated_at,action_url,cwd,facts,why,producer,sop_id)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (domain, kind, subject, insert_status, priority, None, now, now, action_url, cwd, facts, why, producer, sop_id),
             )
             return cur.lastrowid
         # On conflict, always refresh content fields; refresh status ONLY when the caller
@@ -322,14 +336,18 @@ def upsert_task(sop_dir, domain, kind, subject, status=None, priority=0, source_
         # set_status is a fixed literal (no user input), so the f-string carries no injection risk.
         set_status = "status=excluded.status, " if status is not None else ""
         conn.execute(
-            "INSERT INTO task(domain,kind,subject,status,priority,source_ref,created_at,updated_at,action_url,cwd,facts)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?)"
+            "INSERT INTO task(domain,kind,subject,status,priority,source_ref,created_at,updated_at,action_url,cwd,facts,why,producer,sop_id)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
             # the partial index's WHERE predicate must be repeated here for ON CONFLICT to match it
             " ON CONFLICT(domain, source_ref) WHERE source_ref IS NOT NULL DO UPDATE SET"
             "   kind=excluded.kind, subject=excluded.subject, " + set_status +
             "   priority=excluded.priority, updated_at=excluded.updated_at, action_url=excluded.action_url,"
-            "   cwd=excluded.cwd, facts=excluded.facts",
-            (domain, kind, subject, insert_status, priority, source_ref, now, now, action_url, cwd, facts),
+            "   cwd=excluded.cwd, facts=excluded.facts,"
+            # why REFRESHES (the producer owns it); producer/sop_id are SET-ONCE (COALESCE keeps the
+            # existing value, so a later sync that changes or omits them never overwrites the original).
+            "   why=excluded.why, producer=COALESCE(producer, excluded.producer),"
+            "   sop_id=COALESCE(sop_id, excluded.sop_id)",
+            (domain, kind, subject, insert_status, priority, source_ref, now, now, action_url, cwd, facts, why, producer, sop_id),
         )
         row = conn.execute(
             "SELECT id FROM task WHERE domain=? AND source_ref=?", (domain, source_ref)
