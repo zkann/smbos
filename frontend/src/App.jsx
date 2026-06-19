@@ -464,10 +464,14 @@ export default function App() {
         )
         const facts = parseFacts(t.facts)            // producer-set [{label, value, inline, urgent?}]
         const inlineFacts = facts.filter(f => f.inline)
+        // v8 dossier: the producer's plain-English "why this is here" (refreshed each sync). It leads the
+        // details block and, like facts, un-gates the caret -- a why-only task (no facts) still expands.
+        const why = typeof t.why === 'string' && t.why.trim() ? t.why.trim() : null
+        const hasDetails = !!why || facts.length > 0
         const open = !!openRows[t.id]
         return (
           <li key={t.id ?? i}>
-            {facts.length > 0 && (
+            {hasDetails && (
               <button type="button" className="fact-toggle" aria-expanded={open}
                 onClick={() => setOpenRows(s => ({ ...s, [t.id]: !s[t.id] }))}
                 title={open ? 'Hide details' : 'Show details'}>{open ? '▾' : '▸'}</button>
@@ -489,8 +493,9 @@ export default function App() {
                 </>
               ) : pick}
             </span>
-            {open && facts.length > 0 && (
+            {open && hasDetails && (
               <dl className="fact-details">
+                {why && <><dt>Why</dt><dd className="fact-why">{why}</dd></>}
                 {facts.flatMap((f, k) => [
                   <dt key={`${k}t`}>{f.label}</dt>,
                   <dd key={`${k}d`}>{f.value}</dd>,

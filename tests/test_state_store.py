@@ -89,6 +89,70 @@ def test_migration_v3_to_v4_adds_action_url(tmp_path):
     assert row["subject"] == "old task" and row["action_url"] is None  # pre-existing row gets NULL
 
 
+def test_migration_v7_to_v8_adds_provenance_columns(tmp_path):
+    # a v7-shaped DB (task table WITHOUT why/producer/sop_id) must migrate in place on open.
+    raw = sqlite3.connect(str(ss.db_path(tmp_path)))
+    raw.executescript(
+        "CREATE TABLE task (id INTEGER PRIMARY KEY, domain TEXT NOT NULL, kind TEXT NOT NULL,"
+        " subject TEXT NOT NULL, status TEXT NOT NULL, priority INTEGER NOT NULL DEFAULT 0,"
+        " source_ref TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,"
+        " action_url TEXT, cwd TEXT, facts TEXT);"
+        "INSERT INTO task(domain,kind,subject,status,created_at,updated_at)"
+        " VALUES('ops','review','old task','waiting','t','t');"
+        "PRAGMA user_version=7;")
+    raw.commit()
+    raw.close()
+    with ss.connect(tmp_path) as conn:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == ss.SCHEMA_VERSION
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(task)").fetchall()}
+        assert {"why", "producer", "sop_id"} <= cols
+    row = ss.plate(tmp_path)[0]
+    assert row["subject"] == "old task" and row["why"] is None  # pre-existing row gets NULL
+
+
+def test_provenance_why_refreshes_producer_sopid_set_once(tmp_path):
+    # the dossier provenance refresh policy: why REFRESHES on re-import; producer/sop_id are SET-ONCE
+    # (COALESCE), so a later sync that changes or omits them never overwrites the originals.
+    ss.upsert_task(tmp_path, "ops", "reply", "lease", source_ref="s1",
+                   why="reply about the lease date", producer="pipeline-a", sop_id="sop-a")
+    ss.upsert_task(tmp_path, "ops", "reply", "lease", source_ref="s1",
+                   why="now: confirm the date", producer="pipeline-b", sop_id="sop-b")  # different values
+    ss.upsert_task(tmp_path, "ops", "reply", "lease", source_ref="s1", why="latest")    # omits producer/sop_id
+    with ss.connect(tmp_path) as conn:
+        row = conn.execute("SELECT why, producer, sop_id FROM task WHERE source_ref='s1'").fetchone()
+    assert row["why"] == "latest"           # refreshed each time
+    assert row["producer"] == "pipeline-a"  # set-once: first value wins, never overwritten or blanked
+    assert row["sop_id"] == "sop-a"         # set-once
+
+
+def test_provenance_set_once_fills_a_null_later(tmp_path):
+    # set-once means "first NON-NULL wins": a task created without a producer can still get one later.
+    ss.upsert_task(tmp_path, "ops", "reply", "x", source_ref="s1")                          # no producer
+    ss.upsert_task(tmp_path, "ops", "reply", "x", source_ref="s1", producer="pipeline-a")   # fills it
+    with ss.connect(tmp_path) as conn:
+        got = conn.execute("SELECT producer FROM task WHERE source_ref='s1'").fetchone()["producer"]
+    assert got == "pipeline-a"
+
+
+def test_record_task_provenance(tmp_path):
+    ss.record_task(tmp_path, "ops", "reply", "x", why="reply about the lease",
+                   producer="pipeline-a", sop_id="sop-a")
+    row = ss.plate(tmp_path)[0]
+    assert row["why"] == "reply about the lease"
+    assert row["producer"] == "pipeline-a" and row["sop_id"] == "sop-a"
+
+
+def test_upsert_without_provenance_leaves_columns_null(tmp_path):
+    # regression: existing callers that pass no provenance still work; columns default NULL and the
+    # content fields still refresh on re-import (the v8 columns don't disturb existing behavior).
+    ss.upsert_task(tmp_path, "ops", "review", "plain", source_ref="s1")
+    ss.upsert_task(tmp_path, "ops", "review", "plain v2", source_ref="s1")
+    with ss.connect(tmp_path) as conn:
+        row = conn.execute("SELECT subject, why, producer, sop_id FROM task WHERE source_ref='s1'").fetchone()
+    assert row["subject"] == "plain v2"
+    assert row["why"] is None and row["producer"] is None and row["sop_id"] is None
+
+
 def test_upsert_null_source_always_inserts(tmp_path):
     ss.upsert_task(tmp_path, "ops", "review", "ad-hoc")
     ss.upsert_task(tmp_path, "ops", "review", "ad-hoc")

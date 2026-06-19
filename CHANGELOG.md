@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.31.0 (2026-06-19)
+
+- A task on your plate can now show a short "why this is here" line. When the source that created a task explains why it landed on your plate, that reason leads the task's details, so you can tell what a task is at a glance without opening the source. Tasks with details now open from the toggle on the row even when the only thing inside is that reason, and tasks that carry no reason look exactly as before. This is the first step toward a fuller task view, and it also quietly records which workflow produced each task for later use.
+
 ## 0.30.0 (2026-06-17)
 
 - The dashboard now knows when a picked-up session has stopped. An in-flight task used to always show a green "live" dot, even if you closed its window or it crashed without reporting; now the dashboard tracks the session's process, so a task whose session is gone turns amber and reads "stalled", with Put back as the highlighted action to return it to your plate. A task that's genuinely still being worked stays live. This is the awareness half of the in-flight work; the manual Put back / Done / Dismiss controls and the session's own reporting (0.29.0) still apply.
