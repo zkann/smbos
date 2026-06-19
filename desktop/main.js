@@ -134,7 +134,7 @@ function revealPanel() {
   slideX(outX(a))
 }
 function parkPanel() {
-  if (!win || pinned) return
+  if (!win || pinned || !panelOut) return  // idempotent: don't re-park an already-parked tab
   const a = dockArea()
   panelOut = false
   slideX(a.x + a.width, () => {   // slide the full panel off the right edge...
