@@ -32,6 +32,14 @@ html.smbos-panel main {
   backdrop-filter: blur(28px) saturate(140%) brightness(0.5);
   -webkit-backdrop-filter: blur(28px) saturate(140%) brightness(0.5);
 }
+/* Opaque-background toggle (Settings > Opaque background): some desktops bleed through the frosted,
+   transparent-window panel, so let the owner pin the EXPANDED panel solid -- main goes solid, blur
+   dropped. Scoped to main, NOT body: when the panel auto-hides to the parked tab it renders <Tab> and
+   no <main>, and the body must stay transparent there so the tab's rounded corners don't draw a square
+   dark rectangle behind them. main fills the panel window, so the body needs no solid fill. */
+html.smbos-panel.opaque main {
+  background: var(--background); backdrop-filter: none; -webkit-backdrop-filter: none;
+}
 
 /* The parked tab: a compact shape filling the small tab-sized window (~52x104). Because the window is
    transparent, the frost is clipped to THIS rounded shape -- the notch corners are truly see-through,
@@ -196,6 +204,13 @@ ol.list > li::before {
   border: 1px solid var(--input); border-radius: 6px; padding: 6px 9px; min-width: 200px;
 }
 .setrow input[type="number"] { min-width: 96px; text-align: right; }
+/* the opaque-background toggle: a small native checkbox tinted to the brand accent. flex:none opts it
+   out of the responsive `.setrow input { flex:1 1 100% }` stretch; the label keeps its line via :has. */
+.setrow input[type="checkbox"] {
+  flex: none; width: 16px; height: 16px; min-width: 0; padding: 0; margin-left: auto; border: none;
+  accent-color: var(--primary); cursor: pointer;
+}
+.setrow:has(input[type="checkbox"]) label { flex-basis: auto; }
 .setrow select:focus-visible, .setrow input:focus-visible {
   outline: 2px solid var(--ring); outline-offset: 2px; border-color: var(--border-strong);
 }

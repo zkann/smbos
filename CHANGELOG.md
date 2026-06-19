@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.36.0 (2026-06-19)
+
+- New: an "Opaque background" toggle in the sidebar's Settings. The docked panel normally uses a frosted, see-through background, which can be hard to read over a busy or light desktop. Turn this on to make it a solid dark background instead. It is a per-device display preference (remembered on this Mac) and only appears in the docked sidebar.
+
 ## 0.35.0 (2026-06-19)
 
 - A round of sidebar polish from a design review. The buttons on In-flight, prepared, and procedure rows are now the same comfortable size as the rest (they were a little small and easy to mis-tap). A task's Open and Hand-to-Claude buttons now sit under its title instead of floating off to the right, so your eye stays on the tasks. Titles all line up on one left edge. The "N due" count reads as a clearer amber alert. Keyboard focus outlines and disabled-button styling are now consistent across every control.
