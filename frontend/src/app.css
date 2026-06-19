@@ -24,8 +24,13 @@ html.smbos-panel {
 /* Expanded panel: a frosted dark backing filling the window (square/flush; the dashboard renders over it). */
 html.smbos-panel main {
   min-height: 100vh;
-  background: rgba(12, 12, 15, 0.72);
-  backdrop-filter: blur(28px) saturate(150%); -webkit-backdrop-filter: blur(28px) saturate(150%);
+  /* brightness(0.5) DARKENS whatever is behind the transparent window before the dark overlay, so a
+     light/busy desktop can't bleed light through and wash out the muted text (overlines, dividers).
+     The blur+saturate keep the frosted-glass feel; the slightly higher overlay opacity adds margin.
+     Without this the 0.72 frost only stayed readable over a DARK backdrop. */
+  background: rgba(12, 12, 15, 0.8);
+  backdrop-filter: blur(28px) saturate(140%) brightness(0.5);
+  -webkit-backdrop-filter: blur(28px) saturate(140%) brightness(0.5);
 }
 
 /* The parked tab: a compact shape filling the small tab-sized window (~52x104). Because the window is
@@ -40,8 +45,9 @@ html.smbos-panel main {
 }
 .tab.clear {                                   /* nothing waiting: a calm frosted-dark tab */
   color: var(--muted-fg);
-  background: rgba(20, 20, 24, 0.5);
-  backdrop-filter: blur(22px) saturate(150%); -webkit-backdrop-filter: blur(22px) saturate(150%);
+  background: rgba(20, 20, 24, 0.6);            /* same readability fix as the panel: darken the */
+  backdrop-filter: blur(22px) saturate(140%) brightness(0.5);   /* backdrop so the count stays legible */
+  -webkit-backdrop-filter: blur(22px) saturate(140%) brightness(0.5);  /* over a light desktop behind it */
   border: 1px solid var(--border); border-right: none;
 }
 .tab.waiting {                                 /* something waiting: a saturated amber fill, dark count */
