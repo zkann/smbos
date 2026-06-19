@@ -19,7 +19,8 @@ const { dashboardPort, token, sopDir } = require('./resolve')
 const { createBroker } = require('./broker')
 
 const POLL_MS = 5000          // tray/notification poll cadence (matches the live mirror's calm cadence)
-const DOCK_WIDTH = 400        // sidebar width when docked to a screen edge (~standard sidebar footprint)
+const DOCK_WIDTH = 400        // sidebar width when docked + slid out (~standard sidebar footprint)
+const RAIL_WIDTH = 56         // the count spine: how much of the edge stays visible when parked
 const FLOAT_SIZE = { width: 480, height: 860 }  // the normal (undocked) floating window
 const TOGGLE_HOTKEY = 'Control+Command+S'  // global summon/dismiss; ^⌘S is rarely a system/app global
 const SLIDE_MS = 140          // edge slide duration
@@ -76,8 +77,17 @@ function dockDisplay() {
   return d
 }
 function dockArea() { return dockDisplay().workArea }
-function outX(a) { return a.x + a.width - DOCK_WIDTH }  // slid-out (fully visible) x
-function parkX(a) { return a.x + a.width }              // parked just off the display's right edge
+function outX(a) { return a.x + a.width - DOCK_WIDTH }   // slid-out (full panel) x
+function parkX(a) { return a.x + a.width - RAIL_WIDTH }  // parked: only the RAIL_WIDTH count spine shows
+
+// Tell the renderer to show the count spine (collapsed) vs the full dashboard. De-duped so the poll
+// can't spam IPC; reset per window so the first signal always lands.
+let collapsedSent = null
+function sendCollapsed(v) {
+  if (collapsedSent === v) return
+  collapsedSent = v
+  if (win && !win.isDestroyed() && win.webContents) win.webContents.send('panel-collapsed', v)
+}
 function outerRightEdge() { return Math.max(...screen.getAllDisplays().map((d) => d.workArea.x + d.workArea.width)) }
 // Sliding 'off the right edge' only goes off-SCREEN when the docked display is the rightmost; with a
 // monitor to its right, parkX would land on the neighbour. So edge-reveal/auto-hide only arms on the
@@ -110,11 +120,13 @@ function revealPanel() {
   }
   if (!win.isVisible()) win.show()
   panelOut = true
+  sendCollapsed(false)  // show the full dashboard as it slides out
   slideX(outX(a))
 }
 function parkPanel() {
   if (!win || pinned) return
   panelOut = false
+  sendCollapsed(true)   // collapse to the count spine; it's left-anchored so it rides to the edge
   slideX(parkX(dockArea()))
 }
 function schedulePark() { if (!hideTimer) hideTimer = setTimeout(() => { hideTimer = null; parkPanel() }, HIDE_GRACE_MS) }
@@ -185,10 +197,11 @@ function createWindow() {
     ...FLOAT_SIZE,
     title: 'SmbOS',
     // Docked = a CHROMELESS macOS NSPanel (floats over full-screen apps, all Spaces, no focus-steal)
-    // with native sidebar vibrancy behind a transparent bg (the dashboard goes translucent in panel
-    // mode so the frost shows). Undocked rebuilds as a normal opaque framed window.
+    // with native sidebar vibrancy. transparent:true makes Electron honor the transparent backgroundColor
+    // alpha (otherwise #00000000 is an opaque backing) so the frost shows; the SPA goes translucent in
+    // panel mode. Undocked rebuilds as a normal opaque framed window.
     ...(docked
-      ? { type: 'panel', frame: false, roundedCorners: true, vibrancy: 'sidebar', backgroundColor: '#00000000' }
+      ? { type: 'panel', frame: false, roundedCorners: true, vibrancy: 'sidebar', transparent: true, backgroundColor: '#00000000' }
       : { backgroundColor: '#09090b' }),  // opaque so there's no white flash on load
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -197,7 +210,11 @@ function createWindow() {
       sandbox: true,
     },
   })
+  collapsedSent = null  // fresh window: let the first collapse/expand signal land
   win.loadURL(windowUrl())
+  // The renderer can miss an IPC sent before it loaded, so (re)send the current collapse state once
+  // the page is up.
+  win.webContents.on('did-finish-load', () => { collapsedSent = null; sendCollapsed(!panelOut) })
   win.on('closed', () => { win = null; stopEdgeWatch(); cancelPark() })  // keep the app alive in the tray
   // Close on blur: clicking to another window tucks the auto-hide panel away -- the same "it goes away
   // when I'm done with it" the edge-reveal gives on cursor-leave, now also for a tray/hotkey summon
