@@ -60,6 +60,11 @@ def map_record(record, domain, source_key="id", kind_default="item"):
         # optional row facts: a list [{label,value,inline}] (or a pre-encoded JSON string) stored as
         # JSON; inline ones show on the row, the rest fold into the details expansion. Falsy -> NULL.
         "facts": _facts_json(record.get("facts")),
+        # v8 dossier provenance: why (the plain-English reason, REFRESHED on re-import), producer (the
+        # workflow that made the task) and sop_id (governing SOP) -- both SET-ONCE in the store. Falsy -> NULL.
+        "why": str(record["why"]) if record.get("why") else None,
+        "producer": str(record["producer"]) if record.get("producer") else None,
+        "sop_id": str(record["sop_id"]) if record.get("sop_id") else None,
     }
 
 

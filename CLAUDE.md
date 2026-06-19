@@ -12,6 +12,23 @@ Working rules for this repo:
 - Shared helpers live in `scripts/smbos_lib.py`; do not re-implement frontmatter parsing or directory resolution.
 - This is a public repo. Examples in docs, code, tests, CHANGELOG, and commit/PR text stay generic (client/invoice/proposal/onboarding processes; `~/clients/acme` for a project folder). Never mirror a real user's private workflow, clients, employer, or local file paths.
 
+## Pull requests (every change ships this way)
+
+All changes land through a pull request, never a direct push to `main`. Branch off `main`; do not stack a PR on another feature branch. Other agents or sessions may share this checkout, so do the work in a `git worktree` and only ever `git add <specific paths>`, never `git add -A` (a shared checkout has swept another session's file into a commit before).
+
+Before opening the PR:
+
+1. Run the tests: `python3 -m pytest tests/ -q`. If you touched `dashboard_app.py`, `tray_app.py`, or anything they import, also run the suite under the dashboard `.venv` (those tests `importorskip` on the system Python, so a green stdlib run does NOT cover them).
+2. For a change that affects the product or its behavior, bump the version in `.claude-plugin/plugin.json` and add an owner-facing `CHANGELOG.md` entry (a pure internal/docs change needs neither).
+3. Scan the diff AND the PR title/body for the public-repo hygiene items (see the "public repo" rule above) before you push.
+
+After opening the PR:
+
+4. Run an independent adversarial review of the diff on EVERY PR, not just the automated bots: a fresh-context agent (or `codex`) that reads only the diff and hunts for bugs, regressions, and edge cases. Fix or consciously accept each finding.
+5. Check CI. A PR is not done until you have looked at its checks (`gh pr checks <n>`). If a check is red, determine whether it is your change or pre-existing (reproduce on a clean `main`): fix yours, and handle a pre-existing failure in its own PR rather than ignoring it or folding it in.
+6. Wait for CodeRabbit's actual review, not just its green check (it can post inline comments late or when rate-limited). Read every actionable CodeRabbit or Codex comment and respond to it: fix it, or reply with why not.
+7. Merge only once CI is green and the reviews are addressed.
+
 ## Skill routing
 
 When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.

@@ -195,3 +195,16 @@ def test_import_records_facts_json(tmp_path):
     assert json.loads(by["f-1"]["facts"])[0]["value"] == "2d ago"   # list -> JSON
     assert by["f-2"]["facts"] == '[{"label":"A","value":"1"}]'      # string passes through
     assert by["f-3"]["facts"] is None
+
+
+def test_import_records_provenance(tmp_path):
+    import state_store as ss
+    importer.import_records(tmp_path, "ops", [
+        {"id": "p-1", "subject": "with provenance", "why": "reply about the lease",
+         "producer": "pipeline-a", "sop_id": "sop-a"},
+        {"id": "p-2", "subject": "no provenance"},  # absent -> NULL
+    ])
+    by = {t["source_ref"]: t for t in ss.plate(tmp_path)}
+    assert by["p-1"]["why"] == "reply about the lease"
+    assert by["p-1"]["producer"] == "pipeline-a" and by["p-1"]["sop_id"] == "sop-a"
+    assert by["p-2"]["why"] is None and by["p-2"]["producer"] is None and by["p-2"]["sop_id"] is None
