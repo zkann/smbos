@@ -472,12 +472,19 @@ export default function App() {
         const open = !!openRows[t.id]
         return (
           <li key={t.id ?? i}>
-            {hasDetails && (
-              <button type="button" className="fact-toggle" aria-expanded={open}
+            {hasDetails ? (
+              /* the TITLE is the expand control: a full-width hit target + an obvious affordance
+                 (hover + focus ring), replacing the old 12px gutter caret. The caret rides along as a
+                 rotating indicator. The action buttons are siblings (not nested), so they toggle nothing. */
+              <button type="button" className="subj subj-toggle" aria-expanded={open}
                 onClick={() => setOpenRows(s => ({ ...s, [t.id]: !s[t.id] }))}
-                title={open ? 'Hide details' : 'Show details'}>{open ? '▾' : '▸'}</button>
+                title={open ? 'Hide details' : 'Show details'}>
+                <span className="caret" aria-hidden="true">{open ? '▾' : '▸'}</span>
+                <span className="subj-text" title={t.subject}>{t.subject}</span>
+              </button>
+            ) : (
+              <span className="subj" title={t.subject}>{t.subject}</span>
             )}
-            <span className="subj" title={t.subject}>{t.subject}</span>
             {inlineFacts.map((f, k) => (
               <span key={k} className={`fact-inline${f.urgent ? ' urgent' : ''}`} title={f.label}>{f.value}</span>
             ))}
