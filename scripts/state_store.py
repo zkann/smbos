@@ -18,24 +18,28 @@ result), never "is it running right now".
 
 Stdlib only, Python 3.9+ (the macOS system python that Claude Desktop uses).
 """
+import json
 import sqlite3
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 6  # bump when SCHEMA_STATEMENTS changes; migrations key off PRAGMA user_version
+SCHEMA_VERSION = 7  # bump when SCHEMA_STATEMENTS changes; migrations key off PRAGMA user_version
 # v2: partial unique index on (domain, source_ref) so imports can upsert idempotently.
 # v3: run.summary holds the run's one-line "what it did" line, surfaced on Recent runs.
 # v4: task.action_url -- when set, the dashboard leads with "Open" (this link) over "Pick up".
 # v5: task.cwd -- the working folder a picked-up ("Hand to Claude") session opens in (else $HOME).
 # v6: task.facts -- JSON [{label,value,inline}] the producer attaches; inline ones show on the row,
 #     the rest fold into a per-row details expansion.
+# v7: routed_item -- the ingestion broker's source-agnostic assignment store. One reader per source
+#     routes each item ONCE to a lane/consumer; PK (source,item_id) = routed-once + cross-source dedup.
 DB_NAME = "state.db"
 BUSY_TIMEOUT_MS = 5000
 
 # Status enums, validated on write so a bad value fails fast instead of silently.
 TASK_STATUSES = {"waiting", "in_flight", "done", "dismissed"}
+ROUTE_STATUSES = {"routed", "consumed", "done"}  # a routed item's consumer lifecycle
 VERDICT_LABELS = {"reply_owed", "ack", "reject", "ignore", "advance"}
 SURFACES = {"cc", "api", "cron"}  # where a run was invoked from
 RESULT_VALUES = {"ok", "parked", "error", "refused", "skipped"}  # terminal run results
@@ -87,6 +91,22 @@ SCHEMA_STATEMENTS = (
         created_at TEXT NOT NULL
     )""",
     "CREATE INDEX IF NOT EXISTS idx_verdict_thread ON verdict(thread_id)",
+    # v7: the ingestion broker's routing store. The router writes one row per item it routes; PK
+    # (source, item_id) makes routing idempotent (re-route is a no-op) and dedups across sources.
+    # Consumers read their (lane, status) slice; the trigger counts ids NOT present here.
+    """CREATE TABLE IF NOT EXISTS routed_item (
+        source TEXT NOT NULL,            -- "email" | "slack" | "linear" | ...
+        item_id TEXT NOT NULL,           -- stable per-source id (gmail thread_id, slack thread_ts, ...)
+        lane TEXT NOT NULL,              -- job | action | fyi | ignore | ... (per-source vocab)
+        consumer TEXT,                   -- which consumer owns it (NULL for fyi/ignore)
+        status TEXT NOT NULL,            -- one of ROUTE_STATUSES: routed -> consumed -> done
+        why TEXT,
+        payload TEXT,                    -- JSON, consumer-specific (e.g. {"action": "..."})
+        routed_at TEXT NOT NULL,         -- ISO-8601 UTC from _now()
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (source, item_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_routed_lane_status ON routed_item(lane, status, routed_at)",
 )
 
 
@@ -421,6 +441,59 @@ def get_task(sop_dir, task_id):
     with connect(sop_dir) as conn:
         row = conn.execute("SELECT * FROM task WHERE id=?", (task_id,)).fetchone()
         return dict(row) if row is not None else None
+
+
+# --- routing store (the ingestion broker) ----------------------------------------
+# The router writes one row per item it routes; consumers read their (lane, status) slice; the
+# trigger counts source ids NOT present here.
+#
+#   route()  routed ──set_route_status──► consumed ──► done
+#            (PK (source,item_id): first route wins, re-route is a no-op)
+
+def record_route(sop_dir, source, item_id, lane, consumer=None, why=None, payload=None):
+    """Route an item to a lane/consumer EXACTLY once. PK (source, item_id) makes this idempotent: the
+    first route wins, a re-route is a no-op (returns False), so re-running the router never clobbers a
+    consumer's in-flight status. `payload` may be a dict (JSON-encoded) or a pre-encoded JSON string.
+    Returns True iff this call created the row."""
+    if not source or not item_id:
+        raise StateStoreError("record_route needs a non-empty source and item_id")
+    pay = None if payload is None else (payload if isinstance(payload, str) else json.dumps(payload))
+    now = _now()
+    with connect(sop_dir) as conn:
+        cur = conn.execute(
+            "INSERT INTO routed_item(source,item_id,lane,consumer,status,why,payload,routed_at,updated_at)"
+            " VALUES(?,?,?,?,'routed',?,?,?,?) ON CONFLICT(source,item_id) DO NOTHING",
+            (source, item_id, lane, consumer, why, pay, now, now),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def routed_ids(sop_dir, source):
+    """The set of item_ids already routed for `source` -- the router's skip set and the trigger's
+    'already handled' set (unrouted = the source's recent ids minus this)."""
+    with connect(sop_dir) as conn:
+        return {r["item_id"] for r in
+                conn.execute("SELECT item_id FROM routed_item WHERE source=?", (source,)).fetchall()}
+
+
+def lane_items(sop_dir, lane, status="routed"):
+    """Routed rows in `lane` at `status` (a consumer reads its slice), oldest first, as dicts."""
+    with connect(sop_dir) as conn:
+        rows = conn.execute(
+            "SELECT * FROM routed_item WHERE lane=? AND status=? ORDER BY routed_at ASC, item_id ASC",
+            (lane, status)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def set_route_status(sop_dir, source, item_id, status):
+    """Advance a routed item's consumer lifecycle (routed -> consumed -> done). No-op if absent."""
+    if status not in ROUTE_STATUSES:
+        raise StateStoreError(f"invalid route status {status!r}; expected one of {sorted(ROUTE_STATUSES)}")
+    with connect(sop_dir) as conn:
+        conn.execute("UPDATE routed_item SET status=?, updated_at=? WHERE source=? AND item_id=?",
+                     (status, _now(), source, item_id))
+        conn.commit()
 
 
 def claim_task(sop_dir, task_id):

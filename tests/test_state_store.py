@@ -444,3 +444,42 @@ def test_facts_round_trips(tmp_path):
     ss.upsert_task(tmp_path, "ops", "task", "x", source_ref="s1", facts='[{"label":"A","value":"2"}]')
     row = next(t for t in ss.plate(tmp_path) if t["source_ref"] == "s1")
     assert row["facts"] == '[{"label":"A","value":"2"}]'
+
+
+def test_routing_store_idempotent_and_lanes(tmp_path):
+    # first route wins; a re-route is a no-op (returns False) and does NOT clobber lane/status
+    assert ss.record_route(tmp_path, "email", "t1", "action", consumer="plate", why="reply",
+                           payload={"action": "Reply to A"}) is True
+    assert ss.record_route(tmp_path, "email", "t1", "job") is False        # re-route ignored
+    assert ss.routed_ids(tmp_path, "email") == {"t1"}
+    rows = ss.lane_items(tmp_path, "action")                                # status defaults to "routed"
+    assert len(rows) == 1 and rows[0]["item_id"] == "t1" and rows[0]["consumer"] == "plate"
+    import json
+    assert json.loads(rows[0]["payload"])["action"] == "Reply to A"        # dict payload -> JSON
+    # lifecycle: routed -> consumed drops it out of the routed slice
+    ss.set_route_status(tmp_path, "email", "t1", "consumed")
+    assert ss.lane_items(tmp_path, "action") == []
+    assert len(ss.lane_items(tmp_path, "action", status="consumed")) == 1
+
+
+def test_routing_store_cross_source_no_collision(tmp_path):
+    assert ss.record_route(tmp_path, "email", "x", "action") is True
+    assert ss.record_route(tmp_path, "slack", "x", "action") is True       # same id, different source
+    assert ss.routed_ids(tmp_path, "email") == {"x"} and ss.routed_ids(tmp_path, "slack") == {"x"}
+
+
+def test_routing_store_validation(tmp_path):
+    import pytest
+    with pytest.raises(ss.StateStoreError):
+        ss.record_route(tmp_path, "", "id", "action")          # empty source
+    with pytest.raises(ss.StateStoreError):
+        ss.record_route(tmp_path, "email", "", "action")       # empty item_id
+    with pytest.raises(ss.StateStoreError):
+        ss.set_route_status(tmp_path, "email", "x", "bogus")   # bad status
+
+
+def test_routed_item_table_present_on_fresh_db(tmp_path):
+    with ss.connect(tmp_path) as conn:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == ss.SCHEMA_VERSION
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "routed_item" in tables
