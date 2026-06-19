@@ -182,3 +182,16 @@ def test_import_records_cwd(tmp_path):
     by_src = {t["source_ref"]: t for t in ss.plate(tmp_path)}
     assert by_src["c-1"]["cwd"] == "/tmp/acme"
     assert by_src["c-2"]["cwd"] is None
+
+
+def test_import_records_facts_json(tmp_path):
+    import json, state_store as ss
+    importer.import_records(tmp_path, "ops", [
+        {"id": "f-1", "subject": "list facts", "facts": [{"label": "Received", "value": "2d ago", "inline": True}]},
+        {"id": "f-2", "subject": "pre-encoded", "facts": '[{"label":"A","value":"1"}]'},
+        {"id": "f-3", "subject": "no facts"},
+    ])
+    by = {t["source_ref"]: t for t in ss.plate(tmp_path)}
+    assert json.loads(by["f-1"]["facts"])[0]["value"] == "2d ago"   # list -> JSON
+    assert by["f-2"]["facts"] == '[{"label":"A","value":"1"}]'      # string passes through
+    assert by["f-3"]["facts"] is None

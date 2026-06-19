@@ -57,7 +57,16 @@ def map_record(record, domain, source_key="id", kind_default="item"):
         "action_url": str(record["action_url"]) if record.get("action_url") else None,
         # optional: working folder a picked-up ("Hand to Claude") session opens in (else $HOME)
         "cwd": str(record["cwd"]) if record.get("cwd") else None,
+        # optional row facts: a list [{label,value,inline}] (or a pre-encoded JSON string) stored as
+        # JSON; inline ones show on the row, the rest fold into the details expansion. Falsy -> NULL.
+        "facts": _facts_json(record.get("facts")),
     }
+
+
+def _facts_json(facts):
+    if not facts:
+        return None
+    return facts if isinstance(facts, str) else json.dumps(facts)
 
 
 # Per-record failures (ValueError from mapping, StateStoreError from validation, and
