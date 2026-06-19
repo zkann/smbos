@@ -419,9 +419,10 @@ export default function App() {
     }
   }
 
-  // ?compact: the menu-bar side panel loads this. The "needs you" zone (plate + pending) stays at
-  // top; the rest collapses. The full browser dashboard (no ?compact) is unchanged.
-  const compact = new URLSearchParams(window.location.search).has('compact')
+  // Compact (narrow) layout: ALWAYS in the Electron desktop panel (it's a ~400px sidebar -- it loads
+  // ?panel=1, not ?compact), or via ?compact in a browser. The "needs you" zone (plate + pending) stays
+  // at top; the rest collapses; rows wrap. The full-width browser dashboard is unchanged.
+  const compact = inPanel || new URLSearchParams(window.location.search).has('compact')
 
   // Panel bodies, computed once and arranged by layout below, so the full dashboard and the
   // compact sidebar share one source of truth for each panel's contents.
