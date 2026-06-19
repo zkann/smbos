@@ -22,6 +22,17 @@ def test_import_records_basic(tmp_path):
     assert _subjects(tmp_path) == ["Acme invoice", "Globex invoice"]
 
 
+def test_import_records_action_url(tmp_path):
+    import state_store as ss
+    importer.import_records(tmp_path, "invoicing", [
+        {"id": "a-1", "subject": "open the email", "action_url": "https://mail.example.com/t/9"},
+        {"id": "a-2", "subject": "no link"},  # absent -> NULL -> Pick up only
+    ])
+    by_src = {t["source_ref"]: t for t in ss.plate(tmp_path)}
+    assert by_src["a-1"]["action_url"] == "https://mail.example.com/t/9"
+    assert by_src["a-2"]["action_url"] is None
+
+
 def test_import_is_idempotent(tmp_path):
     recs = [{"id": "inv-1", "subject": "Acme invoice"}]
     importer.import_records(tmp_path, "invoicing", recs)
