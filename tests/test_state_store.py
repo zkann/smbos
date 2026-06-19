@@ -57,6 +57,38 @@ def test_upsert_idempotent_on_source_ref(tmp_path):
     assert rows[0]["subject"] == "updated" and rows[0]["priority"] == 5
 
 
+def test_action_url_recorded_and_upserted(tmp_path):
+    ss.record_task(tmp_path, "ops", "schedule", "schedule the call", action_url="https://mail.example.com/x")
+    assert ss.plate(tmp_path)[0]["action_url"] == "https://mail.example.com/x"
+    # upsert refreshes action_url in place
+    ss.upsert_task(tmp_path, "ops", "reply", "draft", source_ref="acme-7", action_url="https://d.example.com/y")
+    ss.upsert_task(tmp_path, "ops", "reply", "draft", source_ref="acme-7", action_url="https://d.example.com/z")
+    row = next(t for t in ss.plate(tmp_path) if t["source_ref"] == "acme-7")
+    assert row["action_url"] == "https://d.example.com/z"
+    # a task with no action_url reads NULL (the default -> Pick up only)
+    ss.record_task(tmp_path, "ops", "task", "do the thing")
+    assert next(t for t in ss.plate(tmp_path) if t["subject"] == "do the thing")["action_url"] is None
+
+
+def test_migration_v3_to_v4_adds_action_url(tmp_path):
+    # build a v3-shaped DB (task table WITHOUT action_url) and confirm connect() migrates it in place.
+    raw = sqlite3.connect(str(ss.db_path(tmp_path)))
+    raw.executescript(
+        "CREATE TABLE task (id INTEGER PRIMARY KEY, domain TEXT NOT NULL, kind TEXT NOT NULL,"
+        " subject TEXT NOT NULL, status TEXT NOT NULL, priority INTEGER NOT NULL DEFAULT 0,"
+        " source_ref TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);"
+        "INSERT INTO task(domain,kind,subject,status,created_at,updated_at)"
+        " VALUES('ops','review','old task','waiting','t','t');"
+        "PRAGMA user_version=3;")
+    raw.commit()
+    raw.close()
+    with ss.connect(tmp_path) as conn:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == ss.SCHEMA_VERSION
+        assert "action_url" in [r[1] for r in conn.execute("PRAGMA table_info(task)").fetchall()]
+    row = ss.plate(tmp_path)[0]
+    assert row["subject"] == "old task" and row["action_url"] is None  # pre-existing row gets NULL
+
+
 def test_upsert_null_source_always_inserts(tmp_path):
     ss.upsert_task(tmp_path, "ops", "review", "ad-hoc")
     ss.upsert_task(tmp_path, "ops", "review", "ad-hoc")

@@ -26,6 +26,12 @@ function fmtCost(n) {
   return n >= 0.005 ? `$${n.toFixed(2)}` : '<$0.01'
 }
 
+// A task's action_url is only treated as an "Open" target if it's a real http(s) link (never a
+// javascript:/data: URL); the desktop app opens it in the default browser, the bookmark in a new tab.
+function openable(url) {
+  return typeof url === 'string' && /^https?:\/\//i.test(url) ? url : null
+}
+
 // The parked tab: a compact frosted pill (the whole tab-sized window) shown when the desktop panel
 // is collapsed to the edge. Just a status dot + the plate count -- glanceable, unobtrusive. A small
 // in-flight badge shows only when something is running.
@@ -430,19 +436,31 @@ export default function App() {
     <p className="empty">Nothing waiting for you right now.</p>
   ) : (
     <ol className="list">
-      {plate.map((t, i) => (
-        <li key={t.id ?? i}>
-          <span className="subj" title={t.subject}>{t.subject}</span>
-          <span className={`chip chip-${t.status}`}>{t.status}</span>
+      {plate.map((t, i) => {
+        const openUrl = openable(t.action_url)  // when set, this task leads with "Open", not "Pick up"
+        const pick = (
           <button
-            className={`pickup${launch[t.id] === 'error' ? ' pickup-err' : ''}`}
+            className={`pickup${openUrl ? ' pickup-2nd' : ''}${launch[t.id] === 'error' ? ' pickup-err' : ''}`}
             onClick={() => pickUp(t.id)}
             disabled={t.id == null || launch[t.id] === 'launching'}
           >
             {pickupLabel(t.id)}
           </button>
-        </li>
-      ))}
+        )
+        return (
+          <li key={t.id ?? i}>
+            <span className="subj" title={t.subject}>{t.subject}</span>
+            <span className={`chip chip-${t.status}`}>{t.status}</span>
+            {openUrl ? (
+              <>
+                {/* primary: open the source (email/doc) in the browser; Pick up stays as a fallback */}
+                <a className="pickup open-act" href={openUrl} target="_blank" rel="noopener noreferrer">Open ▸</a>
+                {pick}
+              </>
+            ) : pick}
+          </li>
+        )
+      })}
     </ol>
   )
 
