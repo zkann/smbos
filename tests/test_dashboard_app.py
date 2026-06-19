@@ -187,7 +187,7 @@ def test_open_session_relaunches_an_in_flight_task(tmp_path, monkeypatch):
     # session re-establishes liveness from scratch.
     calls = []
     monkeypatch.setattr(launch_actions, "_launch_session",
-                        lambda sop_dir, prompt, task_id=None: calls.append((task_id, prompt)))
+                        lambda sop_dir, prompt, task_id=None, cwd=None: calls.append((task_id, prompt)))
     tid = ss.record_task(tmp_path, "ops", "review", "stalled pickup", status="in_flight")
     lib.record_session(tmp_path, tid, 999999)  # a dead recorded session -> stalled
     app = dashboard_app.create_app(tmp_path)
@@ -584,7 +584,7 @@ def test_launch_session_exports_sop_dir(tmp_path, monkeypatch):
 def test_launch_moves_task_in_flight_and_primes_prompt(tmp_path, monkeypatch):
     seen = {}
     monkeypatch.setattr(launch_actions, "_launch_session",
-                        lambda sop_dir, prompt, task_id=None: seen.update(prompt=prompt, sop_dir=sop_dir, task_id=task_id))
+                        lambda sop_dir, prompt, task_id=None, cwd=None: seen.update(prompt=prompt, sop_dir=sop_dir, task_id=task_id))
     tid = _seed_task(tmp_path, subject="Send the Acme invoice")
     app = dashboard_app.create_app(tmp_path)
     token = lib.dashboard_token(tmp_path)
@@ -674,7 +674,7 @@ def test_launch_failure_leaves_task_on_plate(tmp_path, monkeypatch):
 
 
 def test_launch_non_macos_is_clean_400(tmp_path, monkeypatch):
-    def not_mac(sop_dir, prompt, task_id=None):
+    def not_mac(sop_dir, prompt, task_id=None, cwd=None):
         raise ValueError("launching Claude from the dashboard only works on macOS")
     monkeypatch.setattr(launch_actions, "_launch_session", not_mac)
     tid = _seed_task(tmp_path)
