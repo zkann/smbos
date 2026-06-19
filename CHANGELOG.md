@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.37.0 (2026-06-19)
+
+- When you hand a task to Claude from the sidebar, the new session now gets the task's "why this is here" line, not just the title, plus a nudge to find any file the task names (a spec, a download) and work from there even if the session opened in a different folder. This helps most on high-context tasks like a coding challenge, where the work lives in a local file the dashboard can't point at directly.
+
 ## 0.36.0 (2026-06-19)
 
 - New: an "Opaque background" toggle in the sidebar's Settings. The docked panel normally uses a frosted, see-through background, which can be hard to read over a busy or light desktop. Turn this on to make it a solid dark background instead. It is a per-device display preference (remembered on this Mac) and only appears in the docked sidebar.
