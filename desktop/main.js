@@ -62,6 +62,10 @@ function brokerUrl(pathname = '/') {
   return u.toString()
 }
 
+// The URL the WINDOW loads: panel=1 when docked so the dashboard goes translucent for the native
+// vibrancy. The undocked window + the API polls use the plain brokerUrl (opaque).
+function windowUrl() { return brokerUrl('/') + (docked ? '&panel=1' : '') }
+
 // --- geometry on the REMEMBERED docked display (not the window's live display, which can drift onto
 //     a neighbour after parking, and not the cursor's). Falls back to the window's / primary display
 //     if the docked one was unplugged. ---------------------------------------------------------------
@@ -180,10 +184,12 @@ function createWindow() {
   win = new BrowserWindow({
     ...FLOAT_SIZE,
     title: 'SmbOS',
-    // Docked = a CHROMELESS macOS NSPanel (floats over full-screen apps, all Spaces, no focus-steal);
-    // undocked rebuilds as a normal framed window. roundedCorners gives the panel its soft edge.
-    ...(docked ? { type: 'panel', frame: false, roundedCorners: true } : {}),
-    backgroundColor: '#09090b',  // the dashboard's --background, so there's no white flash on load
+    // Docked = a CHROMELESS macOS NSPanel (floats over full-screen apps, all Spaces, no focus-steal)
+    // with native sidebar vibrancy behind a transparent bg (the dashboard goes translucent in panel
+    // mode so the frost shows). Undocked rebuilds as a normal opaque framed window.
+    ...(docked
+      ? { type: 'panel', frame: false, roundedCorners: true, vibrancy: 'sidebar', backgroundColor: '#00000000' }
+      : { backgroundColor: '#09090b' }),  // opaque so there's no white flash on load
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -191,7 +197,7 @@ function createWindow() {
       sandbox: true,
     },
   })
-  win.loadURL(brokerUrl('/'))
+  win.loadURL(windowUrl())
   win.on('closed', () => { win = null; stopEdgeWatch(); cancelPark() })  // keep the app alive in the tray
   // Close on blur: clicking to another window tucks the auto-hide panel away -- the same "it goes away
   // when I'm done with it" the edge-reveal gives on cursor-leave, now also for a tray/hotkey summon
@@ -278,7 +284,7 @@ function refreshTrayMenu() {
   }
   items.push(
     { label: `Show / hide (${TOGGLE_HOTKEY.replace('Control+Command+', '⌃⌘')})`, click: toggleWindowVisible },
-    { label: 'Reload', click: () => { if (win) win.loadURL(brokerUrl('/')) } },
+    { label: 'Reload', click: () => { if (win) win.loadURL(windowUrl()) } },
     { type: 'separator' },
     { label: 'Quit SmbOS', click: () => app.quit() },
   )
