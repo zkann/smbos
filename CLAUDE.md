@@ -26,8 +26,8 @@ After opening the PR:
 
 4. Run an independent adversarial review of the diff on EVERY PR, not just the automated bots: a fresh-context agent (or `codex`) that reads only the diff and hunts for bugs, regressions, and edge cases. Fix or consciously accept each finding.
 5. Check CI. A PR is not done until you have looked at its checks (`gh pr checks <n>`). If a check is red, determine whether it is your change or pre-existing (reproduce on a clean `main`): fix yours, and handle a pre-existing failure in its own PR rather than ignoring it or folding it in.
-6. Wait for CodeRabbit's actual review, not just its green check (it can post inline comments late or when rate-limited). Read every actionable CodeRabbit or Codex comment and respond to it: fix it, or reply with why not.
-7. Merge only once CI is green and the reviews are addressed.
+6. Wait for the actual reviews, not just green checks. Every PR is reviewed by BOTH bots, CodeRabbit and Codex (`chatgpt-codex-connector`), and either can post inline comments late or when rate-limited. So do not trust one bot or a summary count: enumerate EVERY review thread (e.g. `gh api graphql` over `reviewThreads`, filtering `isResolved=false`) and read each one. For each actionable comment, fix it (or reply with why not) AND then RESOLVE the thread. A fixed-but-unresolved thread still reads as an open comment, so the PR is not done until every thread is resolved.
+7. Merge only once CI is green and every review thread is resolved.
 
 ## Skill routing
 
