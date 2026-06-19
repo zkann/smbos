@@ -21,7 +21,11 @@ const { createBroker } = require('./broker')
 const POLL_MS = 5000          // tray/notification poll cadence (matches the live mirror's calm cadence)
 const DOCK_WIDTH = 400        // sidebar width when docked to a screen edge (~standard sidebar footprint)
 const FLOAT_SIZE = { width: 480, height: 860 }  // the normal (undocked) floating window
-const TOGGLE_HOTKEY = 'Control+Command+S'  // global show/hide; ^⌘S is rarely a system/app global
+const TOGGLE_HOTKEY = 'Control+Command+S'  // global summon/dismiss; ^⌘S is rarely a system/app global
+const SLIDE_MS = 140          // edge slide duration
+const SLIDE_STEPS = 9         // frames per slide (ease-out)
+const HIDE_GRACE_MS = 450     // wait after the cursor leaves before parking (no flicker on a brief mouse-out)
+const EDGE_POLL_MS = 110      // how often the cursor is checked for an edge-reveal
 
 let win = null
 let tray = null
@@ -29,17 +33,25 @@ let lastPlateCount = null  // null until the first successful poll, so we don't 
 let broker = null
 let brokerPort = null      // the broker's bound port; the window + poll talk to the broker, not FastAPI
 let docked = true          // sidebar mode: right-edge, always-on-top, all-Spaces (the default the user asked for)
+let autoHide = true        // (docked only) park off the edge and slide out on edge-hover / hotkey
+let panelOut = true        // is the panel currently slid out (vs parked off-screen)
+let pinned = false         // hotkey/tray force-open: stay out, ignore the auto-hide poll
+let slideTimer = null      // the slide animation interval
+let hideTimer = null       // the post-mouse-out grace timer
+let edgeTimer = null       // the cursor-edge poll interval
+let dockDisplayId = null   // the display we docked on, so geometry can't drift onto a neighbour monitor
 
-// Persist the dock choice across restarts (userData is the standard per-app store).
+// Persist the dock + auto-hide choices across restarts (userData is the standard per-app store).
 function prefsFile() { return path.join(app.getPath('userData'), 'window-prefs.json') }
 function loadPrefs() {
   try {
     const p = JSON.parse(fs.readFileSync(prefsFile(), 'utf8'))
     if (p && typeof p.docked === 'boolean') docked = p.docked
-  } catch (_) { /* no prefs yet: keep the default (docked) */ }
+    if (p && typeof p.autoHide === 'boolean') autoHide = p.autoHide
+  } catch (_) { /* no prefs yet: keep the defaults */ }
 }
 function savePrefs() {
-  try { fs.writeFileSync(prefsFile(), JSON.stringify({ docked })) } catch (_) { /* best-effort */ }
+  try { fs.writeFileSync(prefsFile(), JSON.stringify({ docked, autoHide })) } catch (_) { /* best-effort */ }
 }
 
 // The renderer and the tray poll go through the BROKER (Phase 2), which forwards to FastAPI. The
@@ -50,56 +62,127 @@ function brokerUrl(pathname = '/') {
   return u.toString()
 }
 
-// Pin the window to the right edge of the window's CURRENT display, full work-area height. Keying off
-// the window (not the cursor) keeps a re-pin after a display change from flinging it to whichever
-// screen the pointer happens to be on, and clamps to the nearest remaining display if one is unplugged.
-function dockToRightEdge() {
+// --- geometry on the REMEMBERED docked display (not the window's live display, which can drift onto
+//     a neighbour after parking, and not the cursor's). Falls back to the window's / primary display
+//     if the docked one was unplugged. ---------------------------------------------------------------
+function dockDisplay() {
+  const all = screen.getAllDisplays()
+  let d = all.find((x) => x.id === dockDisplayId)
+  if (!d) { d = win ? screen.getDisplayMatching(win.getBounds()) : screen.getPrimaryDisplay(); dockDisplayId = d.id }
+  return d
+}
+function dockArea() { return dockDisplay().workArea }
+function outX(a) { return a.x + a.width - DOCK_WIDTH }  // slid-out (fully visible) x
+function parkX(a) { return a.x + a.width }              // parked just off the display's right edge
+function outerRightEdge() { return Math.max(...screen.getAllDisplays().map((d) => d.workArea.x + d.workArea.width)) }
+// Sliding 'off the right edge' only goes off-SCREEN when the docked display is the rightmost; with a
+// monitor to its right, parkX would land on the neighbour. So edge-reveal/auto-hide only arms on the
+// rightmost display -- elsewhere the panel stays pinned out (visible) rather than silently broken.
+function edgeHideable() { const a = dockArea(); return a.x + a.width >= outerRightEdge() - 1 }
+function effectiveAutoHide() { return autoHide && edgeHideable() }
+
+// Slide the window's x to `target` over SLIDE_MS (ease-out), cancelling any in-flight slide.
+function slideX(target, onDone) {
   if (!win) return
-  const area = screen.getDisplayMatching(win.getBounds()).workArea
-  win.setBounds({ x: area.x + area.width - DOCK_WIDTH, y: area.y, width: DOCK_WIDTH, height: area.height })
+  if (slideTimer) { clearInterval(slideTimer); slideTimer = null }
+  const start = win.getBounds().x, delta = target - start
+  if (delta === 0) { if (onDone) onDone(); return }
+  let i = 0
+  slideTimer = setInterval(() => {
+    if (!win) { clearInterval(slideTimer); slideTimer = null; return }
+    i++
+    const ease = 1 - Math.pow(1 - i / SLIDE_STEPS, 2)
+    const b = win.getBounds()
+    win.setBounds({ x: Math.round(start + delta * ease), y: b.y, width: b.width, height: b.height })
+    if (i >= SLIDE_STEPS) { clearInterval(slideTimer); slideTimer = null; if (onDone) onDone() }
+  }, Math.max(8, Math.round(SLIDE_MS / SLIDE_STEPS)))
 }
 
-// Apply the current dock state to the live window. Docked = an edge-pinned sidebar that floats over
-// other windows and rides along to every Space; undocked = a normal floating window. (The NSPanel
-// `type: 'panel'` -- set at creation -- is what lets it sit over full-screen apps without stealing
-// focus from your editor either way.)
+function revealPanel() {
+  if (!win) return
+  const a = dockArea(), b = win.getBounds()
+  if (b.y !== a.y || b.width !== DOCK_WIDTH || b.height !== a.height) {
+    win.setBounds({ x: b.x, y: a.y, width: DOCK_WIDTH, height: a.height })  // re-fit if the display changed
+  }
+  if (!win.isVisible()) win.show()
+  panelOut = true
+  slideX(outX(a))
+}
+function parkPanel() {
+  if (!win || pinned) return
+  panelOut = false
+  slideX(parkX(dockArea()))
+}
+function schedulePark() { if (!hideTimer) hideTimer = setTimeout(() => { hideTimer = null; parkPanel() }, HIDE_GRACE_MS) }
+function cancelPark() { if (hideTimer) { clearTimeout(hideTimer); hideTimer = null } }
+
+// The edge watch: reveal when the cursor is at the docked display's right edge (or over the slid-out
+// panel), re-park a beat after it leaves. Runs only while docked + (effective) auto-hide + not pinned.
+function pollEdge() {
+  if (!win || !docked || !effectiveAutoHide() || pinned) return
+  const a = dockArea(), p = screen.getCursorScreenPoint()
+  const inY = p.y >= a.y && p.y <= a.y + a.height
+  const atEdge = inY && p.x >= a.x + a.width - 1
+  const overPanel = panelOut && inY && p.x >= outX(a) - 6
+  if (atEdge || overPanel) { cancelPark(); if (!panelOut) revealPanel() }
+  else if (panelOut) schedulePark()
+}
+function startEdgeWatch() { if (!edgeTimer) edgeTimer = setInterval(pollEdge, EDGE_POLL_MS) }
+function stopEdgeWatch() { if (edgeTimer) { clearInterval(edgeTimer); edgeTimer = null } }
+
+// Apply the current dock + auto-hide state to the live window.
 function applyDockState() {
   if (!win) return
-  const wasVisible = win.isVisible()  // toggling flags/geometry must not surface a deliberately-hidden panel
+  cancelPark()
   if (docked) {
     win.setAlwaysOnTop(true, 'floating')
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-    dockToRightEdge()
+    dockDisplayId = screen.getDisplayMatching(win.getBounds()).id  // remember the screen we dock on
+    const a = dockArea()
+    win.setBounds({ x: outX(a), y: a.y, width: DOCK_WIDTH, height: a.height })  // start visible/docked
+    if (effectiveAutoHide()) {
+      pinned = false
+      panelOut = true     // shown first so the user sees where it docked; the poll parks it on mouse-away
+      startEdgeWatch()
+    } else {
+      stopEdgeWatch()
+      pinned = true       // not auto-hiding (off, or a non-rightmost display): it simply stays out
+      panelOut = true
+    }
   } else {
+    stopEdgeWatch()
     win.setAlwaysOnTop(false)
     win.setVisibleOnAllWorkspaces(false)
     win.setSize(FLOAT_SIZE.width, FLOAT_SIZE.height)
     win.center()
   }
-  if (!wasVisible && win.isVisible()) win.hide()  // setAlwaysOnTop(false) can resurface a hidden window
 }
 
 function setDocked(next) {
   docked = next
   savePrefs()
-  // type:'panel' is fixed at window creation, so flipping modes REBUILDS the window rather than just
-  // repositioning the same panel: docked -> an NSPanel sidebar, undocked -> a normal activating window
-  // (its own z-order, one Space). createWindow reads `docked` for the type and applies the geometry.
+  // frame + type:'panel' are fixed at creation, so flipping modes REBUILDS the window: docked -> a
+  // chromeless NSPanel sidebar, undocked -> a normal framed window (own z-order, one Space).
   if (win) { win.destroy(); win = null }
   createWindow()
   refreshTrayMenu()
 }
 
+function setAutoHide(next) {
+  autoHide = next
+  savePrefs()
+  applyDockState()  // start/stop the edge watch + re-park or pin-out
+  refreshTrayMenu()
+}
+
 function createWindow() {
-  // a panel is non-activating, so show() (not focus) is the right nudge; re-apply the dock state first
-  // so "Open dashboard" always normalizes geometry (e.g. after a display change while hidden)
-  if (win) { applyDockState(); win.show(); return }
+  if (win) { applyDockState(); summon(); return }
   win = new BrowserWindow({
     ...FLOAT_SIZE,
     title: 'SmbOS',
-    // macOS NSPanel only when docked: floats over full-screen apps, all Spaces, no focus-steal.
-    // Undocked rebuilds WITHOUT it, so it's a normal activating window (own z-order, one Space).
-    ...(docked ? { type: 'panel' } : {}),
+    // Docked = a CHROMELESS macOS NSPanel (floats over full-screen apps, all Spaces, no focus-steal);
+    // undocked rebuilds as a normal framed window. roundedCorners gives the panel its soft edge.
+    ...(docked ? { type: 'panel', frame: false, roundedCorners: true } : {}),
     backgroundColor: '#09090b',  // the dashboard's --background, so there's no white flash on load
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -109,14 +192,26 @@ function createWindow() {
     },
   })
   win.loadURL(brokerUrl('/'))
-  win.on('closed', () => { win = null })  // keep the app alive in the tray when the window closes
-  applyDockState()  // honor the persisted dock/float choice on every (re)open
+  win.on('closed', () => { win = null; stopEdgeWatch(); cancelPark() })  // keep the app alive in the tray
+  applyDockState()  // honor the persisted dock/auto-hide choice on open
 }
 
-// Auto-hide convention: the global hotkey shows the panel if hidden, hides it if already showing.
+// Bring the panel out and KEEP it (a deliberate open from the tray / a notification / Open dashboard
+// shouldn't tuck away the instant the cursor moves). In auto-hide mode this pins it until you dismiss.
+function summon() {
+  if (!win) { createWindow(); return }
+  if (docked && effectiveAutoHide()) { pinned = true; cancelPark(); revealPanel() }
+  else win.show()
+}
+
+// The global hotkey: summon if parked, dismiss if already out. In auto-hide mode "dismiss" resumes
+// the slide-away; in the plain modes it hides/shows the window.
 function toggleWindowVisible() {
   if (!win) { createWindow(); return }
-  if (win.isVisible()) win.hide()
+  if (docked && effectiveAutoHide()) {
+    if (pinned || panelOut) { pinned = false; parkPanel() }  // dismiss -> tuck away, auto-hide resumes
+    else { pinned = true; revealPanel() }
+  } else if (win.isVisible()) win.hide()
   else win.show()
 }
 
@@ -159,7 +254,7 @@ async function pollPlate() {
       body: (newest && newest.subject) || `${n} on your plate`,
       silent: false,
     })
-    note.on('click', createWindow)
+    note.on('click', summon)  // clicking the notification brings the panel out and keeps it
     note.show()
   }
   lastPlateCount = n
@@ -167,17 +262,23 @@ async function pollPlate() {
 
 function refreshTrayMenu() {
   if (!tray) return
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Open dashboard', click: createWindow },
+  const items = [
+    { label: 'Open dashboard', click: summon },
     // one item that reflects + flips the state (don't strand the user in one mode)
     docked
       ? { label: 'Undock (floating window)', click: () => setDocked(false) }
       : { label: 'Dock to right edge', click: () => setDocked(true) },
+  ]
+  if (docked) {
+    items.push({ label: 'Auto-hide at edge', type: 'checkbox', checked: autoHide, click: () => setAutoHide(!autoHide) })
+  }
+  items.push(
     { label: `Show / hide (${TOGGLE_HOTKEY.replace('Control+Command+', '⌃⌘')})`, click: toggleWindowVisible },
     { label: 'Reload', click: () => { if (win) win.loadURL(brokerUrl('/')) } },
     { type: 'separator' },
     { label: 'Quit SmbOS', click: () => app.quit() },
-  ]))
+  )
+  tray.setContextMenu(Menu.buildFromTemplate(items))
 }
 
 function createTray() {
@@ -185,11 +286,14 @@ function createTray() {
   icon.setTemplateImage(true)  // macOS tints a template image for light/dark menu bars
   tray = new Tray(icon)
   tray.setToolTip('SmbOS')
-  tray.on('click', createWindow)
+  tray.on('click', summon)
   refreshTrayMenu()
 }
 
 app.whenReady().then(() => {
+  // Menu-bar utility: no Dock icon, not in ⌘-Tab (reach it via the tray, ⌃⌘S, or the screen edge),
+  // matching native edge-panel apps like SidePeek. Guarded for non-macOS where app.dock is absent.
+  if (app.dock) app.dock.hide()
   // Start the broker (Phase 2 facade) in front of the running FastAPI dashboard, on a free loopback
   // port, then point everything at the broker. The broker forwards to FastAPI for now.
   broker = createBroker({ targetPort: dashboardPort(), sopDir: sopDir() })
@@ -214,9 +318,22 @@ app.whenReady().then(() => {
     if (!globalShortcut.register(TOGGLE_HOTKEY, toggleWindowVisible)) {
       console.error(`SmbOS: could not register the ${TOGGLE_HOTKEY} hotkey (in use); use the tray instead`)
     }
-    // Re-pin to the edge when the display layout changes (resolution change / a monitor unplugged),
-    // so the docked panel can't be stranded off-screen.
-    const repin = () => { if (docked) dockToRightEdge() }
+    // Re-pin when the display layout changes (resolution change / a monitor plugged or unplugged), so
+    // the docked panel can't be stranded off-screen, and re-arm or disarm auto-hide if the docked
+    // display stopped/started being the rightmost.
+    const repin = () => {
+      if (!docked || !win) return
+      const a = dockArea()
+      if (effectiveAutoHide()) {
+        startEdgeWatch()
+        win.setBounds({ x: panelOut ? outX(a) : parkX(a), y: a.y, width: DOCK_WIDTH, height: a.height })
+      } else {
+        stopEdgeWatch()
+        pinned = true
+        panelOut = true
+        win.setBounds({ x: outX(a), y: a.y, width: DOCK_WIDTH, height: a.height })
+      }
+    }
     screen.on('display-metrics-changed', repin)
     screen.on('display-removed', repin)
     screen.on('display-added', repin)
