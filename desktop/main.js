@@ -193,15 +193,19 @@ function createWindow() {
   })
   win.loadURL(brokerUrl('/'))
   win.on('closed', () => { win = null; stopEdgeWatch(); cancelPark() })  // keep the app alive in the tray
+  // Close on blur: clicking to another window tucks the auto-hide panel away -- the same "it goes away
+  // when I'm done with it" the edge-reveal gives on cursor-leave, now also for a tray/hotkey summon
+  // (which focuses the panel, so switching windows fires this).
+  win.on('blur', () => { if (docked && effectiveAutoHide()) { pinned = false; parkPanel() } })
   applyDockState()  // honor the persisted dock/auto-hide choice on open
 }
 
-// Bring the panel out and KEEP it (a deliberate open from the tray / a notification / Open dashboard
-// shouldn't tuck away the instant the cursor moves). In auto-hide mode this pins it until you dismiss.
+// Bring the panel out for a DELIBERATE open (tray / notification / hotkey). Pins it so the cursor poll
+// won't tuck it while you reach for it, and focuses it so clicking another window closes it (blur).
 function summon() {
   if (!win) { createWindow(); return }
-  if (docked && effectiveAutoHide()) { pinned = true; cancelPark(); revealPanel() }
-  else win.show()
+  if (docked && effectiveAutoHide()) { pinned = true; cancelPark(); revealPanel(); win.focus() }
+  else { win.show(); win.focus() }
 }
 
 // The global hotkey: summon if parked, dismiss if already out. In auto-hide mode "dismiss" resumes
@@ -210,7 +214,7 @@ function toggleWindowVisible() {
   if (!win) { createWindow(); return }
   if (docked && effectiveAutoHide()) {
     if (pinned || panelOut) { pinned = false; parkPanel() }  // dismiss -> tuck away, auto-hide resumes
-    else { pinned = true; revealPanel() }
+    else summon()                                            // reveal + focus (closes on blur / dismiss)
   } else if (win.isVisible()) win.hide()
   else win.show()
 }
