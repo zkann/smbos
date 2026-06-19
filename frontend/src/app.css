@@ -237,14 +237,16 @@ ol.list > li::before {
 /* Per-row facts: inline facts ride on the row; the caret toggles a details (label/value) block. */
 .fact-toggle {
   flex: none; align-self: center; background: none; border: none; cursor: pointer;
-  color: var(--subtle-fg); font: 10px/1 monospace; padding: 0 5px 0 0;
+  color: var(--subtle-fg); font: 11px/1 monospace; padding: 0 5px 0 0;
 }
 .fact-toggle:hover, .fact-toggle:focus-visible { color: var(--foreground); }
 .fact-inline {
-  flex: none; font: 10px/1 ui-monospace, monospace; letter-spacing: 0.02em;
+  flex: none; font: 11px/1 ui-monospace, monospace; letter-spacing: 0.02em;
   color: var(--muted-fg); background: var(--card-raised); padding: 3px 7px; border-radius: 5px;
 }
-.fact-inline.urgent { color: #fbbf24; background: color-mix(in srgb, #fbbf24 14%, transparent); }
+/* urgency uses the ONE caution token (--amber), not a second hardcoded amber: all urgency signals
+   (this chip, the row's left bar, the header "N due") now share one color, distinguished by treatment. */
+.fact-inline.urgent { color: var(--amber); background: color-mix(in srgb, var(--amber) 16%, transparent); }
 .fact-details {
   flex-basis: 100%; margin: 7px 0 1px; display: grid; grid-template-columns: auto 1fr; gap: 3px 12px;
   font: 11px/1.4 ui-sans-serif, system-ui, sans-serif;
@@ -352,11 +354,14 @@ ol.list > li::before {
   box-shadow: inset 3px 0 0 var(--amber); padding-left: 11px;
 }
 
-/* The default action recedes. "Hand to Claude" is on every plate row, so as a filled pill it marched
-   down the column as the second-loudest thing after the titles. Strip its pill chrome to a quiet text
-   affordance; the border + green wash fill in on hover/focus (the label + tooltip stay, so it's still
-   discoverable). The green "Open" LEADS, so it keeps its solid fill (excluded via :not(.open-act)). */
-.compact .pickup:not(.open-act) { background: none; border-color: transparent; }
+/* The default action recedes but stays READABLE AS A BUTTON. "Hand to Claude" is on every plate row,
+   so as a filled pill it marched down the column. Drop the fill, but keep a FAINT resting border so it
+   reads as a control at rest (not a label) -- the core action should never depend on hover to look
+   clickable. The border + green wash strengthen on hover/focus. The green "Open" LEADS and keeps its
+   solid fill (excluded via :not(.open-act)). */
+.compact .pickup:not(.open-act) {
+  background: none; border-color: color-mix(in srgb, var(--border) 70%, transparent);
+}
 .compact .pickup:not(.open-act):hover:not(:disabled),
 .compact .pickup:not(.open-act):focus-visible:not(:disabled) {
   background: color-mix(in srgb, var(--primary) 10%, var(--card-raised));
