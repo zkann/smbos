@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.35.0 (2026-06-19)
+
+- A round of sidebar polish from a design review. The buttons on In-flight, prepared, and procedure rows are now the same comfortable size as the rest (they were a little small and easy to mis-tap). A task's Open and Hand-to-Claude buttons now sit under its title instead of floating off to the right, so your eye stays on the tasks. Titles all line up on one left edge. The "N due" count reads as a clearer amber alert. Keyboard focus outlines and disabled-button styling are now consistent across every control.
+
 ## 0.34.0 (2026-06-19)
 
 - The sidebar is easier to use. To open a task's details, click its title (the whole title is the target) instead of the tiny caret that was hard to hit and easy to miss. The caret stays as a small marker showing which tasks have more to see. The per-task buttons (Open, Hand to Claude) are a little larger too, so they are easier to hit. Everything on your plate stays as dense and quick to read as before, with bigger targets and clearer affordances.
