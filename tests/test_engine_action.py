@@ -219,3 +219,34 @@ def test_engine_run_internal_error_is_caught(tmp_path, capsys, monkeypatch):
     code = engine_action.main(["run", str(tmp_path), "a"])
     assert code == 1
     assert "detail" in json.loads(capsys.readouterr().out)
+
+
+def test_launch_session_opens_in_task_cwd_else_home(tmp_path, monkeypatch):
+    """The pickup ("Hand to Claude") session opens in the task's cwd when it's a real folder, else $HOME."""
+    from pathlib import Path
+    import serve_dashboard as legacy
+    import launch_actions
+    folders = []
+    monkeypatch.setattr(legacy, "open_terminal_with_claude", lambda folder, prompt, **k: folders.append(folder))
+    monkeypatch.setattr(legacy, "preferred_terminal", lambda d: "terminal")
+    monkeypatch.setattr(legacy, "launch_permission", lambda d: "ask")
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    launch_actions._launch_session(tmp_path, "p", cwd=str(workdir))      # valid -> used
+    launch_actions._launch_session(tmp_path, "p", cwd=None)              # none  -> $HOME
+    launch_actions._launch_session(tmp_path, "p", cwd=str(tmp_path / "nope"))  # missing -> $HOME
+    assert folders == [str(workdir), str(Path.home()), str(Path.home())]
+
+
+def test_task_cwd_round_trips(tmp_path, monkeypatch):
+    """record_task carries cwd, and a pickup of that task forwards it to the launch."""
+    import launch_actions
+    work = tmp_path / "acme"
+    work.mkdir()
+    tid = ss.record_task(tmp_path, "ops", "task", "do it", cwd=str(work))
+    assert ss.get_task(tmp_path, tid)["cwd"] == str(work)
+    captured = {}
+    monkeypatch.setattr(launch_actions, "_launch_session",
+                        lambda sop_dir, prompt, task_id=None, cwd=None: captured.update(cwd=cwd))
+    launch_actions.launch_task(tmp_path, tid)
+    assert captured["cwd"] == str(work)

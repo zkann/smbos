@@ -171,3 +171,14 @@ def test_cli_exit_zero_with_per_record_skips(tmp_path):
     src.write_text('{"id":"a","subject":"good"}\n{"id":"b"}\n', encoding="utf-8")  # 2nd missing subject
     rc = importer.main(["--sop-dir", str(tmp_path), "--domain", "ops", "--jsonl", str(src)])
     assert rc == 0  # imported>0 with expected skips is success, not failure
+
+
+def test_import_records_cwd(tmp_path):
+    import state_store as ss
+    importer.import_records(tmp_path, "ops", [
+        {"id": "c-1", "subject": "in a folder", "cwd": "/tmp/acme"},
+        {"id": "c-2", "subject": "no folder"},  # absent -> NULL -> $HOME at launch
+    ])
+    by_src = {t["source_ref"]: t for t in ss.plate(tmp_path)}
+    assert by_src["c-1"]["cwd"] == "/tmp/acme"
+    assert by_src["c-2"]["cwd"] is None
