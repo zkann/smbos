@@ -20,7 +20,8 @@ const { createBroker } = require('./broker')
 
 const POLL_MS = 5000          // tray/notification poll cadence (matches the live mirror's calm cadence)
 const DOCK_WIDTH = 400        // sidebar width when docked + slid out (~standard sidebar footprint)
-const RAIL_WIDTH = 56         // the count spine: how much of the edge stays visible when parked
+const TAB_W = 52              // parked tab: a compact frosted pill at the edge (vs the full DOCK_WIDTH panel)
+const TAB_H = 104             // parked tab height, vertically centered on the docked display
 const FLOAT_SIZE = { width: 480, height: 860 }  // the normal (undocked) floating window
 const TOGGLE_HOTKEY = 'Control+Command+S'  // global summon/dismiss; ^⌘S is rarely a system/app global
 const SLIDE_MS = 140          // edge slide duration
@@ -77,8 +78,12 @@ function dockDisplay() {
   return d
 }
 function dockArea() { return dockDisplay().workArea }
-function outX(a) { return a.x + a.width - DOCK_WIDTH }   // slid-out (full panel) x
-function parkX(a) { return a.x + a.width - RAIL_WIDTH }  // parked: only the RAIL_WIDTH count spine shows
+function outX(a) { return a.x + a.width - DOCK_WIDTH }  // the panel's slid-out x (its left edge)
+function panelBounds(a) { return { x: outX(a), y: a.y, width: DOCK_WIDTH, height: a.height } }
+// The parked tab: a small pill at the right edge, vertically centered on the docked display.
+function tabBounds(a) {
+  return { x: a.x + a.width - TAB_W, y: a.y + Math.round((a.height - TAB_H) / 2), width: TAB_W, height: TAB_H }
+}
 
 // Tell the renderer to show the count spine (collapsed) vs the full dashboard. De-duped so the poll
 // can't spam IPC; reset per window so the first signal always lands.
@@ -90,8 +95,8 @@ function sendCollapsed(v) {
 }
 function outerRightEdge() { return Math.max(...screen.getAllDisplays().map((d) => d.workArea.x + d.workArea.width)) }
 // Sliding 'off the right edge' only goes off-SCREEN when the docked display is the rightmost; with a
-// monitor to its right, parkX would land on the neighbour. So edge-reveal/auto-hide only arms on the
-// rightmost display -- elsewhere the panel stays pinned out (visible) rather than silently broken.
+// monitor to its right, the parked tab would land on the neighbour. So edge-reveal/auto-hide only arms
+// on the rightmost display -- elsewhere the panel stays pinned out (visible) rather than silently broken.
 function edgeHideable() { const a = dockArea(); return a.x + a.width >= outerRightEdge() - 1 }
 function effectiveAutoHide() { return autoHide && edgeHideable() }
 
@@ -114,20 +119,29 @@ function slideX(target, onDone) {
 
 function revealPanel() {
   if (!win) return
-  const a = dockArea(), b = win.getBounds()
-  if (b.y !== a.y || b.width !== DOCK_WIDTH || b.height !== a.height) {
-    win.setBounds({ x: b.x, y: a.y, width: DOCK_WIDTH, height: a.height })  // re-fit if the display changed
+  const a = dockArea()
+  if (panelOut && win.getBounds().width === DOCK_WIDTH) {  // already the full panel: just ensure shown
+    sendCollapsed(false)
+    if (!win.isVisible()) win.show()
+    return
   }
-  if (!win.isVisible()) win.show()
+  // From the tab: snap to the full panel parked just off the right edge (the tab vanishes, off-screen),
+  // then slide the full-size dashboard in. Resizing here, not mid-slide, avoids a cramped reflow.
   panelOut = true
-  sendCollapsed(false)  // show the full dashboard as it slides out
+  sendCollapsed(false)
+  win.setBounds({ ...panelBounds(a), x: a.x + a.width })
+  if (!win.isVisible()) win.show()
   slideX(outX(a))
 }
 function parkPanel() {
   if (!win || pinned) return
+  const a = dockArea()
   panelOut = false
-  sendCollapsed(true)   // collapse to the count spine; it's left-anchored so it rides to the edge
-  slideX(parkX(dockArea()))
+  slideX(a.x + a.width, () => {   // slide the full panel off the right edge...
+    if (!win || panelOut) return  // (a reveal raced us)
+    sendCollapsed(true)
+    win.setBounds(tabBounds(a))   // ...then shrink to the small tab, centered at the edge
+  })
 }
 function schedulePark() { if (!hideTimer) hideTimer = setTimeout(() => { hideTimer = null; parkPanel() }, HIDE_GRACE_MS) }
 function cancelPark() { if (hideTimer) { clearTimeout(hideTimer); hideTimer = null } }
@@ -155,7 +169,7 @@ function applyDockState() {
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
     dockDisplayId = screen.getDisplayMatching(win.getBounds()).id  // remember the screen we dock on
     const a = dockArea()
-    win.setBounds({ x: outX(a), y: a.y, width: DOCK_WIDTH, height: a.height })  // start visible/docked
+    win.setBounds(panelBounds(a))  // start visible/docked (full panel out)
     if (effectiveAutoHide()) {
       pinned = false
       panelOut = true     // shown first so the user sees where it docked; the poll parks it on mouse-away
@@ -355,12 +369,13 @@ app.whenReady().then(() => {
       const a = dockArea()
       if (effectiveAutoHide()) {
         startEdgeWatch()
-        win.setBounds({ x: panelOut ? outX(a) : parkX(a), y: a.y, width: DOCK_WIDTH, height: a.height })
+        win.setBounds(panelOut ? panelBounds(a) : tabBounds(a))  // re-fit the panel or the tab
       } else {
         stopEdgeWatch()
         pinned = true
         panelOut = true
-        win.setBounds({ x: outX(a), y: a.y, width: DOCK_WIDTH, height: a.height })
+        sendCollapsed(false)
+        win.setBounds(panelBounds(a))
       }
     }
     screen.on('display-metrics-changed', repin)

@@ -26,18 +26,17 @@ function fmtCost(n) {
   return n >= 0.005 ? `$${n.toFixed(2)}` : '<$0.01'
 }
 
-// The parked "count spine": a thin vertical rail shown when the desktop panel is collapsed to the
-// screen edge. Left-anchored so it's exactly what's visible in the edge sliver -- the plate count +
-// a status dot (amber = something waiting, green = clear), with the in-flight count if any.
-function Rail({ plate, inflight }) {
+// The parked tab: a compact frosted pill (the whole tab-sized window) shown when the desktop panel
+// is collapsed to the edge. Just a status dot + the plate count -- glanceable, unobtrusive. A small
+// in-flight badge shows only when something is running.
+function Tab({ plate, inflight }) {
   const waiting = plate.length
   const flight = inflight.length
   return (
-    <div className="rail" title={waiting ? `${waiting} waiting for you` : 'Nothing waiting'}>
-      <div className={`rail-dot ${waiting ? 'amber' : 'green'}`} />
-      <div className="rail-count">{waiting}</div>
-      <div className="rail-sub">waiting</div>
-      {flight > 0 && <div className="rail-flight">{flight}<span>in flight</span></div>}
+    <div className={`tab ${waiting ? 'amber' : 'green'}`} title={waiting ? `${waiting} waiting for you` : 'Nothing waiting'}>
+      <div className="tab-dot" />
+      <div className="tab-count">{waiting}</div>
+      {flight > 0 && <div className="tab-flight">{flight}<span>▶</span></div>}
     </div>
   )
 }
@@ -577,7 +576,7 @@ export default function App() {
       </section>
     )
 
-  if (collapsed) return <Rail plate={plate} inflight={inflight} />
+  if (collapsed) return <Tab plate={plate} inflight={inflight} />
 
   return (
     <main className={compact ? 'compact' : undefined}>

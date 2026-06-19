@@ -21,24 +21,20 @@ html.smbos-panel {
   --chip-bg: rgba(24, 24, 28, 0.6); --input: rgba(43, 43, 48, 0.66);
 }
 
-/* The parked count spine: a thin left-anchored vertical rail occupying the visible edge sliver when
-   the desktop panel is collapsed. Transparent bg so the window's vibrancy frosts behind it. */
-.rail {
-  position: fixed; top: 0; left: 0; width: 56px; height: 100vh; box-sizing: border-box;
+/* The parked tab: a compact pill filling the small tab-sized window (the window itself is ~52x104),
+   frosted via the window vibrancy. Rounded on the inner side; the right edge meets the screen. */
+.tab {
+  width: 100vw; height: 100vh; box-sizing: border-box;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
-  padding: 14px 4px; color: var(--foreground); cursor: default; user-select: none;
-  border-left: 1px solid var(--border);
+  color: var(--foreground); cursor: default; user-select: none;
+  border-radius: 13px 0 0 13px; border: 1px solid var(--border); border-right: none;
 }
-.rail-dot { width: 9px; height: 9px; border-radius: 50%; margin-bottom: 4px; }
-.rail-dot.amber { background: var(--amber); box-shadow: 0 0 9px var(--amber); }
-.rail-dot.green { background: var(--primary); }
-.rail-count { font-size: 24px; font-weight: 680; line-height: 1; font-variant-numeric: tabular-nums; }
-.rail-sub { font-size: 9px; color: var(--muted-fg); text-transform: uppercase; letter-spacing: 0.05em; }
-.rail-flight {
-  margin-top: 12px; display: flex; flex-direction: column; align-items: center;
-  font-size: 13px; font-weight: 600; color: var(--muted-fg); font-variant-numeric: tabular-nums;
-}
-.rail-flight span { font-size: 8px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--subtle-fg); }
+.tab-dot { width: 8px; height: 8px; border-radius: 50%; }
+.tab.amber .tab-dot { background: var(--amber); box-shadow: 0 0 9px var(--amber); }
+.tab.green .tab-dot { background: var(--primary); }
+.tab-count { font-size: 23px; font-weight: 680; line-height: 1; font-variant-numeric: tabular-nums; }
+.tab-flight { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted-fg); font-variant-numeric: tabular-nums; }
+.tab-flight span { font-size: 7px; color: var(--subtle-fg); }
 main { max-width: 1180px; margin: 0 auto; padding: 32px; }
 header { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
 h1 { font-size: 20px; font-weight: 650; margin: 0; }
