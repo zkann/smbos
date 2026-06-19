@@ -329,7 +329,7 @@ export default function App() {
     return 'Hand to Claude'
   }
   // What every "Hand to Claude" button does, spelled out on hover.
-  const HANDOFF_TIP = 'Opens a Claude session in iTerm, primed for this — moves it to In flight'
+  const HANDOFF_TIP = 'Opens a Claude session in iTerm, primed for this task. Moves it to In flight.'
 
   // POST a JSON body with the header token (same CSRF posture as Pick up). `busyVal` marks the
   // row in flight. On success: resolve clears the key (the SSE pending frame then drops the whole
@@ -442,9 +442,9 @@ export default function App() {
         const openUrl = openable(t.action_url)  // when set, this task leads with "Open", not "Pick up"
         const pick = (
           <button
-            className={`pickup${openUrl ? ' pickup-2nd' : ''}${launch[t.id] === 'error' ? ' pickup-err' : ''}`}
+            className={`pickup tip${openUrl ? ' pickup-2nd' : ''}${launch[t.id] === 'error' ? ' pickup-err' : ''}`}
             onClick={() => pickUp(t.id)}
-            title={HANDOFF_TIP}
+            data-tip={HANDOFF_TIP}
             disabled={t.id == null || launch[t.id] === 'launching'}
           >
             {pickupLabel(t.id)}
@@ -457,8 +457,8 @@ export default function App() {
             {openUrl ? (
               <>
                 {/* primary: open the source (email/doc) in the browser; the handoff stays as a fallback */}
-                <a className="pickup open-act" href={openUrl} target="_blank" rel="noopener noreferrer"
-                  title="Open the source (email/doc) in your browser">Open ▸</a>
+                <a className="pickup open-act tip" href={openUrl} target="_blank" rel="noopener noreferrer"
+                  data-tip="Open the source (email/doc) in your browser">Open ▸</a>
                 {pick}
               </>
             ) : pick}
@@ -543,16 +543,16 @@ export default function App() {
             <span className={`dot ${stalled ? 'stalled' : 'live'}`} aria-hidden="true"></span>
             <span className="subj" title={t.subject}>{t.subject}</span>
             {stalled
-              ? <span className="chip chip-stalled"
-                  title="No live session for this task (its window was closed, or it stopped without reporting). Put it back on your plate, or mark it done or dismissed.">stalled</span>
+              ? <span className="chip chip-stalled tip"
+                  data-tip="No live session for this task (its window was closed, or it stopped without reporting). Put it back on your plate, or mark it done or dismissed.">stalled</span>
               : <span className="chip chip-inflight">in flight</span>}
             {/* stalled: its session is gone, so the primary recovery is to reopen it and resume;
                 Put back / Done / Dismiss stay as the other outs. Live: Done is the primary. */}
             {stalled && (
               <button
-                className={`act act-primary${busy === 'error:open' ? ' act-err' : ''}`}
+                className={`act act-primary tip${busy === 'error:open' ? ' act-err' : ''}`}
                 onClick={() => openSession(t.id)} disabled={working}
-                title="Reopen a Claude session for this stalled task (its window was closed)">
+                data-tip="Reopen a Claude session for this stalled task (its window was closed)">
                 {busy === 'opening' ? 'opening…' : busy === 'error:open' ? 'retry' : 'Open session ▸'}
               </button>
             )}
