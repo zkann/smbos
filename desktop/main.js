@@ -11,7 +11,7 @@
 // dashboard_token: $SMBOS_DASHBOARD_PORT, else triggers.json dashboard_port, else 8765; token from
 // <sop_dir>/.dashboard-token; sop_dir from $SOP_DIR, else ~/sops.
 
-const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, screen, globalShortcut } = require('electron')
+const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, screen, globalShortcut, ipcMain } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const http = require('http')
@@ -92,6 +92,10 @@ function sendCollapsed(v) {
   if (collapsedSent === v) return
   collapsedSent = v
   if (win && !win.isDestroyed() && win.webContents) win.webContents.send('panel-collapsed', v)
+}
+// Tell the renderer whether the sidebar is pinned open (auto-hide off), so the pin button reflects it.
+function sendPinned() {
+  if (win && !win.isDestroyed() && win.webContents) win.webContents.send('panel-pinned', !autoHide)
 }
 function outerRightEdge() { return Math.max(...screen.getAllDisplays().map((d) => d.workArea.x + d.workArea.width)) }
 // Sliding 'off the right edge' only goes off-SCREEN when the docked display is the rightmost; with a
@@ -205,6 +209,7 @@ function setAutoHide(next) {
   savePrefs()
   applyDockState()  // start/stop the edge watch + re-park or pin-out
   refreshTrayMenu()
+  sendPinned()      // keep the in-panel pin button in sync (pinned = auto-hide off)
 }
 
 function createWindow() {
@@ -230,7 +235,7 @@ function createWindow() {
   win.loadURL(windowUrl())
   // The renderer can miss an IPC sent before it loaded, so (re)send the current collapse state once
   // the page is up.
-  win.webContents.on('did-finish-load', () => { collapsedSent = null; sendCollapsed(!panelOut) })
+  win.webContents.on('did-finish-load', () => { collapsedSent = null; sendCollapsed(!panelOut); sendPinned() })
   win.on('closed', () => { win = null; stopEdgeWatch(); cancelPark() })  // keep the app alive in the tray
   // Close on blur: clicking to another window tucks the auto-hide panel away -- the same "it goes away
   // when I'm done with it" the edge-reveal gives on cursor-leave, now also for a tray/hotkey summon
@@ -337,6 +342,8 @@ app.whenReady().then(() => {
   // Menu-bar utility: no Dock icon, not in ⌘-Tab (reach it via the tray, ⌃⌘S, or the screen edge),
   // matching native edge-panel apps like SidePeek. Guarded for non-macOS where app.dock is absent.
   if (app.dock) app.dock.hide()
+  // The in-panel pin button toggles auto-hide (pinned open = auto-hide off).
+  ipcMain.on('panel-set-pinned', (_e, pinnedOpen) => setAutoHide(!pinnedOpen))
   // Start the broker (Phase 2 facade) in front of the running FastAPI dashboard, on a free loopback
   // port, then point everything at the broker. The broker forwards to FastAPI for now.
   broker = createBroker({ targetPort: dashboardPort(), sopDir: sopDir() })

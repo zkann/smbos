@@ -55,6 +55,16 @@ html.smbos-panel main {
 .tab-flight span { font-size: 7px; }
 main { max-width: 1180px; margin: 0 auto; padding: 32px; }
 header { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+/* Pin button (Electron panel only): keep the sidebar open vs let it auto-hide. */
+.pin-btn {
+  margin-left: auto; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 0; border-radius: 9px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--card-raised); color: var(--muted-fg);
+  transition: color 120ms, background 120ms, border-color 120ms;
+}
+.pin-btn:hover { color: var(--foreground); border-color: var(--border-strong); }
+.pin-btn:not(.on) svg { transform: rotate(40deg); }     /* loose/tilted pin when it'll auto-hide */
+.pin-btn.on { color: #052e16; background: var(--primary); border-color: var(--primary); }  /* held open */
 h1 { font-size: 20px; font-weight: 650; margin: 0; }
 
 .banner {

@@ -1,7 +1,7 @@
 // Minimal privileged bridge. The window loads the token-gated dashboard SPA (its own same-origin
-// fetch/SSE to the broker); contextIsolation + sandbox stay on. The one thing the renderer can't know
-// on its own is whether the desktop panel is parked (collapsed to the edge rail) vs slid out, so the
-// main process signals it here and the SPA renders the count spine instead of the full dashboard.
+// fetch/SSE to the broker); contextIsolation + sandbox stay on. Two things the renderer can't do on
+// its own: know whether the panel is parked (to render the count spine), and pin the sidebar open
+// (toggle auto-hide). Both go through the main process here.
 const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('smbosPanel', {
@@ -10,5 +10,13 @@ contextBridge.exposeInMainWorld('smbosPanel', {
     const handler = (_e, collapsed) => cb(!!collapsed)
     ipcRenderer.on('panel-collapsed', handler)
     return () => ipcRenderer.removeListener('panel-collapsed', handler)
+  },
+  // Pin the sidebar open (true = stay out, no auto-hide) / release it (false = auto-hide resumes).
+  setPinned: (v) => ipcRenderer.send('panel-set-pinned', !!v),
+  // Subscribe to the pinned state so the pin button reflects it; returns an unsubscribe fn.
+  onPinned: (cb) => {
+    const handler = (_e, pinned) => cb(!!pinned)
+    ipcRenderer.on('panel-pinned', handler)
+    return () => ipcRenderer.removeListener('panel-pinned', handler)
   },
 })
