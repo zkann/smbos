@@ -32,6 +32,16 @@ function openable(url) {
   return typeof url === 'string' && /^https?:\/\//i.test(url) ? url : null
 }
 
+// A task's `facts` is a JSON array of {label, value, inline?}. Parse defensively (it's producer-set):
+// a bad value just yields no facts. Returns [] so callers can map without guarding.
+function parseFacts(raw) {
+  if (!raw) return []
+  try {
+    const arr = typeof raw === 'string' ? JSON.parse(raw) : raw
+    return Array.isArray(arr) ? arr.filter(f => f && f.value != null) : []
+  } catch { return [] }
+}
+
 // The parked tab: a compact frosted pill (the whole tab-sized window) shown when the desktop panel
 // is collapsed to the edge. Just a status dot + the plate count -- glanceable, unobtrusive. A small
 // in-flight badge shows only when something is running.
@@ -78,6 +88,8 @@ export default function App() {
   // per-task launch state: id -> 'launching' | 'error'. A successful launch clears via the SSE
   // plate frame moving the item to in-flight; an error stays visible so the row offers a retry.
   const [launch, setLaunch] = useState({})
+  // per-task details disclosure: id -> true when its facts expansion is open.
+  const [openRows, setOpenRows] = useState({})
   // per parked-result action state: file -> 'approve'|'discard'|'error', or `${file}#${i}` ->
   // 'applying'|'error'. Success clears via the SSE pending frame dropping the resolved item.
   const [pend, setPend] = useState({})
@@ -450,9 +462,20 @@ export default function App() {
             {pickupLabel(t.id)}
           </button>
         )
+        const facts = parseFacts(t.facts)            // producer-set [{label, value, inline, urgent?}]
+        const inlineFacts = facts.filter(f => f.inline)
+        const open = !!openRows[t.id]
         return (
           <li key={t.id ?? i}>
+            {facts.length > 0 && (
+              <button type="button" className="fact-toggle" aria-expanded={open}
+                onClick={() => setOpenRows(s => ({ ...s, [t.id]: !s[t.id] }))}
+                title={open ? 'Hide details' : 'Show details'}>{open ? '▾' : '▸'}</button>
+            )}
             <span className="subj" title={t.subject}>{t.subject}</span>
+            {inlineFacts.map((f, k) => (
+              <span key={k} className={`fact-inline${f.urgent ? ' urgent' : ''}`} title={f.label}>{f.value}</span>
+            ))}
             <span className={`chip chip-${t.status}`}>{t.status}</span>
             {openUrl ? (
               <>
@@ -462,6 +485,14 @@ export default function App() {
                 {pick}
               </>
             ) : pick}
+            {open && facts.length > 0 && (
+              <dl className="fact-details">
+                {facts.flatMap((f, k) => [
+                  <dt key={`${k}t`}>{f.label}</dt>,
+                  <dd key={`${k}d`}>{f.value}</dd>,
+                ])}
+              </dl>
+            )}
           </li>
         )
       })}

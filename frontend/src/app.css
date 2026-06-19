@@ -218,6 +218,24 @@ ol.list > li::before {
   opacity: 1; transform: translateY(0); transition-delay: 120ms;  /* short, deliberate -- not jumpy */
 }
 
+/* Per-row facts: inline facts ride on the row; the caret toggles a details (label/value) block. */
+.fact-toggle {
+  flex: none; align-self: center; background: none; border: none; cursor: pointer;
+  color: var(--subtle-fg); font: 10px/1 monospace; padding: 0 5px 0 0;
+}
+.fact-toggle:hover, .fact-toggle:focus-visible { color: var(--foreground); }
+.fact-inline {
+  flex: none; font: 10px/1 ui-monospace, monospace; letter-spacing: 0.02em;
+  color: var(--muted-fg); background: var(--card-raised); padding: 3px 7px; border-radius: 5px;
+}
+.fact-inline.urgent { color: #fbbf24; background: color-mix(in srgb, #fbbf24 14%, transparent); }
+.fact-details {
+  flex-basis: 100%; margin: 7px 0 1px; display: grid; grid-template-columns: auto 1fr; gap: 3px 12px;
+  font: 11px/1.4 ui-sans-serif, system-ui, sans-serif;
+}
+.fact-details dt { color: var(--subtle-fg); }
+.fact-details dd { color: var(--foreground); margin: 0; overflow-wrap: anywhere; }
+
 .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--subtle-fg); flex: none; }
 .dot.live { background: var(--primary); box-shadow: 0 0 6px color-mix(in srgb, var(--primary) 70%, transparent); }
 .dot.stalled { background: var(--amber); box-shadow: 0 0 6px color-mix(in srgb, var(--amber) 60%, transparent); }

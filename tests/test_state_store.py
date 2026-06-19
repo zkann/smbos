@@ -434,3 +434,13 @@ def test_assert_in_flight_gates_without_side_effect(tmp_path):
     assert ss.assert_in_flight(tmp_path, 999999) is False        # no such row
     with pytest.raises(ss.StateStoreError):
         ss.assert_in_flight(tmp_path, "not-an-int")
+
+
+def test_facts_round_trips(tmp_path):
+    facts = '[{"label":"Received","value":"2d ago","inline":true}]'
+    ss.record_task(tmp_path, "ops", "task", "with facts", facts=facts)
+    assert ss.plate(tmp_path)[0]["facts"] == facts
+    ss.upsert_task(tmp_path, "ops", "task", "x", source_ref="s1", facts='[{"label":"A","value":"1"}]')
+    ss.upsert_task(tmp_path, "ops", "task", "x", source_ref="s1", facts='[{"label":"A","value":"2"}]')
+    row = next(t for t in ss.plate(tmp_path) if t["source_ref"] == "s1")
+    assert row["facts"] == '[{"label":"A","value":"2"}]'
