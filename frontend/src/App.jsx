@@ -504,7 +504,11 @@ export default function App() {
                 {why && <><dt>Why</dt><dd className="fact-why">{why}</dd></>}
                 {facts.flatMap((f, k) => [
                   <dt key={`${k}t`}>{f.label}</dt>,
-                  <dd key={`${k}d`}>{f.value}</dd>,
+                  // a fact carrying an http(s) url renders as a link (Spec / Requirements / Thread); the
+                  // producer just adds a `url` key to the fact (no schema change). Plain text otherwise.
+                  <dd key={`${k}d`}>{openable(f.url)
+                    ? <a href={openable(f.url)} target="_blank" rel="noopener noreferrer">{f.value}</a>
+                    : f.value}</dd>,
                 ])}
               </dl>
             )}
