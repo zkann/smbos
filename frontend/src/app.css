@@ -427,7 +427,9 @@ ol.list > li::before {
    subj is flex:1 (shares the line, doesn't push the caret onto its own line). */
 .compact .list > li:has(> .acts) > .subj { flex: 1; }
 .compact .list > li:has(> .acts) > .acts {
-  flex-basis: 100%; display: flex; gap: 8px; align-items: center; justify-content: flex-end;
+  /* left-align the wrapped action line so the buttons tuck under the title as a secondary affordance,
+     instead of a lone pill floating at the right edge where the eye exits -- the title leads the scan. */
+  flex-basis: 100%; display: flex; gap: 8px; align-items: center; justify-content: flex-start;
 }
 
 .compact .candidates > li > .subj,
