@@ -199,6 +199,25 @@ ol.list > li::before {
 }
 .pickup-2nd { color: var(--subtle-fg); }
 
+/* Fast custom tooltip. The native title= attribute has a browser-fixed ~1.5s delay we can't shorten;
+   this shows in ~120ms. Opt in with class "tip" + data-tip="text". Sits above the element, right
+   edges aligned (so right-side buttons extend left and stay inside the panel), and wraps. */
+.tip { position: relative; }
+.tip::after {
+  content: attr(data-tip);
+  position: absolute; bottom: calc(100% + 7px); right: 0;
+  width: max-content; max-width: 200px;
+  padding: 6px 9px; border-radius: 7px;
+  background: #16161b; color: #e6e6ea; border: 1px solid var(--border);
+  font: 11px/1.4 ui-sans-serif, system-ui, sans-serif; letter-spacing: normal; text-align: left;
+  white-space: normal; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5);
+  opacity: 0; transform: translateY(4px); pointer-events: none; z-index: 60;
+  transition: opacity 90ms ease, transform 90ms ease;
+}
+.tip:hover::after, .tip:focus-visible::after {
+  opacity: 1; transform: translateY(0); transition-delay: 120ms;  /* short, deliberate -- not jumpy */
+}
+
 .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--subtle-fg); flex: none; }
 .dot.live { background: var(--primary); box-shadow: 0 0 6px color-mix(in srgb, var(--primary) 70%, transparent); }
 .dot.stalled { background: var(--amber); box-shadow: 0 0 6px color-mix(in srgb, var(--amber) 60%, transparent); }
