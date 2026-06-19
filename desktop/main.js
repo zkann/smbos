@@ -15,7 +15,22 @@ const { app, BrowserWindow, Tray, Menu, Notification, nativeImage, screen, globa
 const path = require('path')
 const fs = require('fs')
 const http = require('http')
+const { spawn } = require('child_process')
 const { dashboardPort, token, sopDir } = require('./resolve')
+
+// A task's "Open" link (a Gmail thread, etc.) should pop out as its OWN standalone window, not a new
+// tab. Chrome's --app mode gives a chromeless window using the logged-in profile; spawning the binary
+// directly works even when Chrome is already running. Fall back to the default browser if absent.
+const CHROME_APP = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+function openExternalWindow(url) {
+  if (process.platform === 'darwin' && fs.existsSync(CHROME_APP)) {
+    try {
+      spawn(CHROME_APP, ['--app=' + url, '--window-size=1000,900'], { detached: true, stdio: 'ignore' }).unref()
+      return
+    } catch (_) { /* fall through to the default browser */ }
+  }
+  shell.openExternal(url)
+}
 const { createBroker } = require('./broker')
 
 const POLL_MS = 5000          // tray/notification poll cadence (matches the live mirror's calm cadence)
@@ -232,10 +247,10 @@ function createWindow() {
     },
   })
   collapsedSent = null  // fresh window: let the first collapse/expand signal land
-  // A task's "Open" action is a target=_blank http(s) link: send it to the default browser, never a
-  // child Electron window. (will-navigate is belt-and-suspenders: the panel must never leave the SPA.)
+  // A task's "Open" action is a target=_blank http(s) link: pop it out as its own Chrome --app window,
+  // never a child Electron window. (will-navigate is belt-and-suspenders: the panel must never leave the SPA.)
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//i.test(url)) shell.openExternal(url)
+    if (/^https?:\/\//i.test(url)) openExternalWindow(url)
     return { action: 'deny' }
   })
   win.webContents.on('will-navigate', (e, url) => {
@@ -243,7 +258,7 @@ function createWindow() {
     try { sameOrigin = new URL(url).origin === `http://127.0.0.1:${brokerPort}` } catch (_) { /* unparseable */ }
     if (!sameOrigin) {
       e.preventDefault()
-      if (/^https?:\/\//i.test(url)) shell.openExternal(url)
+      if (/^https?:\/\//i.test(url)) openExternalWindow(url)
     }
   })
   win.loadURL(windowUrl())
