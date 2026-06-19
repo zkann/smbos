@@ -191,7 +191,10 @@ ol.list > li::before {
 .pickup {
   flex: none; font: 11px/1 ui-monospace, monospace; letter-spacing: 0.04em;
   color: var(--muted-fg); background: var(--card-raised); cursor: pointer;
-  border: 1px solid var(--border); border-radius: 999px; padding: 5px 11px;
+  border: 1px solid var(--border); border-radius: 999px; padding: 5px 12px;
+  /* DESIGN.md interaction floor: >=30px tall on desktop. min-height (border-box) guarantees it;
+     inline-flex centers the label. Was 23px, under the documented minimum. */
+  min-height: 30px; display: inline-flex; align-items: center; justify-content: center;
   transition: color 120ms, border-color 120ms, background 120ms;
 }
 .pickup:hover:not(:disabled), .pickup:focus-visible:not(:disabled) {
@@ -240,12 +243,18 @@ ol.list > li::before {
   opacity: 1; transform: translateY(0); transition-delay: 120ms;  /* short, deliberate -- not jumpy */
 }
 
-/* Per-row facts: inline facts ride on the row; the caret toggles a details (label/value) block. */
-.fact-toggle {
-  flex: none; align-self: center; background: none; border: none; cursor: pointer;
-  color: var(--subtle-fg); font: 11px/1 monospace; padding: 0 5px 0 0;
+/* Per-row facts: inline facts ride on the row; the TITLE toggles a details (label/value) block.
+   The title doubles as the expand control on rows with details -- a full-width hit target and an
+   obvious affordance (hover + focus ring), replacing the old 12px gutter caret (which failed
+   DESIGN.md's 30px target floor). The caret rides inside the title as a quiet rotating indicator. */
+.subj-toggle {
+  display: flex; align-items: baseline; gap: 6px; text-align: left;
+  background: none; border: none; margin: 0; padding: 4px 0; color: inherit; font: inherit; cursor: pointer;
 }
-.fact-toggle:hover, .fact-toggle:focus-visible { color: var(--foreground); }
+.subj-toggle .subj-text { min-width: 0; overflow-wrap: anywhere; }
+.subj-toggle .caret { flex: none; color: var(--muted-fg); font: 11px/1 monospace; transition: color 120ms; }
+.subj-toggle:hover .caret, .subj-toggle:focus-visible .caret, .subj-toggle:hover .subj-text { color: var(--foreground); }
+.subj-toggle:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 6px; }
 .fact-inline {
   flex: none; font: 11px/1 ui-monospace, monospace; letter-spacing: 0.02em;
   color: var(--muted-fg); background: var(--card-raised); padding: 3px 7px; border-radius: 5px;
