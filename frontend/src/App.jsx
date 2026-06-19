@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 // Live-mirror dashboard. Subscribes to the SSE stream (/events) and renders the command-center
 // plate + what's in flight + run history. The whole job is to be trusted as current, so a
@@ -102,6 +102,18 @@ export default function App() {
   const [settings, setSettings] = useState(null)
   const [budgetInput, setBudgetInput] = useState('')
   const [confirmSkip, setConfirmSkip] = useState(false)
+  // Opaque-background toggle (Settings): a pure DISPLAY preference for the Electron panel, persisted
+  // client-side (the engine never reads it). The panel frosts <main> over a transparent window, which a
+  // busy/light desktop can bleed through; .opaque on <html> drops the translucency to a solid surface.
+  const [opaqueBg, setOpaqueBg] = useState(() => {
+    try { return localStorage.getItem('smbos.opaqueBg') === '1' } catch { return false }
+  })
+  // useLayoutEffect (not useEffect): apply the class before first paint so a reload with the
+  // preference on doesn't flash the frosted default before going opaque.
+  useLayoutEffect(() => {
+    document.documentElement.classList.toggle('opaque', opaqueBg)
+    try { localStorage.setItem('smbos.opaqueBg', opaqueBg ? '1' : '0') } catch { /* private mode: in-memory only */ }
+  }, [opaqueBg])
   // the SOP library (fetched once on mount; the server re-gates at run time). procBusy: sop id ->
   // 'running'|'preparing'|'queuing'|'launching'|'error'. procInputs: sop id -> the inputs text.
   const [procedures, setProcedures] = useState([])
@@ -825,6 +837,13 @@ export default function App() {
               <option value="iterm">iTerm</option>
             </select>
           </div>
+          {inPanel && (
+            <div className="setrow">
+              <label htmlFor="opaque">Opaque background</label>
+              <input id="opaque" type="checkbox" checked={opaqueBg}
+                onChange={(e) => setOpaqueBg(e.target.checked)} />
+            </div>
+          )}
           <div className="setrow">
             <label htmlFor="budget">Monthly budget</label>
             <span className="prefix">$</span>
