@@ -172,6 +172,8 @@ function applyDockState() {
     win.setSize(FLOAT_SIZE.width, FLOAT_SIZE.height)
     win.center()
   }
+  sendCollapsed(false)  // applyDockState always leaves the panel OUT (full dashboard), so un-collapse
+                        // the renderer -- e.g. toggling auto-hide off while parked must drop the rail
 }
 
 function setDocked(next) {
