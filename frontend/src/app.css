@@ -271,9 +271,11 @@ ol.list > li::before {
 .subj-toggle .caret { flex: none; color: var(--muted-fg); font: 11px/1 monospace; transition: color 120ms; }
 .subj-toggle:hover .caret, .subj-toggle:focus-visible .caret, .subj-toggle:hover .subj-text { color: var(--foreground); }
 .subj-toggle:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 6px; }
-/* a row without details has no caret; reserve the caret gutter (7px glyph + 6px gap) so its title
-   shares the same left edge as the toggle-titles around it, instead of jutting 13px left. */
-.compact .list li > .subj:not(.subj-toggle) { padding-left: 13px; }
+/* a PLATE row without details has no caret; reserve the caret gutter (7px glyph + 6px gap) so its
+   title shares the left edge of the toggle-titles around it instead of jutting 13px left. Scoped to
+   plate rows (`:has(> .acts)`) so In-flight / Recent-runs subjects -- which lead with a status dot,
+   not a caret -- are untouched. */
+.compact .list > li:has(> .acts) > .subj:not(.subj-toggle) { padding-left: 13px; }
 .fact-inline {
   flex: none; font: 11px/1 ui-monospace, monospace; letter-spacing: 0.02em;
   color: var(--muted-fg); background: var(--card-raised); padding: 3px 7px; border-radius: 5px;
