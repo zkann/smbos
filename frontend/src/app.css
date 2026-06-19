@@ -234,14 +234,18 @@ ol.list > li::before {
 /* Compact sidebar mode (the menu-bar panel loads ?compact). The "needs you" zone owns the top;
    secondary panels collapse to a tap; a sticky header keeps the counts glanceable while the plate
    scrolls. Calm Command Center density throughout; zero counts stay neutral (DESIGN.md). */
+/* Narrow panel: tighter than the 32px browser dashboard, and the header bleeds FLUSH to the panel
+   top + side edges (negative margins cancel main's padding) -- a clean full-width title bar. */
+.compact main { padding: 14px; }
 .compact header {
-  position: sticky; top: 0; z-index: 2; flex-wrap: wrap;
-  background: var(--background); margin: 0 0 10px;
-  padding: 10px 0 9px; border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 2; flex-wrap: wrap; gap: 8px;
+  background: var(--background); margin: -14px -14px 12px;
+  padding: 10px 14px 9px; border-bottom: 1px solid var(--border);
 }
+.compact header h1 { font-size: 16px; }
 .compact .counts {
-  flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 3px;
-  font: 11px/1.3 ui-monospace, monospace; color: var(--foreground); letter-spacing: 0.02em;
+  flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 3px 11px; margin-top: 5px;
+  font: 10px/1.3 ui-monospace, monospace; color: var(--foreground); letter-spacing: 0.02em;
 }
 .compact .counts .count-zero { color: var(--subtle-fg); }
 

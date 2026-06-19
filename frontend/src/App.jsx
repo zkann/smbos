@@ -619,13 +619,6 @@ export default function App() {
       <header>
         <Logo />
         <h1>SmbOS</h1>
-        {compact && (
-          <span className="counts">
-            <span className={plate.length ? undefined : 'count-zero'}>{plate.length} waiting</span>
-            <span className={inflight.length ? undefined : 'count-zero'}>{inflight.length} in flight</span>
-            <span className={queued.length ? undefined : 'count-zero'}>{queued.length} coming up</span>
-          </span>
-        )}
         {inPanel && (
           <button
             type="button"
@@ -640,6 +633,13 @@ export default function App() {
               <path d="M9 10.8V4h6v6.8l1.7 2.5a1 1 0 0 1-.8 1.6H8.1a1 1 0 0 1-.8-1.6L9 10.8Z" />
             </svg>
           </button>
+        )}
+        {compact && (
+          <span className="counts">
+            <span className={plate.length ? undefined : 'count-zero'}>{plate.length} waiting</span>
+            <span className={inflight.length ? undefined : 'count-zero'}>{inflight.length} in flight</span>
+            <span className={queued.length ? undefined : 'count-zero'}>{queued.length} coming up</span>
+          </span>
         )}
       </header>
 
