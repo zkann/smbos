@@ -212,14 +212,12 @@ function createWindow() {
   win = new BrowserWindow({
     ...FLOAT_SIZE,
     title: 'SmbOS',
-    // Docked = a CHROMELESS macOS NSPanel (floats over full-screen apps, all Spaces, no focus-steal)
-    // with native sidebar vibrancy. transparent:true makes Electron honor the transparent backgroundColor
-    // alpha (otherwise #00000000 is an opaque backing) so the frost shows; the SPA goes translucent in
-    // panel mode. Undocked rebuilds as a normal opaque framed window.
+    // Docked = a CHROMELESS macOS NSPanel (floats over full-screen apps, all Spaces, no focus-steal).
+    // transparent + square (roundedCorners:false): the window is a fully transparent square rect, so
+    // the FROST is done in CSS (backdrop-filter), clipped to the rounded tab / panel shape -- no
+    // window-level vibrancy rectangle showing behind the rounded tab. Undocked = a normal opaque window.
     ...(docked
-      // roundedCorners:false keeps the window a square rect so the tab's right edge sits FLUSH at the
-      // screen edge (a tab, not a pill); the inner (left) rounding is done in CSS.
-      ? { type: 'panel', frame: false, roundedCorners: false, vibrancy: 'sidebar', transparent: true, backgroundColor: '#00000000' }
+      ? { type: 'panel', frame: false, roundedCorners: false, transparent: true, backgroundColor: '#00000000' }
       : { backgroundColor: '#09090b' }),  // opaque so there's no white flash on load
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

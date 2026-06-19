@@ -12,29 +12,39 @@ body {
   margin: 0; background: var(--background); color: var(--foreground);
   font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
-/* Panel mode (Electron docked sidebar): the body goes transparent so the window's native vibrancy
-   frosts through, and the surfaces become translucent so the frost reads behind the content while
-   text stays legible. Only the desktop panel loads with ?panel=1; the browser/undocked view is opaque. */
+/* Panel mode (Electron docked sidebar): the window is fully transparent, so the FROST is CSS
+   backdrop-filter clipped to each shape (no window-level frost rectangle). The body stays transparent;
+   the expanded dashboard gets its own frosted backing on <main>, the parked tab gets its own. Only the
+   desktop panel loads with ?panel=1; the browser/undocked view is opaque. */
 html.smbos-panel body { background: transparent; }
 html.smbos-panel {
   --card: rgba(20, 20, 24, 0.62); --card-raised: rgba(30, 30, 34, 0.66);
   --chip-bg: rgba(24, 24, 28, 0.6); --input: rgba(43, 43, 48, 0.66);
 }
+/* Expanded panel: a frosted dark backing filling the window (square/flush; the dashboard renders over it). */
+html.smbos-panel main {
+  min-height: 100vh;
+  background: rgba(12, 12, 15, 0.72);
+  backdrop-filter: blur(28px) saturate(150%); -webkit-backdrop-filter: blur(28px) saturate(150%);
+}
 
-/* The parked tab: a compact pill filling the small tab-sized window (~52x104). Solid status -- the
-   whole tab carries the signal: a saturated amber fill when something's waiting, a calm frosted-dark
-   pill (the window vibrancy through the transparent body) when clear. Rounded inner side; the right
-   edge meets the screen. */
+/* The parked tab: a compact shape filling the small tab-sized window (~52x104). Because the window is
+   transparent, the frost is clipped to THIS rounded shape -- the notch corners are truly see-through,
+   so there's no rectangle around it. Solid status: amber fill when waiting, frosted-dark when clear.
+   Rounded inner (left) side; the right edge meets the screen flush. */
 .tab {
   width: 100vw; height: 100vh; box-sizing: border-box;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
   cursor: default; user-select: none; border-radius: 14px 0 0 14px;
   transition: background 180ms ease, box-shadow 180ms ease, color 180ms ease;
 }
-.tab.clear {                                   /* nothing waiting: calm dark frost, muted count */
-  color: var(--muted-fg); border: 1px solid var(--border); border-right: none;
+.tab.clear {                                   /* nothing waiting: a calm frosted-dark tab */
+  color: var(--muted-fg);
+  background: rgba(20, 20, 24, 0.5);
+  backdrop-filter: blur(22px) saturate(150%); -webkit-backdrop-filter: blur(22px) saturate(150%);
+  border: 1px solid var(--border); border-right: none;
 }
-.tab.waiting {                                 /* something waiting: amber fill, dark high-contrast count */
+.tab.waiting {                                 /* something waiting: a saturated amber fill, dark count */
   color: #1d1303;
   background: linear-gradient(180deg, #fbbf24, #f59e0b);
   box-shadow: -3px 0 18px rgba(245, 158, 11, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.28);
