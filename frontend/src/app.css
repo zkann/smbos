@@ -198,6 +198,16 @@ ol.list > li::before {
   color: #052e16; background: var(--primary-hover); border-color: var(--primary-hover);
 }
 .pickup-2nd { color: var(--subtle-fg); }
+/* plate-row action group: keeps the buttons together (wide: at the row end; compact: on their own
+   line). Base layout here; the compact override drops it to a full-width line. */
+.acts { display: flex; align-items: center; gap: 8px; flex: none; }
+
+/* visually hidden but read by screen readers (e.g. a live in-flight row's state, which is otherwise
+   carried only by an aria-hidden dot + the section label). */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
 
 /* Fast custom tooltip. The native title= attribute has a browser-fixed ~1.5s delay we can't shorten;
    this shows in ~120ms. Opt in with class "tip" + data-tip="text". Sits above the element, right
@@ -274,6 +284,10 @@ ol.list > li::before {
 /* Narrow panel: tighter than the 32px browser dashboard, and the header bleeds FLUSH to the panel
    top + side edges (negative margins cancel main's padding) -- a clean full-width title bar. */
 .compact main { padding: 14px; }
+/* Flat sections, not nested cards. In panel mode the frost lives on <main>; the per-section card was a
+   second opaque layer stacking boxes inside a 400px column. Drop the card chrome (border/radius/bg/pad)
+   and separate sections with the overline + whitespace -- one clean surface, more room for rows. */
+.compact .panel { background: none; border: none; border-radius: 0; padding: 0; margin-bottom: 20px; }
 .compact header {
   position: sticky; top: 0; z-index: 2; flex-wrap: wrap; gap: 8px;
   background: var(--background); margin: -14px -14px 12px;
@@ -316,32 +330,43 @@ ol.list > li::before {
 
 /* Narrow column: titles wrap in FULL (nothing hidden, no clamp/tooltip-only recovery), and any
    row that carries an action stacks the action onto its own line so the title owns the whole
-   width instead of competing with a button for it. overflow-wrap breaks a long unbroken token. */
-.compact .subj { min-width: 0; overflow-wrap: anywhere; }
+   width instead of competing with a button for it. overflow-wrap breaks a long unbroken token.
+   Title is 14px here: a deliberate density exception to the 16px reading-body floor -- these are
+   scannable list rows, not body copy, and the tighter scale fits more of the plate in one glance
+   (still well above the 11-12px microcopy floor). */
+.compact .subj { min-width: 0; overflow-wrap: anywhere; font-size: 14px; }
+.compact .list li { padding: 6px 0; }                 /* denser rhythm than the 8px browser list */
+
+/* Urgency leads. A deadline-bearing (urgent) plate row gets an amber left bar so a fast vertical
+   scan finds what is on fire before reading a word -- the strongest non-text signal on the surface. */
+.compact .list > li:has(.fact-inline.urgent) {
+  box-shadow: inset 3px 0 0 var(--amber); padding-left: 11px;
+}
 
 /* drop the rank counter in compact: with rows wrapped it would float on its own line above each
    title, and in a short ordered sidebar list the position already conveys priority */
 .compact ol.list > li::before { display: none; }
 
-.compact .list > li:has(> .pickup),
+.compact .list > li:has(> .acts),
 .compact .candidates > li,
-.compact .pending-head { flex-wrap: wrap; row-gap: 7px; }
+.compact .pending-head { flex-wrap: wrap; row-gap: 6px; }
 
-.compact .list > li:has(> .pickup) > .subj,
+/* plate row: caret + title (+ inline Due) share line 1; the grouped actions drop to their own line.
+   subj is flex:1 (shares the line, doesn't push the caret onto its own line). */
+.compact .list > li:has(> .acts) > .subj { flex: 1; }
+.compact .list > li:has(> .acts) > .acts {
+  flex-basis: 100%; display: flex; gap: 8px; align-items: center; justify-content: flex-end;
+}
+
 .compact .candidates > li > .subj,
 .compact .pending-head > .subj { flex-basis: 100%; }
-
-/* the action drops to the right under its now-full-width title */
-.compact .list > li:has(> .pickup) > .pickup,
 .compact .candidates > li > .act { margin-left: auto; }
 
-/* In-flight rows carry a leading dot + a chip + several recovery buttons -- far too much for the
-   narrow column on one line (the title was getting crushed to one character per line). Wrap them like
-   the plate rows: the title owns the first line, the chip + recovery actions wrap below it. The chip
-   already shows live/stalled, so drop the now-redundant leading dot to give the title the full width. */
-.compact .list > li:has(.chip-inflight),
-.compact .list > li:has(.chip-stalled) { flex-wrap: wrap; row-gap: 7px; }
-.compact .list > li:has(.chip-inflight) > .dot,
-.compact .list > li:has(.chip-stalled) > .dot { display: none; }
-.compact .list > li:has(.chip-inflight) > .subj,
-.compact .list > li:has(.chip-stalled) > .subj { flex-basis: 100%; }
+/* In-flight rows carry recovery buttons (and, when stalled, a chip) -- too much for one narrow line.
+   Wrap: the title owns the first line, the actions wrap below it. The "In flight" section header is
+   the live/running context, so a live row needs no per-row marker at all (dot + chip both dropped);
+   only a STALLED row wears its amber chip, so the one row that needs you stands out. Keyed on the
+   stable .inflight class (not the chip) so dropping the live chip doesn't lose the wrap. */
+.compact .list > li.inflight { flex-wrap: wrap; row-gap: 7px; }
+.compact .list > li.inflight > .dot { display: none; }
+.compact .list > li.inflight > .subj { flex-basis: 100%; }
