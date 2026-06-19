@@ -140,13 +140,25 @@ ol.list > li::before {
 .act {
   flex: none; font: 11px/1 ui-monospace, monospace; letter-spacing: 0.04em;
   color: var(--muted-fg); background: var(--card-raised); cursor: pointer;
-  border: 1px solid var(--border); border-radius: 999px; padding: 5px 11px;
+  border: 1px solid var(--border); border-radius: 999px; padding: 5px 12px;
+  /* DESIGN.md 30px desktop target floor, same as .pickup. The In-flight / Pending / Procedures rows
+     use .act and must clear it too; inline-flex centers the label. */
+  min-height: 30px; display: inline-flex; align-items: center; justify-content: center;
   transition: color 120ms, border-color 120ms, background 120ms;
 }
 .act:hover:not(:disabled), .act:focus-visible:not(:disabled) {
   color: var(--foreground); border-color: var(--border-strong);
 }
-.act:disabled { opacity: 0.6; cursor: default; }
+/* DESIGN.md: disabled stays legible (muted text + dashed border), never opacity-faded into the bg --
+   the faded label is the launching... / done... progress text the user most needs to read. */
+.act:disabled { cursor: default; color: var(--subtle-fg); border-style: dashed; }
+.act-primary:disabled { color: #052e16; border-style: solid; }
+/* DESIGN.md: every control gets the same 2px --ring focus outline (it was on the title-toggle alone). */
+.act:focus-visible, .pickup:focus-visible,
+.compact details.panel > summary:focus-visible,
+.compact .cand-disclosure > summary:focus-visible {
+  outline: 2px solid var(--ring); outline-offset: 2px;
+}
 .act-err { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent); }
 .act-primary { color: #052e16; background: var(--primary); border-color: var(--primary); }
 .act-primary:hover:not(:disabled), .act-primary:focus-visible:not(:disabled) {
@@ -205,7 +217,7 @@ ol.list > li::before {
   color: var(--primary); border-color: color-mix(in srgb, var(--primary) 50%, transparent);
   background: color-mix(in srgb, var(--primary) 10%, var(--card-raised));
 }
-.pickup:disabled { opacity: 0.6; cursor: default; }
+.pickup:disabled { cursor: default; color: var(--subtle-fg); border-style: dashed; }
 .pickup-err { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent); }
 /* When a task carries an Open action it leads: the Open link is the solid-green primary, and the
    Pick-up button drops to a quieter fallback. .open-act is an <a> wearing the .pickup pill shape. */
