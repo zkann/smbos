@@ -221,9 +221,16 @@ TERM_PROGRAM = os.environ.get("TERM_PROGRAM", "")
 
 TERMINAL_SCRIPTS = {
     "terminal": 'tell application "Terminal"\nactivate\ndo script "{cmd}"\nend tell',
+    # Reuse the owner's open iTerm window -- a new TAB per pickup (each task keeps its own session, so
+    # the in-flight liveness / stalled detection / Open-session recovery still work) -- and only spawn a
+    # fresh window when no iTerm window is open. Verified: adds a tab, not a window.
     "iterm": ('tell application "iTerm"\nactivate\n'
-              'set newWindow to (create window with default profile)\n'
-              'tell current session of newWindow\nwrite text "{cmd}"\nend tell\nend tell'),
+              'if (count of windows) is 0 then\n'
+              'set targetSession to (current session of (create window with default profile))\n'
+              'else\n'
+              'tell current window to set targetSession to (current session of (create tab with default profile))\n'
+              'end if\n'
+              'tell targetSession to write text "{cmd}"\nend tell'),
 }
 
 
