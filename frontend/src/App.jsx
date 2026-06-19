@@ -477,14 +477,18 @@ export default function App() {
               <span key={k} className={`fact-inline${f.urgent ? ' urgent' : ''}`} title={f.label}>{f.value}</span>
             ))}
             <span className={`chip chip-${t.status}`}>{t.status}</span>
-            {openUrl ? (
-              <>
-                {/* primary: open the source (email/doc) in the browser; the handoff stays as a fallback */}
-                <a className="pickup open-act tip" href={openUrl} target="_blank" rel="noopener noreferrer"
-                  data-tip="Open the source (email/doc) in your browser">Open ▸</a>
-                {pick}
-              </>
-            ) : pick}
+            {/* actions grouped so they wrap to their own line as a unit (compact), leaving the caret
+                attached to the title line instead of orphaning above it */}
+            <span className="acts">
+              {openUrl ? (
+                <>
+                  {/* primary: open the source (email/doc) in the browser; the handoff stays as a fallback */}
+                  <a className="pickup open-act tip" href={openUrl} target="_blank" rel="noopener noreferrer"
+                    data-tip="Open the source (email/doc) in your browser">Open ▸</a>
+                  {pick}
+                </>
+              ) : pick}
+            </span>
             {open && facts.length > 0 && (
               <dl className="fact-details">
                 {facts.flatMap((f, k) => [
@@ -570,13 +574,15 @@ export default function App() {
         )
         const stalled = t.state === 'stalled'
         return (
-          <li key={t.id ?? i}>
+          <li key={t.id ?? i} className="inflight">
             <span className={`dot ${stalled ? 'stalled' : 'live'}`} aria-hidden="true"></span>
             <span className="subj" title={t.subject}>{t.subject}</span>
-            {stalled
-              ? <span className="chip chip-stalled tip"
-                  data-tip="No live session for this task (its window was closed, or it stopped without reporting). Put it back on your plate, or mark it done or dismissed.">stalled</span>
-              : <span className="chip chip-inflight">in flight</span>}
+            {/* live rows carry no chip: the "In flight" section header is the context, so only the
+                EXCEPTION (stalled) wears a chip and earns the eye. */}
+            {stalled && (
+              <span className="chip chip-stalled tip"
+                data-tip="No live session for this task (its window was closed, or it stopped without reporting). Put it back on your plate, or mark it done or dismissed.">stalled</span>
+            )}
             {/* stalled: its session is gone, so the primary recovery is to reopen it and resume;
                 Put back / Done / Dismiss stay as the other outs. Live: Done is the primary. */}
             {stalled && (
