@@ -20,10 +20,20 @@ def test_unknown_keys_dropped(tmp_path):
     assert "bogus" not in rec
 
 
-def test_read_skips_malformed(tmp_path):
+def test_read_skips_malformed_and_non_dict(tmp_path):
     p = tmp_path / "m.jsonl"
-    p.write_text('{"title": "ok"}\nnot json\n\n{"title": "ok2"}\n', encoding="utf-8")
-    assert [m["title"] for m in ml.read_misses(p)] == ["ok", "ok2"]
+    # unparseable garbage, blank lines, AND valid-JSON-but-not-a-record scalars/arrays
+    p.write_text('{"title": "ok"}\nnot json\n42\n[1, 2]\n\n{"title": "ok2"}\n', encoding="utf-8")
+    got = ml.read_misses(p)
+    assert [m["title"] for m in got] == ["ok", "ok2"]  # scalars/arrays excluded, garbage skipped
+    ml.report(got)  # must not raise on the filtered set
+
+
+def test_log_miss_recovers_from_missing_trailing_newline(tmp_path):
+    p = tmp_path / "m.jsonl"
+    p.write_text('{"title": "first"}', encoding="utf-8")  # a prior write cut off before its newline
+    ml.log_miss("second", path=p)
+    assert [m["title"] for m in ml.read_misses(p)] == ["first", "second"]  # both stay readable
 
 
 def test_report_frequency_first_and_excludes_fixed(tmp_path):
@@ -34,5 +44,5 @@ def test_report_frequency_first_and_excludes_fixed(tmp_path):
     ml.log_miss("d", path=p, taxonomy="duplicate-task", status="fixed")
     out = ml.report(ml.read_misses(p))
     assert "3 open / 4 total" in out  # the fixed one is excluded from the open count
-    buckets = [l for l in out.splitlines() if l.strip().endswith(("duplicate-task", "wrong-due-date"))]
+    buckets = [line for line in out.splitlines() if line.strip().endswith(("duplicate-task", "wrong-due-date"))]
     assert buckets[0].strip().startswith("2")  # the recurring bucket (count 2) ranks first

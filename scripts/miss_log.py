@@ -19,14 +19,16 @@ Schema (fields; absent = unknown):
   taxonomy (set at triage: the failure-bucket slug), status (open|triaged|fixed), fix_ref, why
 """
 import json
-import os
 import sys
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-SOP_DIR = Path(os.environ.get("SOP_DIR", str(Path.home() / "sops")))
-MISSES = SOP_DIR / ".miss-events.jsonl"   # SmbOS-level (cross-domain) miss log, beside the store
+from smbos_lib import resolve_sop_dir
+
+# SmbOS-level (cross-domain) miss log, beside the store. Directory resolution is smbos_lib's job
+# (explicit > $SOP_DIR > ~/sops); fall back to ~/sops if no library dir exists yet.
+MISSES = (resolve_sop_dir(exit_on_missing=False) or (Path.home() / "sops")) / ".miss-events.jsonl"
 LAYERS = {"guard", "schema", "sop", "prompt", "memory", "checkpoint"}
 STATUSES = {"open", "triaged", "fixed"}
 ALLOWED = {
@@ -46,8 +48,16 @@ def log_miss(title, path=MISSES, **fields):
             rec[k] = v
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Newline-safety: if a prior write was cut off before its trailing "\n" (a crash mid-append), a
+    # naive append would glue two records onto one physical line and read_misses would drop both.
+    prefix = ""
+    if path.exists() and path.stat().st_size:
+        with path.open("rb") as fh:
+            fh.seek(-1, 2)
+            if fh.read(1) != b"\n":
+                prefix = "\n"
     with path.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(rec) + "\n")
+        fh.write(prefix + json.dumps(rec) + "\n")
     return rec
 
 
@@ -62,9 +72,11 @@ def read_misses(path=MISSES):
         if not line:
             continue
         try:
-            out.append(json.loads(line))
-        except ValueError:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
             continue
+        if isinstance(obj, dict):  # a bare scalar/array is valid JSON but a malformed record; skip it
+            out.append(obj)
     return out
 
 
@@ -87,8 +99,19 @@ def report(misses):
 
 
 def _cli_append(argv):
-    payload = argv[argv.index("--json") + 1] if "--json" in argv else sys.stdin.read()
-    obj = json.loads(payload)
+    if "--json" in argv:
+        i = argv.index("--json")
+        if i + 1 >= len(argv):
+            sys.exit("usage: miss_log.py append --json '<obj>'")
+        payload = argv[i + 1]
+    else:
+        payload = sys.stdin.read()
+    try:
+        obj = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        sys.exit("miss_log.py append: invalid JSON ({})".format(exc))
+    if not isinstance(obj, dict):
+        sys.exit("miss_log.py append: the JSON payload must be an object")
     title = obj.pop("title", None) or obj.pop("ref", "untitled miss")
     log_miss(title, **obj)
 

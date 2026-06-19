@@ -26,10 +26,11 @@ def test_missing_counter_is_no_counter(tmp_path):
     assert sc.scan(tmp_path)[0]["verdict"] == "no-counter"
 
 
-def test_index_files_skipped(tmp_path):
+def test_template_index_and_noid_skipped(tmp_path):
     _sop(tmp_path, "real", runs=1, clean=1)
-    (tmp_path / "MEMORY.md").write_text("---\nid: nope\n---\n", encoding="utf-8")
-    (tmp_path / "_template.md").write_text("---\nid: tmpl\n---\n", encoding="utf-8")
+    (tmp_path / "_template.md").write_text("---\nid: tmpl\n---\n", encoding="utf-8")  # iter_sops skips by name
+    (tmp_path / "INDEX.md").write_text("---\nid: idx\n---\n", encoding="utf-8")        # iter_sops skips by name
+    (tmp_path / "notes.md").write_text("# notes, no frontmatter id\n", encoding="utf-8")  # no id -> filtered
     ids = {r["id"] for r in sc.scan(tmp_path)}
     assert ids == {"real"}
 
@@ -39,3 +40,9 @@ def test_report_lists_review_conservatively(tmp_path):
     out = sc.report(sc.scan(tmp_path, floor=5))
     assert "drifting" in out
     assert "never auto-retire" in out  # the conservatism note is always present
+
+
+def test_floor_zero_does_not_divide_by_zero(tmp_path):
+    _sop(tmp_path, "zero-runs", runs=0, clean=0)  # a degenerate --floor 0 must not crash on 0 runs
+    rec = {r["id"]: r for r in sc.scan(tmp_path, floor=0)}["zero-runs"]
+    assert rec["verdict"] == "insufficient-evidence" and rec["ratio"] is None

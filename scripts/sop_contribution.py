@@ -15,33 +15,13 @@ cleared a run floor. It changes nothing -- read-only over the markdown frontmatt
 Usage:  python3 sop_contribution.py [--floor N] [sop_dir]   (sop_dir defaults to $SOP_DIR or ~/sops)
 Stdlib only.
 """
-import os
 import sys
 from pathlib import Path
 
-DEFAULT_SOP_DIR = Path(os.environ.get("SOP_DIR", str(Path.home() / "sops")))
+from smbos_lib import iter_sops, parse_frontmatter, resolve_sop_dir
+
 EVIDENCE_FLOOR = 5          # below this many runs, do NOT judge contribution (erosion guard)
 LOW_CLEAN_RATIO = 0.5       # clean_runs/runs under this (with enough runs) -> REVIEW, never auto-retire
-SKIP_NAMES = {"MEMORY.md", "INDEX.md", "DIGEST.md", "_template.md", "PACKS.md"}
-
-
-def _frontmatter(path):
-    """Parse the leading --- ... --- block into a flat {key: value} dict (string values). Returns {}
-    if there is no frontmatter. Deliberately tiny: SOP frontmatter is flat key: value, no nesting."""
-    text = path.read_text(encoding="utf-8", errors="replace")
-    if not text.startswith("---"):
-        return {}
-    end = text.find("\n---", 3)
-    if end == -1:
-        return {}
-    fm = {}
-    for line in text[3:end].splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or ":" not in line:
-            continue
-        key, _, val = line.partition(":")
-        fm[key.strip()] = val.strip()
-    return fm
 
 
 def _int(val):
@@ -51,21 +31,24 @@ def _int(val):
         return None
 
 
-def scan(sop_dir=DEFAULT_SOP_DIR, floor=EVIDENCE_FLOOR):
-    """One record per SOP markdown file with frontmatter: id, status, runs, clean_runs, and a
-    conservative verdict (ok | REVIEW | insufficient-evidence | no-counter)."""
+def scan(sop_dir=None, floor=EVIDENCE_FLOOR):
+    """One record per SOP carrying an `id` in frontmatter: id, status, runs, clean_runs, and a
+    conservative verdict (ok | REVIEW | insufficient-evidence | no-counter). SOP discovery and
+    frontmatter parsing come from smbos_lib (iter_sops skips the template, index, archive, runtime
+    dirs, and dotfiles); the `id` filter drops any remaining non-SOP markdown."""
+    sop_dir = Path(sop_dir) if sop_dir else resolve_sop_dir(exit_on_missing=False)
+    if not sop_dir:
+        return []
     out = []
-    for path in sorted(Path(sop_dir).rglob("*.md")):
-        if path.name in SKIP_NAMES:
-            continue
-        fm = _frontmatter(path)
+    for path in iter_sops(sop_dir):
+        fm = parse_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
         if "id" not in fm:
             continue
         runs, clean = _int(fm.get("runs")), _int(fm.get("clean_runs"))
         rel = str(path.relative_to(sop_dir))
         if runs is None or clean is None:
             verdict, ratio = "no-counter", None
-        elif runs < floor:
+        elif runs == 0 or runs < floor:   # runs==0 also guards a degenerate --floor 0 (no ZeroDivision)
             verdict, ratio = "insufficient-evidence", (clean / runs if runs else None)
         else:
             ratio = clean / runs
@@ -99,7 +82,9 @@ if __name__ == "__main__":
     floor = EVIDENCE_FLOOR
     if "--floor" in args:
         i = args.index("--floor")
+        if i + 1 >= len(args):
+            sys.exit("usage: sop_contribution.py [--floor N] [sop_dir]")
         floor = int(args[i + 1])
         del args[i:i + 2]
-    sop_dir = Path(args[0]) if args else DEFAULT_SOP_DIR
+    sop_dir = args[0] if args else None
     sys.stdout.write(report(scan(sop_dir, floor), floor))
