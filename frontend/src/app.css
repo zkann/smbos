@@ -343,6 +343,17 @@ ol.list > li::before {
   box-shadow: inset 3px 0 0 var(--amber); padding-left: 11px;
 }
 
+/* The default action recedes. "Hand to Claude" is on every plate row, so as a filled pill it marched
+   down the column as the second-loudest thing after the titles. Strip its pill chrome to a quiet text
+   affordance; the border + green wash fill in on hover/focus (the label + tooltip stay, so it's still
+   discoverable). The green "Open" LEADS, so it keeps its solid fill (excluded via :not(.open-act)). */
+.compact .pickup:not(.open-act) { background: none; border-color: transparent; }
+.compact .pickup:not(.open-act):hover:not(:disabled),
+.compact .pickup:not(.open-act):focus-visible:not(:disabled) {
+  background: color-mix(in srgb, var(--primary) 10%, var(--card-raised));
+  border-color: color-mix(in srgb, var(--primary) 50%, transparent);
+}
+
 /* drop the rank counter in compact: with rows wrapped it would float on its own line above each
    title, and in a short ordered sidebar list the position already conveys priority */
 .compact ol.list > li::before { display: none; }
