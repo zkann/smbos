@@ -40,6 +40,17 @@ function Tab({ plate, inflight }) {
   )
 }
 
+// SmbOS mark: a console/command tile (it's a command center) in the green brand accent.
+function Logo({ size = 22 }) {
+  return (
+    <svg className="logo" width={size} height={size} viewBox="0 0 32 32" fill="none" aria-label="SmbOS">
+      <rect x="2.5" y="2.5" width="27" height="27" rx="8" fill="#0f0f12" stroke="#2c2c33" />
+      <path d="M11 11.5 16 16 11 20.5" stroke="#22c55e" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+      <rect x="17.5" y="18.9" width="6.5" height="2.4" rx="1.2" fill="#22c55e" />
+    </svg>
+  )
+}
+
 export default function App() {
   // collapsed = the desktop panel is parked to the edge (the count spine shows). Driven by the
   // Electron main process via the preload bridge; always false in a browser / undocked window.
@@ -587,7 +598,7 @@ export default function App() {
       {stale && <div className="banner" role="status">Reconnecting, data may be stale</div>}
 
       <header>
-        <span className="dot live" aria-hidden="true"></span>
+        <Logo />
         <h1>SmbOS</h1>
         {compact && (
           <span className="counts">

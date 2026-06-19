@@ -1,0 +1,5 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="SmbOS">
+  <rect x="2.5" y="2.5" width="27" height="27" rx="8" fill="#0f0f12" stroke="#2c2c33"/>
+  <path d="M11 11.5 16 16 11 20.5" stroke="#22c55e" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="17.5" y="18.9" width="6.5" height="2.4" rx="1.2" fill="#22c55e"/>
+</svg>
