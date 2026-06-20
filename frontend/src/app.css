@@ -247,6 +247,23 @@ ol.list > li::before {
 /* plate-row action group: keeps the buttons together (wide: at the row end; compact: on their own
    line). Base layout here; the compact override drops it to a full-width line. */
 .acts { display: flex; align-items: center; gap: 8px; flex: none; }
+/* quiet "I already handled this" resolve on a waiting plate row -- clear it (done / dismiss) WITHOUT
+   picking it up. Pushed right, subtle at rest (doing the task is the primary action), brightens on
+   hover; 30px hit target per the interaction floor, with a small glyph. */
+.resolve { margin-left: auto; display: flex; gap: 2px; flex: none; }
+.rbtn {
+  flex: none; width: 30px; height: 30px; padding: 0; display: inline-flex; align-items: center;
+  justify-content: center; background: none; border: none; border-radius: 6px; cursor: pointer;
+  color: var(--subtle-fg); font-size: 13px; transition: color 120ms, background 120ms;
+}
+.rbtn:hover:not(:disabled), .rbtn:focus-visible:not(:disabled) {
+  color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+.rbtn-dismiss:hover:not(:disabled), .rbtn-dismiss:focus-visible:not(:disabled) {
+  color: var(--muted-fg); background: var(--card-raised);
+}
+.rbtn:disabled { color: var(--subtle-fg); cursor: default; }
+.rbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 
 /* visually hidden but read by screen readers (e.g. a live in-flight row's state, which is otherwise
    carried only by an aria-hidden dot + the section label). */

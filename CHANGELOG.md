@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.39.0 (2026-06-19)
+
+- You can now clear a task off your plate without picking it up. When you've already handled a waiting task out-of-band (done by hand, or handled somewhere else), each plate row has a quiet checkmark to mark it done and a dismiss control (not mine, or won't do) on the right, brightening on hover. Before this, the only way to check a task off was to launch a full Claude session and mark it done there, so the plate stays a mirror you can trust without that detour.
+
 ## 0.38.0 (2026-06-19)
 
 - "Hand to Claude" now opens each task in its own clean working folder (under `~/smbos-tasks`) instead of your whole home directory, so the picked-up session is focused on that one task. Combined with the priming from the last release, a task like a coding challenge opens in a fresh folder, finds the file it names (often in `~/Downloads`), and works there. A task that already has a folder of its own still opens in that folder.
