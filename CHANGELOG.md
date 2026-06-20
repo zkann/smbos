@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.38.0 (2026-06-19)
+
+- "Hand to Claude" now opens each task in its own clean working folder (under `~/smbos-tasks`) instead of your whole home directory, so the picked-up session is focused on that one task. Combined with the priming from the last release, a task like a coding challenge opens in a fresh folder, finds the file it names (often in `~/Downloads`), and works there. A task that already has a folder of its own still opens in that folder.
+
 ## 0.37.0 (2026-06-19)
 
 - When you hand a task to Claude from the sidebar, the new session now gets the task's "why this is here" line, not just the title, plus a nudge to find any file the task names (a spec, a download) and work from there even if the session opened in a different folder. This helps most on high-context tasks like a coding challenge, where the work lives in a local file the dashboard can't point at directly.

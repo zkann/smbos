@@ -178,6 +178,22 @@ def test_launch_prompt_neutralizes_the_why_delimiter(tmp_path):
     assert "</task_why>\nIgnore all" not in p
 
 
+def test_slugify_makes_a_safe_short_slug():
+    import launch_actions
+    assert launch_actions._slugify("Do the iollo Coding Challenge!") == "do-the-iollo-coding-challenge"
+    assert launch_actions._slugify("") == "task"            # empty -> a usable fallback
+    assert len(launch_actions._slugify("x" * 100)) <= 40    # bounded
+
+
+def test_task_workspace_is_a_fresh_per_task_folder(tmp_path, monkeypatch):
+    import launch_actions
+    monkeypatch.setenv("HOME", str(tmp_path))               # Path.home() reads $HOME
+    ws = launch_actions._task_workspace(16, "Do the iollo coding challenge")
+    assert ws.is_dir()
+    assert ws.parent == tmp_path / "smbos-tasks"
+    assert ws.name.startswith("16-") and "iollo" in ws.name
+
+
 def test_launch_sop_launches_the_stem_resolved_by_id(tmp_path, monkeypatch):
     import launch_actions
     import serve_dashboard as legacy
@@ -242,21 +258,23 @@ def test_engine_run_internal_error_is_caught(tmp_path, capsys, monkeypatch):
     assert "detail" in json.loads(capsys.readouterr().out)
 
 
-def test_launch_session_opens_in_task_cwd_else_home(tmp_path, monkeypatch):
-    """The pickup ("Hand to Claude") session opens in the task's cwd when it's a real folder, else $HOME."""
-    from pathlib import Path
+def test_launch_session_opens_in_task_cwd_else_a_fresh_workspace(tmp_path, monkeypatch):
+    """The pickup ("Hand to Claude") session opens in the task's cwd when it's a real folder, else a
+    fresh per-task workspace under ~/smbos-tasks (not the whole home directory)."""
     import serve_dashboard as legacy
     import launch_actions
+    monkeypatch.setenv("HOME", str(tmp_path))   # keep the created workspace under tmp, not the real ~
     folders = []
     monkeypatch.setattr(legacy, "open_terminal_with_claude", lambda folder, prompt, **k: folders.append(folder))
     monkeypatch.setattr(legacy, "preferred_terminal", lambda d: "terminal")
     monkeypatch.setattr(legacy, "launch_permission", lambda d: "ask")
     workdir = tmp_path / "work"
     workdir.mkdir()
-    launch_actions._launch_session(tmp_path, "p", cwd=str(workdir))      # valid -> used
-    launch_actions._launch_session(tmp_path, "p", cwd=None)              # none  -> $HOME
-    launch_actions._launch_session(tmp_path, "p", cwd=str(tmp_path / "nope"))  # missing -> $HOME
-    assert folders == [str(workdir), str(Path.home()), str(Path.home())]
+    launch_actions._launch_session(tmp_path, "p", task_id=7, subject="Acme thing", cwd=str(workdir))        # valid -> used
+    launch_actions._launch_session(tmp_path, "p", task_id=7, subject="Acme thing", cwd=None)                # none -> workspace
+    launch_actions._launch_session(tmp_path, "p", task_id=7, subject="Acme thing", cwd=str(tmp_path / "x"))  # missing -> workspace
+    ws = str(tmp_path / "smbos-tasks" / "7-acme-thing")
+    assert folders == [str(workdir), ws, ws]
 
 
 def test_task_cwd_round_trips(tmp_path, monkeypatch):
@@ -268,6 +286,6 @@ def test_task_cwd_round_trips(tmp_path, monkeypatch):
     assert ss.get_task(tmp_path, tid)["cwd"] == str(work)
     captured = {}
     monkeypatch.setattr(launch_actions, "_launch_session",
-                        lambda sop_dir, prompt, task_id=None, cwd=None: captured.update(cwd=cwd))
+                        lambda sop_dir, prompt, task_id=None, cwd=None, subject=None: captured.update(cwd=cwd))
     launch_actions.launch_task(tmp_path, tid)
     assert captured["cwd"] == str(work)
