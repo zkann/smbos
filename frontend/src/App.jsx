@@ -98,6 +98,11 @@ export default function App() {
   // per in-flight task recovery state: id -> 'waiting'|'done'|'dismissed' (in flight) or 'error'.
   // Success clears via the SSE inflight frame dropping the task; an error re-enables the actions.
   const [taskBusy, setTaskBusy] = useState({})
+  // per plate-row resolve state (the kebab's mark-done/dismiss): id -> 'done'|'dismissed' or
+  // 'error:<status>'. SEPARATE from taskBusy so each surface's frame prunes its own transient state:
+  // a plate id is absent from the inflight list (and vice versa), so a shared map would be wrongly
+  // pruned by the other surface's frame mid-resolve.
+  const [plateBusy, setPlateBusy] = useState({})
   // settings is owner-controlled config (not live-mirror state), so it's fetched once on mount
   // and updated from each write's echoed state, not streamed. confirmSkip gates the one
   // dangerous value (Skip all approvals) behind an inline confirm.
@@ -146,6 +151,13 @@ export default function App() {
       setPlate(next)
       const ids = new Set(next.map((t) => t.id))
       setLaunch((s) => {
+        const n = {}
+        for (const k of Object.keys(s)) if (ids.has(Number(k))) n[k] = s[k]
+        return n
+      })
+      // same prune for the kebab's resolve state: a row that left the plate (resolved here or
+      // elsewhere) shouldn't keep a stale 'done'/'error' entry; a row still waiting keeps its retry.
+      setPlateBusy((s) => {
         const n = {}
         for (const k of Object.keys(s)) if (ids.has(Number(k))) n[k] = s[k]
         return n
@@ -390,9 +402,11 @@ export default function App() {
 
   // Recover or resolve an in-flight task: put it back on the plate (waiting), mark it done, or
   // dismiss it. The escape hatch for a picked-up session that died or finished without reporting.
-  async function resolveTask(id, status) {
+  // setBusy selects the surface's busy map: setTaskBusy for an in-flight row (the default), or
+  // setPlateBusy for a waiting plate row (the kebab). Same POST either way; surface-specific state.
+  async function resolveTask(id, status, setBusy = setTaskBusy) {
     if (id == null) return
-    setTaskBusy((s) => ({ ...s, [id]: status }))
+    setBusy((s) => ({ ...s, [id]: status }))
     try {
       const res = await fetch('/api/task-status', {
         method: 'POST',
@@ -400,11 +414,11 @@ export default function App() {
         body: JSON.stringify({ task_id: id, status }),
       })
       if (!res.ok) throw new Error(String(res.status))
-      // success: the SSE inflight frame drops this task; clear local state
-      setTaskBusy((s) => { const n = { ...s }; delete n[id]; return n })
+      // success: the SSE frame (inflight or plate) drops this task; clear local state
+      setBusy((s) => { const n = { ...s }; delete n[id]; return n })
     } catch (_) {
       // remember WHICH action failed so its own button offers the retry (not whatever's last)
-      setTaskBusy((s) => ({ ...s, [id]: `error:${status}` }))
+      setBusy((s) => ({ ...s, [id]: `error:${status}` }))
     }
   }
 
@@ -414,7 +428,14 @@ export default function App() {
   useEffect(() => {
     if (openMenu == null) return
     const onDown = (e) => { if (!e.target.closest('.task-menu')) setOpenMenu(null) }
-    const onKey = (e) => { if (e.key === 'Escape') setOpenMenu(null) }
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return
+      // a11y: Escape returns focus to the kebab that opened the menu, not to <body>. A click-outside
+      // deliberately does NOT steal focus back (the user is acting somewhere else).
+      const k = document.querySelector('.kebab[aria-expanded="true"]')
+      setOpenMenu(null)
+      if (k) k.focus()
+    }
     document.addEventListener('pointerdown', onDown)
     document.addEventListener('keydown', onKey)
     return () => {
@@ -500,7 +521,7 @@ export default function App() {
         const hasDetails = !!why || facts.length > 0
         const rowKey = t.id ?? i        // disclosure + React key: stable id when present, index fallback for id-less rows
         const open = !!openRows[rowKey]
-        const busy = taskBusy[t.id]                                   // a resolve in flight, or `error:<status>`
+        const busy = plateBusy[t.id]                                  // a resolve in flight, or `error:<status>`
         const resolving = !!busy && !String(busy).startsWith('error') // disable the kebab while resolving
         const menuOpen = openMenu === t.id
         return (
@@ -555,11 +576,11 @@ export default function App() {
                       else if (e.key === 'ArrowUp') { e.preventDefault(); items[(at - 1 + items.length) % items.length]?.focus() }
                     }}>
                       <button type="button" role="menuitem" className="menu-item" autoFocus
-                        onClick={() => { setOpenMenu(null); resolveTask(t.id, 'done') }}>
+                        onClick={() => { setOpenMenu(null); resolveTask(t.id, 'done', setPlateBusy) }}>
                         {busy === 'error:done' ? 'Retry mark done' : 'Mark done'}
                       </button>
                       <button type="button" role="menuitem" className="menu-item"
-                        onClick={() => { setOpenMenu(null); resolveTask(t.id, 'dismissed') }}>
+                        onClick={() => { setOpenMenu(null); resolveTask(t.id, 'dismissed', setPlateBusy) }}>
                         {busy === 'error:dismissed' ? 'Retry dismiss' : 'Dismiss'}
                       </button>
                     </div>
