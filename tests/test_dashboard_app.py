@@ -186,6 +186,28 @@ def test_task_status_resolves_a_waiting_task_without_pickup(tmp_path):
     assert ss.plate(tmp_path) == []   # gone from the plate, no pickup needed
 
 
+def test_task_status_dismiss_seeds_router_feedback(tmp_path):
+    # Phase-1 capture: a dashboard dismiss of an EMAIL-ROUTER task writes one feedback row; a done does not
+    import sqlite3
+    ss.record_route(tmp_path, "email", "thr-9", "action", consumer="plate")
+    tid = ss.record_task(tmp_path, "inbox", "action", "spurious", source_ref="thr-9")  # waiting
+    app = dashboard_app.create_app(tmp_path)
+    hdr = {"X-SMBOS-Token": lib.dashboard_token(tmp_path)}
+    with TestClient(app, base_url="http://localhost") as client:
+        assert client.post("/api/task-status", json={"task_id": tid, "status": "dismissed", "from": "waiting"},
+                           headers=hdr).status_code == 200
+    raw = sqlite3.connect(str(ss.db_path(tmp_path))); raw.row_factory = sqlite3.Row
+    rows = raw.execute("SELECT item_id, signal, verdict_lane FROM feedback").fetchall()
+    assert len(rows) == 1 and rows[0]["item_id"] == "thr-9" and rows[0]["signal"] == "dismissed"
+    # a DONE on an email route writes NO feedback in Phase 1 (dismiss-only)
+    ss.record_route(tmp_path, "email", "thr-10", "action")
+    tid2 = ss.record_task(tmp_path, "inbox", "action", "did it", source_ref="thr-10")
+    with TestClient(app, base_url="http://localhost") as client:
+        client.post("/api/task-status", json={"task_id": tid2, "status": "done", "from": "waiting"}, headers=hdr)
+    assert raw.execute("SELECT COUNT(*) FROM feedback").fetchone()[0] == 1
+    raw.close()
+
+
 def test_task_status_clears_the_liveness_marker(tmp_path):
     # resolving an in_flight task drops its session marker, so a recovered/redone task doesn't keep
     # a stale liveness handle around

@@ -25,7 +25,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 8  # bump when SCHEMA_STATEMENTS changes; migrations key off PRAGMA user_version
+SCHEMA_VERSION = 9  # bump when SCHEMA_STATEMENTS changes; migrations key off PRAGMA user_version
 # v2: partial unique index on (domain, source_ref) so imports can upsert idempotently.
 # v3: run.summary holds the run's one-line "what it did" line, surfaced on Recent runs.
 # v4: task.action_url -- when set, the dashboard leads with "Open" (this link) over "Pick up".
@@ -43,6 +43,7 @@ BUSY_TIMEOUT_MS = 5000
 # Status enums, validated on write so a bad value fails fast instead of silently.
 TASK_STATUSES = {"waiting", "in_flight", "done", "dismissed"}
 ROUTE_STATUSES = {"routed", "consumed", "done"}  # a routed item's consumer lifecycle
+FEEDBACK_SIGNALS = {"dismissed"}  # owner resolutions captured as router feedback (Phase 1: dismiss only)
 VERDICT_LABELS = {"reply_owed", "ack", "reject", "ignore", "advance"}
 SURFACES = {"cc", "api", "cron"}  # where a run was invoked from
 RESULT_VALUES = {"ok", "parked", "error", "refused", "skipped"}  # terminal run results
@@ -113,6 +114,20 @@ SCHEMA_STATEMENTS = (
         PRIMARY KEY (source, item_id)
     )""",
     "CREATE INDEX IF NOT EXISTS idx_routed_lane_status ON routed_item(lane, status, routed_at)",
+    # v9: the router-feedback corpus. One row per owner resolution of an EMAIL-ROUTER task (Phase 1:
+    # a dashboard dismiss), keyed (source,item_id) to join routed_item's verdict -- the seed for router
+    # evals. broker_audit reads it as a new negative outcome. UNIQUE(source,item_id,signal) dedups a
+    # re-dismiss / re-import. Slim by design: the categorizer's label columns land in a later phase.
+    """CREATE TABLE IF NOT EXISTS feedback (
+        id INTEGER PRIMARY KEY,
+        task_id INTEGER REFERENCES task(id),
+        source TEXT NOT NULL,            -- route source ("email"); mirrors routed_item
+        item_id TEXT NOT NULL,           -- route item id (gmail thread_id); joins routed_item
+        signal TEXT NOT NULL,            -- owner resolution as router feedback (Phase 1: "dismissed")
+        verdict_lane TEXT,               -- the lane the router assigned (what eval scores); from routed_item
+        created_at TEXT NOT NULL,        -- ISO-8601 UTC from _now()
+        UNIQUE (source, item_id, signal)
+    )""",
 )
 
 
@@ -565,6 +580,38 @@ def resolve_waiting_task(sop_dir, task_id, status):
         )
         conn.commit()
         return cur.rowcount == 1
+
+
+def record_feedback(sop_dir, task_id, signal):
+    """Best-effort: record an owner-resolution `signal` on an EMAIL-ROUTER task into the feedback
+    corpus -- the seed for router evals. A NO-OP unless the task is an email route: it must have a
+    routed_item with source='email' on its source_ref. Job-pipeline + ad-hoc tasks carry a source_ref
+    too (a company slug, a reminder ref), so the email-route JOIN -- not just "source_ref set" -- is
+    what scopes this to router feedback. Idempotent via UNIQUE(source,item_id,signal): a re-dismiss /
+    re-import records nothing new. Returns True iff the task is an email route (the feedback is on
+    file), else False. Raises StateStoreError on an unknown signal or a non-integer id.
+
+    Callers invoke this AFTER the resolution commits, wrapped best-effort: a failure here must never
+    affect the owner's dismiss (the resolution is the product; the corpus is a side effect)."""
+    if signal not in FEEDBACK_SIGNALS:
+        raise StateStoreError(f"invalid feedback signal {signal!r}; expected one of {sorted(FEEDBACK_SIGNALS)}")
+    task_id = _coerce_task_id(task_id)
+    with connect(sop_dir) as conn:
+        task = conn.execute("SELECT id, source_ref FROM task WHERE id=?", (task_id,)).fetchone()
+        if task is None or not task["source_ref"]:
+            return False
+        route = conn.execute(
+            "SELECT lane FROM routed_item WHERE source='email' AND item_id=?", (task["source_ref"],)
+        ).fetchone()
+        if route is None:                 # job-pipeline / ad-hoc task -> not router feedback
+            return False
+        conn.execute(
+            "INSERT OR IGNORE INTO feedback(task_id, source, item_id, signal, verdict_lane, created_at)"
+            " VALUES (?,?,?,?,?,?)",
+            (task["id"], "email", task["source_ref"], signal, route["lane"], _now()),
+        )
+        conn.commit()
+        return True
 
 
 def assert_in_flight(sop_dir, task_id):

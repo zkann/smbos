@@ -621,6 +621,11 @@ def create_app(sop_dir, dist_dir=None):
             if not ss.resolve_in_flight_task(sop_dir, task["id"], target):
                 raise HTTPException(status_code=409, detail="task is not in flight (already resolved?)")
             lib.clear_session(sop_dir, task["id"])  # task left in_flight: its liveness marker is moot
+        if target == "dismissed":  # seed the router-eval corpus from a dashboard dismiss; POST-resolve,
+            try:                   # best-effort -- a feedback failure must never affect the dismiss
+                ss.record_feedback(sop_dir, task["id"], "dismissed")
+            except Exception:
+                pass
         return {"status": target, "task_id": task["id"]}
 
     @app.post("/api/open-session")
