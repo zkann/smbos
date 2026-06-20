@@ -474,6 +474,25 @@ def test_claim_task_is_single_winner(tmp_path):
         ss.claim_task(tmp_path, "not-an-int")
 
 
+def test_resolve_waiting_task_is_single_winner(tmp_path):
+    tid = ss.record_task(tmp_path, "ops", "x", "resolve me")            # waiting
+    assert ss.resolve_waiting_task(tmp_path, tid, "done") is True       # waiting -> done, this call won
+    assert ss.get_task(tmp_path, tid)["status"] == "done"
+    assert ss.resolve_waiting_task(tmp_path, tid, "dismissed") is False  # no longer waiting -> no transition
+    assert ss.get_task(tmp_path, tid)["status"] == "done"               # unchanged by the losing call
+    t2 = ss.record_task(tmp_path, "ops", "x", "dismiss me")
+    assert ss.resolve_waiting_task(tmp_path, t2, "dismissed") is True   # waiting -> dismissed
+    assert ss.get_task(tmp_path, t2)["status"] == "dismissed"
+    inflight = ss.record_task(tmp_path, "ops", "x", "busy", status="in_flight")
+    assert ss.resolve_waiting_task(tmp_path, inflight, "done") is False  # gated on waiting only (a Pick up won)
+    assert ss.get_task(tmp_path, inflight)["status"] == "in_flight"      # untouched
+    assert ss.resolve_waiting_task(tmp_path, 999999, "done") is False    # no such row, no transition
+    with pytest.raises(ss.StateStoreError):
+        ss.resolve_waiting_task(tmp_path, t2, "bogus")                  # bad status (checked before the id)
+    with pytest.raises(ss.StateStoreError):
+        ss.resolve_waiting_task(tmp_path, "not-an-int", "done")         # bad id
+
+
 def test_touch_in_flight_task_gates_on_in_flight_and_bumps_updated_at(tmp_path):
     tid = ss.record_task(tmp_path, "ops", "x", "touch me", status="in_flight")
     before = ss.get_task(tmp_path, tid)["updated_at"]

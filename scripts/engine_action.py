@@ -183,7 +183,12 @@ def _dequeue(args):
 
 
 def _task_status(args):
-    # Recover / resolve an in_flight task: waiting (put back) / done / dismissed. Mirrors /api/task-status.
+    # Resolve a task to waiting / done / dismissed, dispatching on its CURRENT status:
+    #   in_flight -> resolve_in_flight_task + clear the (now moot) liveness marker  [the picked-up path]
+    #   waiting   -> resolve_waiting_task, no marker to clear                       [owner clears a plate task, no session]
+    # Each path's CAS gate closes the read-check-act window, so a click that loses a race (a stale
+    # in_flight tab, or a Pick up that claimed a waiting task first) no-ops cleanly. On a waiting miss
+    # we re-read to tell the owner WHY (just picked up) instead of a misleading "already resolved".
     if args.status not in ("waiting", "done", "dismissed"):
         print(json.dumps({"detail": "status must be waiting, done, or dismissed"}))
         return 8
@@ -195,13 +200,29 @@ def _task_status(args):
     if task is None:
         print(json.dumps({"detail": "no such task"}))
         return 4
-    # Atomic gate on still-in_flight: a stale tab clicking again after a recovery must not re-flip it.
-    if not ss.resolve_in_flight_task(args.sop_dir, task["id"], args.status):
-        print(json.dumps({"detail": "task is not in flight (already resolved?)"}))
-        return 9
-    lib.clear_session(args.sop_dir, task["id"])  # the task left in_flight: its liveness marker is moot
-    print(json.dumps({"status": args.status, "task_id": task["id"]}))
-    return 0
+    if task["status"] == "in_flight":
+        # Atomic gate on still-in_flight: a stale tab clicking again after a recovery must not re-flip it.
+        if not ss.resolve_in_flight_task(args.sop_dir, task["id"], args.status):
+            print(json.dumps({"detail": "task is not in flight (already resolved?)"}))
+            return 9
+        lib.clear_session(args.sop_dir, task["id"])  # left in_flight: its liveness marker is moot
+        print(json.dumps({"status": args.status, "task_id": task["id"]}))
+        return 0
+    if task["status"] == "waiting":
+        if not ss.resolve_waiting_task(args.sop_dir, task["id"], args.status):
+            # Lost a race: a Pick up may have claimed it between our read and the CAS. Re-read so the
+            # owner hears the real reason rather than a misleading "already resolved".
+            now = ss.get_task(args.sop_dir, task["id"])
+            if now is not None and now["status"] == "in_flight":
+                print(json.dumps({"detail": "task was just picked up", "task_id": task["id"]}))
+            else:
+                print(json.dumps({"detail": "task is no longer on your plate (already resolved?)"}))
+            return 9
+        print(json.dumps({"status": args.status, "task_id": task["id"]}))
+        return 0
+    # Already terminal (done/dismissed): nothing to resolve.
+    print(json.dumps({"detail": f"task is already {task['status']}"}))
+    return 9
 
 
 def main(argv=None):

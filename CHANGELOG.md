@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.38.0 (2026-06-19)
+
+- You can now mark a task done or dismiss it straight from your plate, without handing it to Claude first. Each waiting task has a small "⋯" button: open it and choose "Mark done" or "Dismiss". This is for work you already finished some other way (you replied from your phone, or did the task by hand), so the plate stays an accurate picture of what is on your plate. Tasks you clear this way stay cleared, even after the next sync.
+
 ## 0.37.0 (2026-06-19)
 
 - When you hand a task to Claude from the sidebar, the new session now gets the task's "why this is here" line, not just the title, plus a nudge to find any file the task names (a spec, a download) and work from there even if the session opened in a different folder. This helps most on high-context tasks like a coding challenge, where the work lives in a local file the dashboard can't point at directly.

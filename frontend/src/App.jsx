@@ -90,6 +90,8 @@ export default function App() {
   const [launch, setLaunch] = useState({})
   // per-task details disclosure: id -> true when its facts expansion is open.
   const [openRows, setOpenRows] = useState({})
+  // which plate row's action menu (mark done / dismiss) is open: a task id, or null. One at a time.
+  const [openMenu, setOpenMenu] = useState(null)
   // per parked-result action state: file -> 'approve'|'discard'|'error', or `${file}#${i}` ->
   // 'applying'|'error'. Success clears via the SSE pending frame dropping the resolved item.
   const [pend, setPend] = useState({})
@@ -406,6 +408,21 @@ export default function App() {
     }
   }
 
+  // Close the open plate-row action menu on Escape or a click outside it. Only listens while a menu
+  // is open, so the document handlers cost nothing at rest. The kebab's own onClick toggles it; on a
+  // resolve the row leaves the plate and the menu unmounts with it.
+  useEffect(() => {
+    if (openMenu == null) return
+    const onDown = (e) => { if (!e.target.closest('.task-menu')) setOpenMenu(null) }
+    const onKey = (e) => { if (e.key === 'Escape') setOpenMenu(null) }
+    document.addEventListener('pointerdown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [openMenu])
+
   // Re-open a primed session for an in-flight (stalled) task: the recovery for a pickup whose
   // window closed, so it resumes instead of being stranded at Put back / Done / Dismiss. The task
   // stays in flight (no SSE removal), so on success we clear the local busy to re-enable the row;
@@ -483,6 +500,9 @@ export default function App() {
         const hasDetails = !!why || facts.length > 0
         const rowKey = t.id ?? i        // disclosure + React key: stable id when present, index fallback for id-less rows
         const open = !!openRows[rowKey]
+        const busy = taskBusy[t.id]                                   // a resolve in flight, or `error:<status>`
+        const resolving = !!busy && !String(busy).startsWith('error') // disable the kebab while resolving
+        const menuOpen = openMenu === t.id
         return (
           <li key={rowKey}>
             {hasDetails ? (
@@ -518,6 +538,34 @@ export default function App() {
                   {pick}
                 </>
               ) : pick}
+              {/* quiet overflow: mark a task done / dismiss it WITHOUT picking it up (no session), for
+                  work you already finished out-of-band. One glyph at rest; a small menu on click. */}
+              {t.id != null && (
+                <span className="task-menu">
+                  <button type="button" className="act kebab tip"
+                    aria-haspopup="menu" aria-expanded={menuOpen} aria-label="Task actions"
+                    data-tip="Mark this done or dismiss it (no session needed)"
+                    disabled={resolving}
+                    onClick={() => setOpenMenu((o) => (o === t.id ? null : t.id))}>⋯</button>
+                  {menuOpen && (
+                    <div className="menu" role="menu" onKeyDown={(e) => {
+                      const items = [...e.currentTarget.querySelectorAll('.menu-item')]
+                      const at = items.indexOf(document.activeElement)
+                      if (e.key === 'ArrowDown') { e.preventDefault(); items[(at + 1) % items.length]?.focus() }
+                      else if (e.key === 'ArrowUp') { e.preventDefault(); items[(at - 1 + items.length) % items.length]?.focus() }
+                    }}>
+                      <button type="button" role="menuitem" className="menu-item" autoFocus
+                        onClick={() => { setOpenMenu(null); resolveTask(t.id, 'done') }}>
+                        {busy === 'error:done' ? 'Retry mark done' : 'Mark done'}
+                      </button>
+                      <button type="button" role="menuitem" className="menu-item"
+                        onClick={() => { setOpenMenu(null); resolveTask(t.id, 'dismissed') }}>
+                        {busy === 'error:dismissed' ? 'Retry dismiss' : 'Dismiss'}
+                      </button>
+                    </div>
+                  )}
+                </span>
+              )}
             </span>
             {open && hasDetails && (
               <dl className="fact-details">

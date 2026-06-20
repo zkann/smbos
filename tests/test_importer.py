@@ -208,3 +208,26 @@ def test_import_records_provenance(tmp_path):
     assert by["p-1"]["why"] == "reply about the lease"
     assert by["p-1"]["producer"] == "pipeline-a" and by["p-1"]["sop_id"] == "sop-a"
     assert by["p-2"]["why"] is None and by["p-2"]["producer"] is None and by["p-2"]["sop_id"] is None
+
+
+def test_resolved_waiting_task_survives_reimport(tmp_path):
+    # Resurrection guard for out-of-band completion: a producer feeds records with NO status
+    # (status=None), so upsert_task preserves a resolved task's terminal status. This holds even when
+    # the source is STILL present and the producer keeps re-importing the same record on every sync.
+    rec = {"id": "thr-9", "subject": "do the coding challenge"}
+    importer.import_records(tmp_path, "inbox", [rec])               # producer mints it: on the plate, waiting
+    tid = ss.plate(tmp_path)[0]["id"]
+    assert ss.resolve_waiting_task(tmp_path, tid, "done") is True   # owner marks it done out-of-band
+    importer.import_records(tmp_path, "inbox", [rec])              # next sync re-imports the SAME record (no status)
+    assert ss.get_task(tmp_path, tid)["status"] == "done"          # preserved, NOT resurrected to waiting
+    assert ss.plate(tmp_path) == []                                # stays off the plate
+
+
+def test_dismissed_waiting_task_survives_reimport(tmp_path):
+    rec = {"id": "thr-7", "subject": "review the alert", "priority": 5}
+    importer.import_records(tmp_path, "inbox", [rec])
+    tid = ss.plate(tmp_path)[0]["id"]
+    assert ss.resolve_waiting_task(tmp_path, tid, "dismissed") is True
+    importer.import_records(tmp_path, "inbox", [rec])              # subject/priority may refresh; status must not
+    assert ss.get_task(tmp_path, tid)["status"] == "dismissed"
+    assert ss.plate(tmp_path) == []

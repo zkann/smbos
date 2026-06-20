@@ -248,6 +248,31 @@ ol.list > li::before {
    line). Base layout here; the compact override drops it to a full-width line. */
 .acts { display: flex; align-items: center; gap: 8px; flex: none; }
 
+/* Overflow menu: mark a plate task done / dismiss it WITHOUT picking it up (no session). The kebab
+   wears the .act pill recipe (30px floor, focus ring, hover, disabled-as-dashed) but quieter and
+   icon-only; the menu is a small popover anchored to it. The one new sidebar primitive; built on
+   existing tokens, no new color. */
+.task-menu { position: relative; display: inline-flex; }
+.kebab { padding: 5px 9px; min-width: 30px; color: var(--subtle-fg); font-size: 14px; }
+.menu {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 60;
+  display: flex; flex-direction: column; min-width: 132px; padding: 4px;
+  background: var(--card-raised); border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5);
+}
+.menu-item {
+  appearance: none; width: 100%; text-align: left; cursor: pointer;
+  font: 11px/1 ui-monospace, monospace; letter-spacing: 0.04em;
+  color: var(--muted-fg); background: transparent; border: 0; border-radius: 4px;
+  /* same 30px target floor as .act/.pickup (DESIGN.md), inline-flex centers the label */
+  min-height: 30px; display: inline-flex; align-items: center; padding: 5px 9px;
+  transition: color 120ms, background 120ms;
+}
+.menu-item:hover, .menu-item:focus-visible {
+  color: var(--foreground); background: color-mix(in srgb, var(--foreground) 8%, var(--card-raised));
+}
+.menu-item:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+
 /* visually hidden but read by screen readers (e.g. a live in-flight row's state, which is otherwise
    carried only by an aria-hidden dot + the section label). */
 .sr-only {

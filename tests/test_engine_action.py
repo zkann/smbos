@@ -33,8 +33,35 @@ def test_engine_task_status_recovers_in_flight(tmp_path, capsys):
     assert engine_action.main(["task-status", str(tmp_path), "--task-id=" + str(tid), "--status=waiting"]) == 0
     assert json.loads(capsys.readouterr().out) == {"status": "waiting", "task_id": tid}
     assert ss.in_flight(str(tmp_path)) == []  # left in_flight -> now waiting (back on the plate)
-    # a second click (now not in flight) is the CAS conflict -> 9 (409)
+    # the task is now waiting: marking it done resolves via the waiting path (the out-of-band feature)
+    assert engine_action.main(["task-status", str(tmp_path), "--task-id=" + str(tid), "--status=done"]) == 0
+    assert ss.get_task(str(tmp_path), tid)["status"] == "done"
+    # already terminal -> nothing to resolve -> 9 (409)
+    assert engine_action.main(["task-status", str(tmp_path), "--task-id=" + str(tid), "--status=dismissed"]) == 9
+
+
+def test_engine_task_status_resolves_a_waiting_plate_task(tmp_path, capsys):
+    # the out-of-band path: a waiting plate task resolves WITHOUT being picked up, no clear_session needed
+    tid = ss.record_task(str(tmp_path), "inbox", "action", "do the thing")  # waiting
+    assert engine_action.main(["task-status", str(tmp_path), "--task-id=" + str(tid), "--status=done"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"status": "done", "task_id": tid}
+    assert ss.get_task(str(tmp_path), tid)["status"] == "done"
+    assert ss.plate(str(tmp_path)) == []
+
+
+def test_engine_task_status_waiting_lost_to_pickup_reports_picked_up(tmp_path, capsys, monkeypatch):
+    # the race: between the engine's read (sees waiting) and its CAS, a Pick up claims the task. The
+    # waiting CAS misses; the engine re-reads and reports the REAL reason, not a misleading "already
+    # resolved". Simulate the TOCTOU by having the resolve land the racing claim and report a miss.
+    tid = ss.record_task(str(tmp_path), "inbox", "action", "do the thing")
+
+    def racing_resolve(sop_dir, task_id, status):
+        ss.claim_task(sop_dir, task_id)   # the Pick up lands now (waiting -> in_flight)
+        return False                      # ...so our CAS misses
+    monkeypatch.setattr(engine_action.ss, "resolve_waiting_task", racing_resolve)
+
     assert engine_action.main(["task-status", str(tmp_path), "--task-id=" + str(tid), "--status=done"]) == 9
+    assert json.loads(capsys.readouterr().out)["detail"] == "task was just picked up"
 
 
 def test_engine_run_refuses_draft(tmp_path, capsys):
