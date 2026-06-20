@@ -45,7 +45,8 @@ def test_engine_task_status_dismiss_seeds_router_feedback(tmp_path):
     tid = ss.record_task(str(tmp_path), "inbox", "action", "spurious", source_ref="thr-7")  # waiting
     assert engine_action.main(["task-status", str(tmp_path), "--task-id=" + str(tid),
                                "--status=dismissed", "--from=waiting"]) == 0
-    raw = sqlite3.connect(str(ss.db_path(str(tmp_path)))); raw.row_factory = sqlite3.Row
+    raw = sqlite3.connect(str(ss.db_path(str(tmp_path))))
+    raw.row_factory = sqlite3.Row
     rows = raw.execute("SELECT item_id, signal FROM feedback").fetchall()
     raw.close()
     assert len(rows) == 1 and rows[0]["item_id"] == "thr-7" and rows[0]["signal"] == "dismissed"

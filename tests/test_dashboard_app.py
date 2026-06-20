@@ -196,7 +196,8 @@ def test_task_status_dismiss_seeds_router_feedback(tmp_path):
     with TestClient(app, base_url="http://localhost") as client:
         assert client.post("/api/task-status", json={"task_id": tid, "status": "dismissed", "from": "waiting"},
                            headers=hdr).status_code == 200
-    raw = sqlite3.connect(str(ss.db_path(tmp_path))); raw.row_factory = sqlite3.Row
+    raw = sqlite3.connect(str(ss.db_path(tmp_path)))
+    raw.row_factory = sqlite3.Row
     rows = raw.execute("SELECT item_id, signal, verdict_lane FROM feedback").fetchall()
     assert len(rows) == 1 and rows[0]["item_id"] == "thr-9" and rows[0]["signal"] == "dismissed"
     # a DONE on an email route writes NO feedback in Phase 1 (dismiss-only)
