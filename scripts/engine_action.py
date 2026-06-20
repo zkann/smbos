@@ -195,11 +195,21 @@ def _task_status(args):
     if task is None:
         print(json.dumps({"detail": "no such task"}))
         return 4
-    # Atomic gate on still-in_flight: a stale tab clicking again after a recovery must not re-flip it.
-    if not ss.resolve_in_flight_task(args.sop_dir, task["id"], args.status):
-        print(json.dumps({"detail": "task is not in flight (already resolved?)"}))
-        return 9
-    lib.clear_session(args.sop_dir, task["id"])  # the task left in_flight: its liveness marker is moot
+    # from='waiting' (the plate's quiet resolve): clear a WAITING task straight to done/dismissed WITHOUT
+    # picking it up. The default (the in-flight recovery) is gated to in_flight + clears the liveness
+    # marker, so a stale recovery click can't reflip a put-back task. Each gate is atomic vs a race.
+    if getattr(args, "from_status", "") == "waiting":
+        if args.status not in ("done", "dismissed"):
+            print(json.dumps({"detail": "a waiting task can only be marked done or dismissed"}))
+            return 8
+        if not ss.resolve_waiting_task(args.sop_dir, task["id"], args.status):
+            print(json.dumps({"detail": "task is no longer waiting (picked up or resolved?)"}))
+            return 9
+    else:
+        if not ss.resolve_in_flight_task(args.sop_dir, task["id"], args.status):
+            print(json.dumps({"detail": "task is not in flight (already resolved?)"}))
+            return 9
+        lib.clear_session(args.sop_dir, task["id"])  # the task left in_flight: its liveness marker is moot
     print(json.dumps({"status": args.status, "task_id": task["id"]}))
     return 0
 
@@ -236,6 +246,7 @@ def main(argv=None):
     ts.add_argument("sop_dir")
     ts.add_argument("--task-id", dest="task_id", default="")
     ts.add_argument("--status", default="")
+    ts.add_argument("--from", dest="from_status", default="")  # 'waiting' = the plate's quiet resolve; else in-flight recovery
     ts.set_defaults(func=_task_status)
 
     q = sub.add_parser("queue", help="enqueue a run for later")

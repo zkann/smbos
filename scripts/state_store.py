@@ -548,6 +548,25 @@ def resolve_in_flight_task(sop_dir, task_id, status):
         return cur.rowcount == 1
 
 
+def resolve_waiting_task(sop_dir, task_id, status):
+    """Move a task OUT of 'waiting' to `status` (done/dismissed) atomically and ONLY if it's currently
+    waiting -- the owner clearing a plate task they handled out-of-band, WITHOUT picking it up. Returns
+    True iff this call made the transition; False if it wasn't waiting (already picked up or resolved).
+    The conditional UPDATE is the gate (mirror of claim_task / resolve_in_flight_task): it closes the
+    read-check-act window so a Done click racing a Pick up can't double-resolve. Raises StateStoreError
+    on a bad status or a non-integer id."""
+    if status not in TASK_STATUSES:
+        raise StateStoreError(f"invalid task status {status!r}; expected one of {sorted(TASK_STATUSES)}")
+    task_id = _coerce_task_id(task_id)
+    with connect(sop_dir) as conn:
+        cur = conn.execute(
+            "UPDATE task SET status=?, updated_at=? WHERE id=? AND status='waiting'",
+            (status, _now(), task_id),
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
 def assert_in_flight(sop_dir, task_id):
     """Atomic in_flight gate with NO side effect: True iff the task is currently in_flight. A
     no-value-change UPDATE (SQLite still reports the matched rowcount), so a caller can gate a

@@ -487,6 +487,20 @@ def test_touch_in_flight_task_gates_on_in_flight_and_bumps_updated_at(tmp_path):
         ss.touch_in_flight_task(tmp_path, "not-an-int")
 
 
+def test_resolve_waiting_task_gates_on_waiting(tmp_path):
+    tid = ss.record_task(tmp_path, "ops", "x", "handled out-of-band")  # waiting
+    assert ss.resolve_waiting_task(tmp_path, tid, "done") is True        # waiting -> done, this call won
+    assert ss.get_task(tmp_path, tid)["status"] == "done"
+    assert ss.resolve_waiting_task(tmp_path, tid, "dismissed") is False  # no longer waiting: no transition
+    assert ss.get_task(tmp_path, tid)["status"] == "done"               # unchanged
+    flight = ss.record_task(tmp_path, "ops", "x", "busy", status="in_flight")
+    assert ss.resolve_waiting_task(tmp_path, flight, "done") is False    # gated: only from waiting, not in_flight
+    assert ss.get_task(tmp_path, flight)["status"] == "in_flight"
+    assert ss.resolve_waiting_task(tmp_path, 999999, "done") is False    # no such row
+    with pytest.raises(ss.StateStoreError):
+        ss.resolve_waiting_task(tmp_path, tid, "bogus")                  # bad status
+
+
 def test_assert_in_flight_gates_without_side_effect(tmp_path):
     tid = ss.record_task(tmp_path, "ops", "x", "gate me", status="in_flight")
     before = ss.get_task(tmp_path, tid)["updated_at"]

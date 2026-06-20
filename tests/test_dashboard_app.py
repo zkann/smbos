@@ -167,6 +167,25 @@ def test_task_status_recovers_an_in_flight_task(tmp_path):
     assert ss.get_task(tmp_path, tid)["status"] == "waiting"
 
 
+def test_task_status_resolves_a_waiting_task_without_pickup(tmp_path):
+    # the dogfooding gap: the plate's quiet resolve sends from='waiting' to clear a WAITING task the
+    # owner handled out-of-band, straight to done, WITHOUT picking it up (no session).
+    tid = ss.record_task(tmp_path, "inbox", "action", "did it elsewhere")  # waiting
+    app = dashboard_app.create_app(tmp_path)
+    hdr = {"X-SMBOS-Token": lib.dashboard_token(tmp_path)}
+    with TestClient(app, base_url="http://localhost") as client:
+        # WITHOUT from='waiting' it's the in-flight recovery path -> a waiting task isn't in flight (409)
+        assert client.post("/api/task-status", json={"task_id": tid, "status": "done"}, headers=hdr).status_code == 409
+        # from='waiting' but a non-resolution target -> 400 (a waiting task can only be done/dismissed)
+        assert client.post("/api/task-status", json={"task_id": tid, "status": "waiting", "from": "waiting"},
+                           headers=hdr).status_code == 400
+        # from='waiting' + done: cleared straight to done, no pickup
+        ok = client.post("/api/task-status", json={"task_id": tid, "status": "done", "from": "waiting"}, headers=hdr)
+        assert ok.status_code == 200 and ok.json()["status"] == "done"
+    assert ss.get_task(tmp_path, tid)["status"] == "done"
+    assert ss.plate(tmp_path) == []   # gone from the plate, no pickup needed
+
+
 def test_task_status_clears_the_liveness_marker(tmp_path):
     # resolving an in_flight task drops its session marker, so a recovered/redone task doesn't keep
     # a stale liveness handle around

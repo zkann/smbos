@@ -608,11 +608,19 @@ def create_app(sop_dir, dist_dir=None):
             raise HTTPException(status_code=400, detail=str(exc))
         if task is None:
             raise HTTPException(status_code=404, detail="no such task")
-        # gate on still-in_flight (atomic): a stale row/tab clicking again after a recovery must not
-        # flip the now-resolved task into a different state. SSE inflight/plate frames reflect it.
-        if not ss.resolve_in_flight_task(sop_dir, task["id"], target):
-            raise HTTPException(status_code=409, detail="task is not in flight (already resolved?)")
-        lib.clear_session(sop_dir, task["id"])  # task left in_flight: its liveness marker is moot
+        # The plate's quiet resolve sends from='waiting': clear a WAITING task the owner handled
+        # out-of-band, straight to done/dismissed, WITHOUT picking it up (no session). The default path
+        # (no 'from' -- the in-flight recovery controls) is gated to in_flight, so a stale recovery click
+        # can't reflip a put-back task. Each gate is atomic; SSE inflight/plate frames reflect the change.
+        if body.get("from") == "waiting":
+            if target not in ("done", "dismissed"):
+                raise HTTPException(status_code=400, detail="a waiting task can only be marked done or dismissed")
+            if not ss.resolve_waiting_task(sop_dir, task["id"], target):
+                raise HTTPException(status_code=409, detail="task is no longer waiting (picked up or resolved?)")
+        else:
+            if not ss.resolve_in_flight_task(sop_dir, task["id"], target):
+                raise HTTPException(status_code=409, detail="task is not in flight (already resolved?)")
+            lib.clear_session(sop_dir, task["id"])  # task left in_flight: its liveness marker is moot
         return {"status": target, "task_id": task["id"]}
 
     @app.post("/api/open-session")

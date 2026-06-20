@@ -76,7 +76,7 @@ function actionRequest(pathname, sopDir, body) {
     case '/api/dequeue':
       return { argv: ['dequeue', sopDir, '--file=' + String(body.file || '')] }
     case '/api/task-status':
-      return { argv: ['task-status', sopDir, '--task-id=' + String(body.task_id || ''), '--status=' + String(body.status || '')] }
+      return { argv: ['task-status', sopDir, '--task-id=' + String(body.task_id || ''), '--status=' + String(body.status || ''), '--from=' + String(body.from || '')] }
     case '/api/settings':
       return { argv: ['settings-set', sopDir, '--key=' + String(body.key || ''), '--value=' + String(body.value ?? '')] }
     default:

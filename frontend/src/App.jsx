@@ -388,14 +388,16 @@ export default function App() {
 
   // Recover or resolve an in-flight task: put it back on the plate (waiting), mark it done, or
   // dismiss it. The escape hatch for a picked-up session that died or finished without reporting.
-  async function resolveTask(id, status) {
+  async function resolveTask(id, status, from) {
     if (id == null) return
     setTaskBusy((s) => ({ ...s, [id]: status }))
     try {
       const res = await fetch('/api/task-status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-SMBOS-Token': token },
-        body: JSON.stringify({ task_id: id, status }),
+        // `from` distinguishes the plate's quiet resolve ('waiting') from the in-flight recovery
+        // (omitted), so each goes through its own atomic gate; see dashboard_app/engine_action.
+        body: JSON.stringify(from ? { task_id: id, status, from } : { task_id: id, status }),
       })
       if (!res.ok) throw new Error(String(res.status))
       // success: the SSE inflight frame drops this task; clear local state
@@ -483,6 +485,9 @@ export default function App() {
         const hasDetails = !!why || facts.length > 0
         const rowKey = t.id ?? i        // disclosure + React key: stable id when present, index fallback for id-less rows
         const open = !!openRows[rowKey]
+        // disable the quiet resolve while its Done/Dismiss POST is pending, but re-enable on error so
+        // the user can retry (taskBusy holds 'done'/'dismissed' in flight, or 'error:<status>' on fail)
+        const resolving = !!taskBusy[t.id] && !String(taskBusy[t.id]).startsWith('error')
         return (
           <li key={rowKey}>
             {hasDetails ? (
@@ -518,6 +523,14 @@ export default function App() {
                   {pick}
                 </>
               ) : pick}
+              {/* quiet "I already handled this" resolve, pushed right + secondary to doing the task:
+                  clear a waiting plate task without picking it up (no session). Brightens on hover. */}
+              <span className="resolve">
+                <button type="button" className="rbtn tip" data-tip="Mark done (I already handled this)"
+                  onClick={() => resolveTask(t.id, 'done', 'waiting')} disabled={t.id == null || resolving}>✓</button>
+                <button type="button" className="rbtn rbtn-dismiss tip" data-tip="Dismiss (not mine, or won't do)"
+                  onClick={() => resolveTask(t.id, 'dismissed', 'waiting')} disabled={t.id == null || resolving}>✕</button>
+              </span>
             </span>
             {open && hasDetails && (
               <dl className="fact-details">
