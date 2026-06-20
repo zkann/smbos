@@ -501,6 +501,51 @@ def test_resolve_waiting_task_gates_on_waiting(tmp_path):
         ss.resolve_waiting_task(tmp_path, tid, "bogus")                  # bad status
 
 
+def _feedback(sop_dir):
+    raw = sqlite3.connect(str(ss.db_path(sop_dir)))
+    raw.row_factory = sqlite3.Row
+    try:
+        return [dict(r) for r in raw.execute("SELECT * FROM feedback ORDER BY id")]
+    finally:
+        raw.close()
+
+
+def test_record_feedback_captures_an_email_route_dismiss(tmp_path):
+    ss.record_route(tmp_path, "email", "thread1", "action", consumer="plate")
+    tid = ss.record_task(tmp_path, "inbox", "action", "spurious", source_ref="thread1")
+    assert ss.record_feedback(tmp_path, tid, "dismissed") is True
+    rows = _feedback(tmp_path)
+    assert len(rows) == 1
+    r = rows[0]
+    assert (r["source"], r["item_id"], r["signal"], r["verdict_lane"], r["task_id"]) == \
+           ("email", "thread1", "dismissed", "action", tid)
+    # idempotent: a re-dismiss / re-import records nothing new (UNIQUE source,item_id,signal)
+    assert ss.record_feedback(tmp_path, tid, "dismissed") is True
+    assert len(_feedback(tmp_path)) == 1
+
+
+def test_record_feedback_skips_non_email_route_tasks(tmp_path):
+    # the bug the eng review caught: job-pipeline + ad-hoc tasks ALSO carry a source_ref (a slug), but
+    # are NOT email-router feedback. record_feedback joins routed_item source='email', not "source_ref set".
+    job = ss.record_task(tmp_path, "job", "application", "Acme - advancing", source_ref="acme")
+    assert ss.record_feedback(tmp_path, job, "dismissed") is False
+    adhoc = ss.record_task(tmp_path, "ops", "task", "do a thing")  # no source_ref at all
+    assert ss.record_feedback(tmp_path, adhoc, "dismissed") is False
+    ss.record_route(tmp_path, "slack", "msg1", "action")  # routed, but NOT email -> not router feedback
+    slack = ss.record_task(tmp_path, "inbox", "action", "slack thing", source_ref="msg1")
+    assert ss.record_feedback(tmp_path, slack, "dismissed") is False
+    assert _feedback(tmp_path) == []
+
+
+def test_record_feedback_rejects_unknown_signal_and_missing_task(tmp_path):
+    ss.record_route(tmp_path, "email", "t", "action")
+    tid = ss.record_task(tmp_path, "inbox", "action", "x", source_ref="t")
+    with pytest.raises(ss.StateStoreError):
+        ss.record_feedback(tmp_path, tid, "bogus")
+    assert _feedback(tmp_path) == []
+    assert ss.record_feedback(tmp_path, 999999, "dismissed") is False   # no such task -> no-op
+
+
 def test_assert_in_flight_gates_without_side_effect(tmp_path):
     tid = ss.record_task(tmp_path, "ops", "x", "gate me", status="in_flight")
     before = ss.get_task(tmp_path, tid)["updated_at"]

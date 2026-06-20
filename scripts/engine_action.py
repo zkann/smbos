@@ -210,6 +210,11 @@ def _task_status(args):
             print(json.dumps({"detail": "task is not in flight (already resolved?)"}))
             return 9
         lib.clear_session(args.sop_dir, task["id"])  # the task left in_flight: its liveness marker is moot
+    if args.status == "dismissed":  # seed the router-eval corpus from a dashboard dismiss; POST-resolve,
+        try:                        # best-effort -- a feedback failure must never affect the dismiss
+            ss.record_feedback(args.sop_dir, task["id"], "dismissed")
+        except Exception as exc:    # observable, not silent: a broken feedback pipeline surfaces in logs
+            print(f"record_feedback failed for task_id={task['id']}: {exc!r}", file=sys.stderr)
     print(json.dumps({"status": args.status, "task_id": task["id"]}))
     return 0
 
