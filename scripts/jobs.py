@@ -38,11 +38,17 @@ import sys
 from contextlib import contextmanager
 from pathlib import Path
 
-import serve_dashboard as legacy   # _read_crontab / _write_crontab / resolve_sop_dir (proven crontab IO)
+import serve_dashboard as legacy   # _read_crontab / _write_crontab (proven crontab IO)
+import smbos_lib as lib            # resolve_sop_dir (the canonical resolver; argv-free)
 
 KINDS = ("job", "keychain-job")
 UNIT_TAG_PREFIX = "# smbos-unit:"
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+# our cron lines END with `# smbos-unit:<name>` (compile_cron appends it). Match the TRAILING tag, not a
+# substring, so a foreign line whose command merely MENTIONS the tag is never reaped.
+_UNIT_LINE_RE = re.compile(re.escape(UNIT_TAG_PREFIX) + r"[a-z0-9][a-z0-9-]*$")
+_CRON_SHORTCUTS = ("@reboot", "@yearly", "@annually", "@monthly", "@weekly", "@daily", "@midnight", "@hourly")
+_CLAIMS_RE = re.compile(r"^# [a-z0-9][a-z0-9._-]*$")   # a SPECIFIC tag, not a bare # or arbitrary text
 
 
 class JobSpecError(Exception):
@@ -53,29 +59,38 @@ def _plugin_jobs_d():
     return Path(__file__).resolve().parent.parent / "jobs.d"   # scripts/jobs.py -> <plugin>/jobs.d
 
 
+def _has_line_break(s):
+    """True if s holds any character that crontab round-tripping (str.splitlines) would split on
+    (\\n \\r \\v \\f and friends). Such a char would fragment one cron entry into two on the NEXT sync,
+    orphaning a line, so reject it. (A tab is fine -- splitlines does not break on it.)"""
+    parts = str(s).splitlines()
+    return len(parts) > 1 or (len(parts) == 1 and parts[0] != s)
+
+
 def _validate(spec, where):
-    """Reject anything that could corrupt the crontab: a bad name (breaks the tag/label), or a
-    newline/`#` in the schedule/command (would inject extra crontab lines or a fake tag)."""
+    """Reject anything that could corrupt the crontab: a bad name, a schedule that isn't exactly 5 cron
+    fields or one @shortcut (extra tokens would shift the spec's command), a non-string/line-broken
+    command, or a too-broad `claims` tag (would strip unrelated crontab lines)."""
     name = spec.get("name")
     if not isinstance(name, str) or not _NAME_RE.match(name):
         raise JobSpecError(f"{where}: name must match [a-z0-9-] (got {name!r})")
-    for k in ("kind", "schedule"):
-        if not spec.get(k):
-            raise JobSpecError(f"{where}: missing {k!r}")
-    if spec["kind"] not in KINDS:
-        raise JobSpecError(f"{where}: kind must be one of {KINDS}, got {spec['kind']!r}")
-    sched = str(spec["schedule"])
-    if "\n" in sched or "#" in sched:
-        raise JobSpecError(f"{where}: schedule must be a single cron field (no newline or #)")
+    if spec.get("kind") not in KINDS:
+        raise JobSpecError(f"{where}: kind must be one of {KINDS}, got {spec.get('kind')!r}")
+    sched = spec.get("schedule")
+    if not isinstance(sched, str) or _has_line_break(sched) or "#" in sched:
+        raise JobSpecError(f"{where}: schedule must be a single cron line (no line break or #)")
+    fields = sched.split()
+    if not ((len(fields) == 1 and fields[0] in _CRON_SHORTCUTS) or len(fields) == 5):
+        raise JobSpecError(f"{where}: schedule must be 5 cron fields or an @shortcut (got {sched!r})")
     if spec["kind"] == "job":
         cmd = spec.get("command")
-        if not cmd:
-            raise JobSpecError(f"{where}: a 'job' needs a command")
-        if "\n" in str(cmd):
-            raise JobSpecError(f"{where}: command must be a single line")
+        if not isinstance(cmd, str) or not cmd.strip():
+            raise JobSpecError(f"{where}: a 'job' needs a non-empty string command")
+        if _has_line_break(cmd):
+            raise JobSpecError(f"{where}: command must be a single line (no embedded line break)")
     claims = spec.get("claims")   # optional: a legacy cron tag this unit migrates (strip + replace)
-    if claims is not None and (not isinstance(claims, str) or not claims.strip().startswith("#") or "\n" in claims):
-        raise JobSpecError(f"{where}: 'claims' must be a single cron comment tag like '# smbos-foo'")
+    if claims is not None and not (isinstance(claims, str) and _CLAIMS_RE.match(claims)):
+        raise JobSpecError(f"{where}: 'claims' must be a specific tag like '# smbos-foo' (got {claims!r})")
 
 
 def load_units(sop_dir):
@@ -121,11 +136,12 @@ def reconcile(existing_lines, desired_lines, claimed_tags=()):
     (`# smbos-unit:`) AND any line ending with a tag a current unit CLAIMS (its `claims` field -- a
     hand-written predecessor it is migrating), then appends `desired`, PRESERVING every other line in
     order. ONLY claimed tags are touched, so cron lines owned by OTHER smbos installers (the digest, the
-    dashboard watchdog) are never double-managed or reaped. PURE (lists of strings)."""
+    dashboard watchdog) are never double-managed or reaped. Ownership is the TRAILING tag (end-of-line),
+    not a substring, so a foreign line that merely mentions the tag survives. PURE (lists of strings)."""
     claimed = tuple(t.rstrip() for t in claimed_tags if t)
     def _managed(line):
         s = line.rstrip()
-        return (UNIT_TAG_PREFIX in s) or any(s.endswith(c) for c in claimed)
+        return bool(_UNIT_LINE_RE.search(s)) or any(s.endswith(c) for c in claimed)
     keep = [l for l in existing_lines if not _managed(l)]
     return keep + list(desired_lines)
 
@@ -151,8 +167,10 @@ def sync(sop_dir, dry_run=False):
     claimed = [u["claims"] for u in units if u.get("claims")]   # legacy tags the units migrate
     with _crontab_lock(sop_dir):
         cur = legacy._read_crontab()
-        if cur is None:
+        if cur is None:   # crontab unavailable -> never write (the safety invariant)
             return False, "could not read the crontab; refusing to write (Full Disk Access?)"
+        # note: on macOS an FDA-denied READ returns "" (not None), so this guard doesn't fire there --
+        # but the write below then fails closed (crontab - is atomic), so the crontab stays untouched.
         new_lines = reconcile(cur.splitlines(), desired, claimed)
         text = "\n".join(new_lines) + ("\n" if new_lines else "")
         if dry_run:
@@ -163,7 +181,9 @@ def sync(sop_dir, dry_run=False):
 
 
 def _sop_dir():
-    return legacy.resolve_sop_dir() if hasattr(legacy, "resolve_sop_dir") else Path.home() / "sops"
+    # the canonical resolver ($SOP_DIR / ~/sops), NOT legacy.resolve_sop_dir -- that argv wrapper would
+    # treat our subcommand ("sync" / "list") as an explicit SOP path (a ./sync dir would win).
+    return lib.resolve_sop_dir(exit_on_missing=False) or Path.home() / "sops"
 
 
 def main(argv=None):

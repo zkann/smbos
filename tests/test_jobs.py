@@ -68,17 +68,43 @@ def test_load_units_local_overrides_public(tmp_path, monkeypatch):
 def test_validate_rejects_injection_and_bad_specs(tmp_path, monkeypatch):
     monkeypatch.setattr(jobs, "_plugin_jobs_d", lambda: tmp_path / "nope")  # no public dir
     for bad in (
-        {"name": "bad name", "kind": "job", "schedule": "@daily", "command": "x"},     # space in name
-        {"name": "svc", "kind": "service", "schedule": "@daily"},                       # services excluded
-        {"name": "inj", "kind": "job", "schedule": "@daily\n0 0 * * * evil", "command": "x"},  # newline inject
-        {"name": "nocmd", "kind": "job", "schedule": "@daily"},                         # job without command
-        {"name": "cmdnl", "kind": "job", "schedule": "@daily", "command": "x\nrm -rf /"},  # newline in command
-        {"name": "tag", "kind": "job", "schedule": "@daily # smbos-unit:x", "command": "x"},  # # in schedule
-        {"name": "ec", "kind": "job", "schedule": "@daily", "command": "x", "claims": ""},  # empty claims (would strip all)
-        {"name": "nc", "kind": "job", "schedule": "@daily", "command": "x", "claims": "no-hash"},  # claims not a tag
+        {"name": "bad name", "kind": "job", "schedule": "@daily", "command": "x"},        # space in name
+        {"name": "svc", "kind": "service", "schedule": "@daily"},                          # services excluded
+        {"name": "nlsched", "kind": "job", "schedule": "@daily\n0 0 * * * evil", "command": "x"},  # newline
+        {"name": "cr", "kind": "job", "schedule": "@daily", "command": "x\rmalicious"},     # CR fragments
+        {"name": "vt", "kind": "job", "schedule": "@daily", "command": "x\x0bevil"},        # vertical tab too
+        {"name": "nocmd", "kind": "job", "schedule": "@daily"},                            # job without command
+        {"name": "hashsched", "kind": "job", "schedule": "@daily # smbos-unit:x", "command": "x"},  # # in schedule
+        {"name": "extra", "kind": "job", "schedule": "* * * * * /tmp/evil", "command": "x"},  # 6 fields -> inject cmd
+        {"name": "few", "kind": "job", "schedule": "* * *", "command": "x"},               # too few fields
+        {"name": "bogus", "kind": "job", "schedule": "@bogus", "command": "x"},            # not a real @shortcut
+        {"name": "numcmd", "kind": "job", "schedule": "@daily", "command": 5},             # non-string command
+        {"name": "listcmd", "kind": "job", "schedule": "@daily", "command": ["x"]},        # non-string command
+        {"name": "bareclaim", "kind": "job", "schedule": "@daily", "command": "x", "claims": "#"},     # bare #
+        {"name": "wordsclaim", "kind": "job", "schedule": "@daily", "command": "x", "claims": "# a b"}, # multi-word
+        {"name": "txtclaim", "kind": "job", "schedule": "@daily", "command": "x", "claims": "nope"},   # not a tag
     ):
         d = tmp_path / "jobs.d"
         d.mkdir(exist_ok=True)
         (d / "bad.json").write_text(json.dumps(bad))
         with pytest.raises(jobs.JobSpecError):
             jobs.load_units(tmp_path)
+
+
+def test_validate_accepts_5_fields_and_shortcuts(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "_plugin_jobs_d", lambda: tmp_path / "nope")
+    _spec(tmp_path, "a", kind="job", schedule="*/5 8 * * 1-5", command="x")   # 5 fields with a step + range
+    _spec(tmp_path, "b", kind="keychain-job", schedule="@hourly")
+    assert {u["name"] for u in jobs.load_units(tmp_path)} == {"a", "b"}
+
+
+def test_reconcile_keeps_a_foreign_line_mentioning_the_tag():
+    # ownership is the TRAILING tag; a foreign line whose command merely mentions it must survive
+    existing = ['*/10 * * * * grep "# smbos-unit:" /var/log/x  # my monitor']
+    assert jobs.reconcile(existing, [], []) == existing
+
+
+def test_sop_dir_uses_canonical_resolver_not_argv(monkeypatch):
+    import smbos_lib
+    monkeypatch.setattr(smbos_lib, "resolve_sop_dir", lambda **k: "/SENTINEL")
+    assert str(jobs._sop_dir()) == "/SENTINEL"   # via lib.resolve_sop_dir (argv-free), not legacy's wrapper
