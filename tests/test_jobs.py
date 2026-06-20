@@ -1,0 +1,110 @@
+"""Tests for jobs.py (the recurring-jobs manager). Pure compile/reconcile/validate over strings +
+tmp jobs.d dirs; the real crontab is never touched (sync's IO is the only un-unit-tested seam)."""
+import json
+
+import jobs
+import pytest
+
+
+def _spec(tmp, name, **kw):
+    d = tmp / "jobs.d"
+    d.mkdir(exist_ok=True)
+    (d / (name + ".json")).write_text(json.dumps({"name": name, **kw}), encoding="utf-8")
+
+
+def test_compile_job_is_a_tagged_line():
+    units = [{"name": "broker-audit", "kind": "job", "schedule": "30 8 * * *",
+              "command": "/usr/bin/python3 /x/audit.py >/dev/null 2>&1"}]
+    assert jobs.compile_cron(units, 501) == [
+        "30 8 * * * /usr/bin/python3 /x/audit.py >/dev/null 2>&1  # smbos-unit:broker-audit"]
+
+
+def test_compile_keychain_job_kickstarts_the_agent():
+    units = [{"name": "mail-fetch", "kind": "keychain-job", "schedule": "0 * * * *"}]
+    assert jobs.compile_cron(units, 501) == [
+        "0 * * * * /bin/launchctl kickstart -k gui/501/com.smbos.mail-fetch >/dev/null 2>&1"
+        "  # smbos-unit:mail-fetch"]
+
+
+def test_compile_skips_disabled_and_escapes_percent():
+    units = [{"name": "off", "kind": "job", "schedule": "@daily", "command": "x", "enabled": False},
+             {"name": "pct", "kind": "job", "schedule": "@daily", "command": "date +%Y"}]
+    # disabled skipped; cron's % escaped so it doesn't become a newline
+    assert jobs.compile_cron(units, 501) == [r"@daily date +\%Y  # smbos-unit:pct"]
+
+
+def test_reconcile_claims_only_what_a_unit_replaces():
+    existing = [
+        "0 9 * * * /other/thing  # not ours",        # foreign -> keep
+        "0 * * * * /legacy/mail  # smbos-mail-old",   # a unit CLAIMS this tag -> strip
+        "*/5 * * * * /digest  # smbos-digest",        # smbos, but NOT claimed (owned elsewhere) -> KEEP
+        "0 8 * * * /stale  # smbos-unit:gone",        # a removed unit's own line -> strip
+    ]
+    desired = ["0 * * * * /new/mail  # smbos-unit:mail-fetch"]
+    out = jobs.reconcile(existing, desired, claimed_tags=["# smbos-mail-old"])
+    # claimed legacy + own-unit lines stripped; the foreign AND the non-claimed smbos-digest line kept
+    assert out == [
+        "0 9 * * * /other/thing  # not ours",
+        "*/5 * * * * /digest  # smbos-digest",
+        "0 * * * * /new/mail  # smbos-unit:mail-fetch",
+    ]
+
+
+def test_reconcile_empty_crontab_just_adds():
+    assert jobs.reconcile([], ["@daily x  # smbos-unit:a"]) == ["@daily x  # smbos-unit:a"]
+
+
+def test_load_units_local_overrides_public(tmp_path, monkeypatch):
+    pub = tmp_path / "pub" / "jobs.d"
+    pub.mkdir(parents=True)
+    monkeypatch.setattr(jobs, "_plugin_jobs_d", lambda: pub)
+    (pub / "a.json").write_text(json.dumps({"name": "a", "kind": "job", "schedule": "@daily", "command": "PUBLIC"}))
+    _spec(tmp_path, "a", kind="job", schedule="@daily", command="LOCAL")   # local override of public 'a'
+    _spec(tmp_path, "b", kind="keychain-job", schedule="0 * * * *")
+    by = {u["name"]: u for u in jobs.load_units(tmp_path)}
+    assert by["a"]["command"] == "LOCAL" and by["b"]["kind"] == "keychain-job"
+
+
+def test_validate_rejects_injection_and_bad_specs(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "_plugin_jobs_d", lambda: tmp_path / "nope")  # no public dir
+    for bad in (
+        {"name": "bad name", "kind": "job", "schedule": "@daily", "command": "x"},        # space in name
+        {"name": "svc", "kind": "service", "schedule": "@daily"},                          # services excluded
+        {"name": "nlsched", "kind": "job", "schedule": "@daily\n0 0 * * * evil", "command": "x"},  # newline
+        {"name": "cr", "kind": "job", "schedule": "@daily", "command": "x\rmalicious"},     # CR fragments
+        {"name": "vt", "kind": "job", "schedule": "@daily", "command": "x\x0bevil"},        # vertical tab too
+        {"name": "nocmd", "kind": "job", "schedule": "@daily"},                            # job without command
+        {"name": "hashsched", "kind": "job", "schedule": "@daily # smbos-unit:x", "command": "x"},  # # in schedule
+        {"name": "extra", "kind": "job", "schedule": "* * * * * /tmp/evil", "command": "x"},  # 6 fields -> inject cmd
+        {"name": "few", "kind": "job", "schedule": "* * *", "command": "x"},               # too few fields
+        {"name": "bogus", "kind": "job", "schedule": "@bogus", "command": "x"},            # not a real @shortcut
+        {"name": "numcmd", "kind": "job", "schedule": "@daily", "command": 5},             # non-string command
+        {"name": "listcmd", "kind": "job", "schedule": "@daily", "command": ["x"]},        # non-string command
+        {"name": "bareclaim", "kind": "job", "schedule": "@daily", "command": "x", "claims": "#"},     # bare #
+        {"name": "wordsclaim", "kind": "job", "schedule": "@daily", "command": "x", "claims": "# a b"}, # multi-word
+        {"name": "txtclaim", "kind": "job", "schedule": "@daily", "command": "x", "claims": "nope"},   # not a tag
+    ):
+        d = tmp_path / "jobs.d"
+        d.mkdir(exist_ok=True)
+        (d / "bad.json").write_text(json.dumps(bad))
+        with pytest.raises(jobs.JobSpecError):
+            jobs.load_units(tmp_path)
+
+
+def test_validate_accepts_5_fields_and_shortcuts(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "_plugin_jobs_d", lambda: tmp_path / "nope")
+    _spec(tmp_path, "a", kind="job", schedule="*/5 8 * * 1-5", command="x")   # 5 fields with a step + range
+    _spec(tmp_path, "b", kind="keychain-job", schedule="@hourly")
+    assert {u["name"] for u in jobs.load_units(tmp_path)} == {"a", "b"}
+
+
+def test_reconcile_keeps_a_foreign_line_mentioning_the_tag():
+    # ownership is the TRAILING tag; a foreign line whose command merely mentions it must survive
+    existing = ['*/10 * * * * grep "# smbos-unit:" /var/log/x  # my monitor']
+    assert jobs.reconcile(existing, [], []) == existing
+
+
+def test_sop_dir_uses_canonical_resolver_not_argv(monkeypatch):
+    import smbos_lib
+    monkeypatch.setattr(smbos_lib, "resolve_sop_dir", lambda **k: "/SENTINEL")
+    assert str(jobs._sop_dir()) == "/SENTINEL"   # via lib.resolve_sop_dir (argv-free), not legacy's wrapper
