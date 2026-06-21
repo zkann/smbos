@@ -1,6 +1,7 @@
 """Tests for jobs.py (the recurring-jobs manager). Pure compile/reconcile/validate over strings +
 tmp jobs.d dirs; the real crontab is never touched (sync's IO is the only un-unit-tested seam)."""
 import json
+import os
 
 import jobs
 import pytest
@@ -108,3 +109,37 @@ def test_sop_dir_uses_canonical_resolver_not_argv(monkeypatch):
     import smbos_lib
     monkeypatch.setattr(smbos_lib, "resolve_sop_dir", lambda **k: "/SENTINEL")
     assert str(jobs._sop_dir()) == "/SENTINEL"   # via lib.resolve_sop_dir (argv-free), not legacy's wrapper
+
+
+def test_sync_status_detects_drift(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "_plugin_jobs_d", lambda: tmp_path / "nope")   # local specs only
+    _spec(tmp_path, "a", kind="job", schedule="30 8 * * *", command="run-a")
+    _spec(tmp_path, "b", kind="job", schedule="0 9 * * *", command="run-b")
+    synced = jobs.compile_cron(jobs.load_units(tmp_path), os.getuid())       # what a clean sync would write
+
+    monkeypatch.setattr(jobs.legacy, "_read_crontab", lambda: "# foreign\n" + "\n".join(synced) + "\n")
+    assert jobs.sync_status(tmp_path) == {"a": True, "b": True}              # both live -> synced
+
+    monkeypatch.setattr(jobs.legacy, "_read_crontab", lambda: synced[0] + "\n")
+    assert jobs.sync_status(tmp_path) == {"a": True, "b": False}             # b missing -> pending
+
+    stale_a = synced[0].replace("30 8", "45 7")                             # a's live line is the OLD schedule
+    monkeypatch.setattr(jobs.legacy, "_read_crontab", lambda: stale_a + "\n" + synced[1] + "\n")
+    assert jobs.sync_status(tmp_path) == {"a": False, "b": True}             # a edited but not synced -> pending
+
+    # an empty/unreadable crontab -> UNKNOWN for every unit, never a false "all pending" (the FDA-less
+    # broker gets "" from `crontab -l`; treating that as all-pending would cry wolf on every healthy frame)
+    monkeypatch.setattr(jobs.legacy, "_read_crontab", lambda: "")
+    assert jobs.sync_status(tmp_path) == {"a": None, "b": None}
+
+
+def test_sync_status_disabled_and_unreadable(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "_plugin_jobs_d", lambda: tmp_path / "nope")
+    _spec(tmp_path, "a", kind="job", schedule="30 8 * * *", command="run-a", enabled=False)
+    line = "30 8 * * * run-a  # smbos-unit:a"
+    monkeypatch.setattr(jobs.legacy, "_read_crontab", lambda: line + "\n")
+    assert jobs.sync_status(tmp_path) == {"a": False}                        # disabled but still in cron -> pending removal
+    monkeypatch.setattr(jobs.legacy, "_read_crontab", lambda: "# unrelated\n")  # non-empty, no line for a
+    assert jobs.sync_status(tmp_path) == {"a": True}                         # disabled + correctly absent -> synced
+    monkeypatch.setattr(jobs.legacy, "_read_crontab", lambda: None)
+    assert jobs.sync_status(tmp_path) == {"a": None}                         # crontab unavailable -> unknown

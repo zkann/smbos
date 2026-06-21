@@ -57,6 +57,7 @@ def test_job_health_ok_stale_unknown(tmp_path):
 
 def test_system_status_overall_is_worst_job(tmp_path, monkeypatch):
     monkeypatch.setattr(jobs, "_plugin_jobs_d", lambda: tmp_path / "nope")   # only the local specs
+    monkeypatch.setattr(jobs, "sync_status", lambda d: {})                   # hermetic: don't read the real crontab
     now = datetime(2026, 6, 20, 12, 0, tzinfo=timezone.utc)
     fresh = tmp_path / "fresh"
     fresh.write_text("x")
@@ -71,12 +72,33 @@ def test_system_status_overall_is_worst_job(tmp_path, monkeypatch):
 
 def test_system_status_pipeline_counts(tmp_path, monkeypatch):
     monkeypatch.setattr(jobs, "_plugin_jobs_d", lambda: tmp_path / "nope")
+    monkeypatch.setattr(jobs, "sync_status", lambda d: {})
     ss.record_task(tmp_path, "inbox", "reply", "a", source_ref="t1")        # inits the store; 1 waiting
     ss.record_route(tmp_path, "email", "x1", "job")                         # 1 job route
     out = st.system_status(tmp_path, now=datetime(2026, 6, 20, tzinfo=timezone.utc))
     assert out["pipeline"]["waiting_tasks"] == 1
     assert out["pipeline"]["routes"].get("job.routed") == 1
     assert out["pipeline"]["eval_feedback"] == 0
+
+
+def test_system_status_surfaces_sync_state(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "_plugin_jobs_d", lambda: tmp_path / "nope")
+    _spec(tmp_path, "a-applied")
+    _spec(tmp_path, "b-pending")
+    monkeypatch.setattr(jobs, "sync_status", lambda d: {"a-applied": True, "b-pending": False})
+    out = st.system_status(tmp_path, now=datetime(2026, 6, 20, tzinfo=timezone.utc))
+    assert {j["name"]: j["synced"] for j in out["jobs"]} == {"a-applied": True, "b-pending": False}
+    assert out["pending_sync"] == 1                          # one shown job isn't live in cron yet
+
+
+def test_pending_sync_counts_disabled_drift(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "_plugin_jobs_d", lambda: tmp_path / "nope")
+    _spec(tmp_path, "shown")                                 # enabled + synced
+    # sync_status reports a DISABLED unit still in cron (not among the shown enabled rows) as pending
+    monkeypatch.setattr(jobs, "sync_status", lambda d: {"shown": True, "off-but-in-cron": False})
+    out = st.system_status(tmp_path, now=datetime(2026, 6, 20, tzinfo=timezone.utc))
+    assert [j["name"] for j in out["jobs"]] == ["shown"]     # the disabled unit isn't shown
+    assert out["pending_sync"] == 1                          # but its drift is counted -> the banner still fires
 
 
 def test_describe_cron():

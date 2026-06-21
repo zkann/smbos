@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.42.0 (2026-06-21)
+
+- The System view now tells you when a job's schedule has changed but the change isn't live yet. If a job's spec no longer matches what's actually scheduled, the panel shows a "not yet applied" note with the one command to run, and the out-of-date schedule turns amber. Before this, a spec edit looked live even though the schedule had not been re-applied.
+
 ## 0.41.0 (2026-06-21)
 
 - The System view now shows what each job is for. A one-line purpose appears under each job's name (declared in the job's spec), so the panel explains itself instead of just listing names, schedules, and times.

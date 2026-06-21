@@ -84,6 +84,9 @@ html.smbos-panel.opaque main {
 .system-job-desc { grid-column: 2 / -1; min-width: 0; overflow-wrap: anywhere; color: var(--subtle-fg); font-size: 11px; line-height: 1.35; }   /* what the job is for, indented under the name */
 .system-flow { color: var(--muted-fg); font-size: 12px; padding-top: 5px; border-top: 1px solid var(--border); }
 .system.empty { color: var(--subtle-fg); font-size: 12px; }
+.sync-banner { color: var(--amber); font-size: 11px; padding-bottom: 7px; margin-bottom: 1px; border-bottom: 1px solid var(--border); }   /* a spec changed but cron hasn't been re-synced */
+.sync-banner code { font: 11px/1 ui-monospace, monospace; color: var(--foreground); background: var(--chip-bg); padding: 1px 5px; border-radius: 4px; }
+.system-job-sched.pending { color: var(--amber); }   /* this job's schedule isn't live in cron yet */
 main { max-width: 1180px; margin: 0 auto; padding: 32px; }
 header { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
 .logo { flex: none; display: block; }

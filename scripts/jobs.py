@@ -180,6 +180,24 @@ def sync(sop_dir, dry_run=False):
         return False, "crontab write failed (Full Disk Access?)"
 
 
+def sync_status(sop_dir):
+    """Per-unit drift: is each spec's compiled cron line already live in the crontab? Returns
+    {name: True|False|None} -- True = applied, False = a `jobs sync` is pending (the spec changed or was
+    added, or a disabled unit still has a line), None = the crontab couldn't be read. READ-ONLY (never
+    writes), so the FDA-less broker can call it; lets the dashboard show 'needs sync' instead of
+    pretending a spec edit is already live."""
+    units = load_units(sop_dir)
+    cur = legacy._read_crontab()
+    if not cur:                                      # None OR "" -- an FDA-denied read returns "" (not None) on
+        return {u["name"]: None for u in units}      # macOS, and the broker is FDA-less; "" -> unknown, never a
+                                                     # false "all pending" (a genuinely empty crontab reads unknown too, fine)
+    def _name(line):                                 # the trailing `# smbos-unit:<name>` tag
+        return line.rsplit(UNIT_TAG_PREFIX, 1)[1].strip()
+    desired = {_name(l): l.rstrip() for l in compile_cron(units, os.getuid())}   # enabled units only
+    live = {_name(s): s for s in (ln.rstrip() for ln in cur.splitlines()) if _UNIT_LINE_RE.search(s)}
+    return {u["name"]: desired.get(u["name"]) == live.get(u["name"]) for u in units}
+
+
 def _sop_dir():
     # the canonical resolver ($SOP_DIR / ~/sops), NOT legacy.resolve_sop_dir -- that argv wrapper would
     # treat our subcommand ("sync" / "list") as an explicit SOP path (a ./sync dir would win).

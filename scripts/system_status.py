@@ -143,9 +143,13 @@ def system_status(sop_dir, now=None):
     now = now or datetime.now(timezone.utc)
     now_ts = now.timestamp()
     units = [u for u in jobs.load_units(sop_dir) if u.get("enabled", True)]
-    job_rows = sorted((job_health(u, now_ts) for u in units), key=lambda j: j["name"] or "")
+    sync = jobs.sync_status(sop_dir)                      # {name: True|False|None}; read-only crontab drift
+    job_rows = sorted((dict(job_health(u, now_ts), synced=sync.get(u["name"])) for u in units),
+                      key=lambda j: j["name"] or "")
     worst = max((j["health"] for j in job_rows), key=lambda h: _RANK.get(h, 1), default="ok")
-    return {"checked_at": now.isoformat(), "health": worst, "jobs": job_rows, "pipeline": _pipeline(sop_dir)}
+    pending = sum(1 for v in sync.values() if v is False)   # ALL drift, incl. a disabled unit still in cron (not shown, but still needs a sync to remove it)
+    return {"checked_at": now.isoformat(), "health": worst, "jobs": job_rows,
+            "pending_sync": pending, "pipeline": _pipeline(sop_dir)}
 
 
 def main(argv=None):
