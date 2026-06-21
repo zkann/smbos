@@ -10,6 +10,7 @@ Spec format:
 ```json
 {
   "name": "my-job",
+  "description": "what this job does, in plain words",
   "kind": "job",
   "schedule": "30 8 * * *",
   "command": "/usr/bin/python3 /abs/path/script.py >/dev/null 2>&1",
@@ -27,6 +28,8 @@ Spec format:
 - **command**: `job` only; a self-contained shell command (cron's environment is minimal, so bake in
   absolute paths and any needed `SMBOS_*` vars).
 - **enabled**: optional, default `true`.
+- **description**: optional; a one-line plain-English purpose. The dashboard's **System view** shows it
+  under the job name, so the panel says what each job is for instead of just listing names.
 - **liveness_file**: optional; a path or glob the job writes (or touches) on a successful run. The
   newest matching file's mtime is the job's last-run, which the dashboard's **System view** reads to show
   each job's health (green when fresh, amber when stale). Omit it and the job shows as health "unknown".
