@@ -142,12 +142,14 @@ def system_status(sop_dir, now=None):
     """The whole picture: overall health (worst job), per-job last-run/health, pipeline counts."""
     now = now or datetime.now(timezone.utc)
     now_ts = now.timestamp()
-    units = [u for u in jobs.load_units(sop_dir) if u.get("enabled", True)]
+    units = jobs.load_units(sop_dir)                     # ALL units incl. disabled (so they can be re-enabled or deleted)
     sync = jobs.sync_status(sop_dir)                      # {name: True|False|None}; read-only crontab drift
-    job_rows = sorted((dict(job_health(u, now_ts), synced=sync.get(u["name"])) for u in units),
+    job_rows = sorted((dict(job_health(u, now_ts), synced=sync.get(u["name"]),
+                            enabled=u.get("enabled", True)) for u in units),
                       key=lambda j: j["name"] or "")
-    worst = max((j["health"] for j in job_rows), key=lambda h: _RANK.get(h, 1), default="ok")
-    pending = sum(1 for v in sync.values() if v is False)   # ALL drift, incl. a disabled unit still in cron (not shown, but still needs a sync to remove it)
+    worst = max((j["health"] for j in job_rows if j["enabled"]),   # a disabled job is off, not unhealthy
+                key=lambda h: _RANK.get(h, 1), default="ok")
+    pending = sum(1 for v in sync.values() if v is False)   # ALL drift, incl. a disabled unit still in cron
     return {"checked_at": now.isoformat(), "health": worst, "jobs": job_rows,
             "pending_sync": pending, "pipeline": _pipeline(sop_dir)}
 

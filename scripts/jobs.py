@@ -252,6 +252,58 @@ def set_job_fields(sop_dir, name, fields):
     return spec
 
 
+CREATE_FIELDS = ("name", "kind", "schedule", "command", "description", "enabled")
+
+
+def create_job(sop_dir, fields):
+    """Create a new LOCAL job spec from {name, kind, schedule, command?, description?, enabled?}, validated
+    and written to <sop_dir>/jobs.d/<name>.json. Raises JobSpecError on a bad/duplicate name or an invalid
+    spec. Goes live on the next `jobs sync`."""
+    name = fields.get("name")
+    if not (isinstance(name, str) and _NAME_RE.match(name)):
+        raise JobSpecError("name must be lowercase letters, numbers, or hyphens")
+    extra = sorted(k for k in fields if k not in CREATE_FIELDS)
+    if extra:
+        raise JobSpecError("unknown field: {}".format(", ".join(extra)))
+    if any(u["name"] == name for u in load_units(sop_dir)):       # name taken (local OR a shipped plugin job)
+        raise JobSpecError("a job named {!r} already exists".format(name))
+    desc = fields.get("description")
+    if desc is not None and not isinstance(desc, str):
+        raise JobSpecError("description must be text")
+    spec = {"name": name, "kind": fields.get("kind"), "schedule": fields.get("schedule"),
+            "enabled": bool(fields.get("enabled", True))}
+    if fields.get("command") is not None:
+        spec["command"] = fields["command"]
+    if desc is not None:
+        spec["description"] = desc
+    _validate(spec, "new job")                                   # kind, 5-field schedule, command (for a job)
+    if not _schedule_in_range(spec["schedule"]):
+        raise JobSpecError("schedule has an out-of-range field")
+    d = Path(sop_dir) / "jobs.d"
+    path = d / (name + ".json")
+    with _crontab_lock(sop_dir):
+        if path.exists():                                        # a concurrent create won the race
+            raise JobSpecError("a job named {!r} already exists".format(name))
+        d.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(spec, indent=2) + "\n", encoding="utf-8")
+        tmp.replace(path)
+    return spec
+
+
+def delete_job(sop_dir, name):
+    """Remove a LOCAL job spec (<sop_dir>/jobs.d/<name>.json). Raises JobSpecError on a bad name or if there
+    is no local spec by that name. Its cron line is removed on the next `jobs sync`."""
+    if not (isinstance(name, str) and _NAME_RE.match(name)):
+        raise JobSpecError("invalid job name")
+    path = Path(sop_dir) / "jobs.d" / (name + ".json")
+    if not path.is_file():
+        raise JobSpecError("no local job named {!r}".format(name))
+    with _crontab_lock(sop_dir):
+        path.unlink()
+    return {"name": name}
+
+
 def _sop_dir():
     # the canonical resolver ($SOP_DIR / ~/sops), NOT legacy.resolve_sop_dir -- that argv wrapper would
     # treat our subcommand ("sync" / "list") as an explicit SOP path (a ./sync dir would win).

@@ -183,3 +183,39 @@ def test_schedule_in_range():
         assert jobs._schedule_in_range(s), s
     for s in ("30 25 * * *", "0 9 99 * *", "0 9 * * 9", "*/0 * * * *", "boom", "1 2 3 4"):
         assert not jobs._schedule_in_range(s), s
+
+
+def test_create_job_writes_a_valid_spec(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "_plugin_jobs_d", lambda: tmp_path / "nope")
+    spec = jobs.create_job(tmp_path, {"name": "newjob", "kind": "job", "schedule": "30 8 * * *",
+                                      "command": "run-it", "description": "a thing"})
+    assert spec["name"] == "newjob" and spec["enabled"] is True
+    on_disk = json.loads((tmp_path / "jobs.d" / "newjob.json").read_text())
+    assert on_disk["command"] == "run-it" and on_disk["schedule"] == "30 8 * * *"
+    kj = jobs.create_job(tmp_path, {"name": "kjob", "kind": "keychain-job", "schedule": "@hourly"})
+    assert kj["kind"] == "keychain-job"          # a keychain-job needs no command
+
+
+def test_create_job_rejects_bad_input(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "_plugin_jobs_d", lambda: tmp_path / "nope")
+    _spec(tmp_path, "taken", kind="job", schedule="0 9 * * *", command="x")
+    for fields in ({"name": "taken", "kind": "job", "schedule": "0 9 * * *", "command": "x"},      # duplicate
+                   {"name": "../evil", "kind": "job", "schedule": "0 9 * * *", "command": "x"},     # bad name
+                   {"name": "nocmd", "kind": "job", "schedule": "0 9 * * *"},                       # job needs a command
+                   {"name": "badsched", "kind": "job", "schedule": "0 25 * * *", "command": "x"},   # out of range
+                   {"name": "badkind", "kind": "weird", "schedule": "0 9 * * *", "command": "x"},   # bad kind
+                   {"name": "sneaky", "kind": "job", "schedule": "0 9 * * *", "command": "x", "claims": "# y"}):  # unknown field
+        with pytest.raises(jobs.JobSpecError):
+            jobs.create_job(tmp_path, fields)
+    assert not (tmp_path / "jobs.d" / "badsched.json").exists()   # a rejected create writes nothing
+
+
+def test_delete_job(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "_plugin_jobs_d", lambda: tmp_path / "nope")
+    _spec(tmp_path, "doomed", kind="job", schedule="0 9 * * *", command="x")
+    jobs.delete_job(tmp_path, "doomed")
+    assert not (tmp_path / "jobs.d" / "doomed.json").exists()
+    with pytest.raises(jobs.JobSpecError):
+        jobs.delete_job(tmp_path, "doomed")          # already gone
+    with pytest.raises(jobs.JobSpecError):
+        jobs.delete_job(tmp_path, "../evil")         # bad name (no traversal)

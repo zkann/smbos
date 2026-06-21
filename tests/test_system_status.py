@@ -134,3 +134,14 @@ def test_job_dict_carries_schedule_human_and_description(tmp_path):
     # (React renders j.description as a child and throws on an object) -> render safety
     assert st.job_health({"name": "j", "kind": "job", "description": {"oops": 1}}, 0)["description"] is None
     assert st.job_health({"name": "j", "kind": "job", "description": ["a", "b"]}, 0)["description"] is None
+
+
+def test_system_status_shows_disabled_jobs(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "_plugin_jobs_d", lambda: tmp_path / "nope")
+    monkeypatch.setattr(jobs, "sync_status", lambda d: {})
+    _spec(tmp_path, "on", liveness_file=str(tmp_path / "missing"), max_age_minutes=90)   # enabled, will be stale
+    _spec(tmp_path, "off", enabled=False)                                                # disabled
+    out = st.system_status(tmp_path, now=datetime(2026, 6, 20, 12, 0, tzinfo=timezone.utc))
+    by = {j["name"]: j for j in out["jobs"]}
+    assert by["off"]["enabled"] is False and by["on"]["enabled"] is True   # disabled job is shown, with the flag
+    assert out["health"] == "stale"   # the enabled stale job drives overall health; the disabled one does not
