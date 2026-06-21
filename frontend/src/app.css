@@ -119,6 +119,11 @@ select.modal-input { cursor: pointer; }
 .system-job.disabled { opacity: 0.5; }
 .job-new-btn { margin: 4px 0 2px; background: none; border: 1px dashed var(--border-strong); color: var(--muted-fg); border-radius: 7px; padding: 5px 0; font-size: 12px; cursor: pointer; width: 100%; }
 .job-new-btn:hover { color: var(--foreground); border-color: var(--subtle-fg); }
+.modal-textarea { resize: vertical; min-height: 66px; line-height: 1.4; font-family: inherit; }
+.btn-link { background: none; border: none; color: var(--muted-fg); font-size: 12px; cursor: pointer; padding: 6px 2px; text-decoration: underline; text-underline-offset: 2px; }
+.btn-link:hover { color: var(--foreground); }
+.btn-link:disabled { opacity: 0.5; cursor: default; }
+.modal-switch { display: block; margin: 10px auto 0; }   /* the create-mode toggle as a centered footer link */
 main { max-width: 1180px; margin: 0 auto; padding: 32px; }
 header { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
 .logo { flex: none; display: block; }

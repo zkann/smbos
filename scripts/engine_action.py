@@ -230,6 +230,9 @@ def _job_set(args):
     except ValueError:
         print(json.dumps({"detail": "bad request body"}))
         return 8
+    if not isinstance(body, dict):                       # a JSON array/scalar would crash .get/.in below
+        print(json.dumps({"detail": "bad request body"}))
+        return 8
     fields = {k: body[k] for k in jobs.EDITABLE_FIELDS if k in body}
     try:
         jobs.set_job_fields(args.sop_dir, body.get("name"), fields)
@@ -250,6 +253,9 @@ def _job_create(args):
     try:
         body = json.loads(raw) if raw.strip() else {}
     except ValueError:
+        print(json.dumps({"detail": "bad request body"}))
+        return 8
+    if not isinstance(body, dict):                       # a JSON array/scalar would crash .get/.in below
         print(json.dumps({"detail": "bad request body"}))
         return 8
     fields = {k: body[k] for k in jobs.CREATE_FIELDS if k in body}
@@ -276,6 +282,31 @@ def _job_delete(args):
         print(json.dumps({"detail": "could not delete the job"}))
         return 1
     print(json.dumps({"ok": True, "system": system_status.system_status(args.sop_dir)}))
+    return 0
+
+
+def _job_build(args):
+    """Hand a plain-language job intent to a primed interactive Claude session (it designs + creates the
+    job). Not a write itself -- it opens a session; the spec appears when that session authors it."""
+    raw = sys.stdin.read()
+    try:
+        body = json.loads(raw) if raw.strip() else {}
+    except ValueError:
+        print(json.dumps({"detail": "bad request body"}))
+        return 8
+    if not isinstance(body, dict):                       # a JSON array/scalar would crash .get/.in below
+        print(json.dumps({"detail": "bad request body"}))
+        return 8
+    intent = (body.get("intent") or "").strip()
+    if not intent:
+        print(json.dumps({"detail": "describe what the job should do"}))
+        return 8
+    try:
+        launch_actions.build_job(args.sop_dir, intent)
+    except Exception:                                    # an osascript / terminal launch failure
+        print(json.dumps({"detail": "could not open a session"}))
+        return 1
+    print(json.dumps({"ok": True}))
     return 0
 
 
@@ -372,6 +403,10 @@ def main(argv=None):
     jd.add_argument("sop_dir")
     jd.add_argument("--name", default="")
     jd.set_defaults(func=_job_delete)
+
+    jb = sub.add_parser("job-build", help="hand a plain-language job intent to a primed Claude session; intent on stdin")
+    jb.add_argument("sop_dir")
+    jb.set_defaults(func=_job_build)
 
     args = ap.parse_args(argv)
     try:
