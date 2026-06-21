@@ -44,6 +44,52 @@ def _newest_mtime(pattern):
     return max(times) if times else None
 
 
+_DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+_CRON_SHORTCUTS = {
+    "@hourly": "every hour", "@daily": "every day at midnight", "@midnight": "every day at midnight",
+    "@weekly": "every Sunday at midnight", "@monthly": "the 1st of each month at midnight",
+    "@yearly": "every Jan 1 at midnight", "@annually": "every Jan 1 at midnight", "@reboot": "at startup",
+}
+
+
+def _fmt_clock(hh, mm):
+    """24h -> a 12h clock string: (8, 30) -> '8:30 AM', (0, 0) -> '12:00 AM', (14, 0) -> '2:00 PM'."""
+    return "{}:{:02d} {}".format(hh % 12 or 12, mm, "AM" if hh < 12 else "PM")
+
+
+def _in_range(field, hi):
+    """True iff `field` is a plain integer in [0, hi]. An out-of-range value (hour 25, minute 99,
+    dow 9) must fall back to the raw expression, not a wrong gloss like '1:30 PM' or '8:99 AM'."""
+    return field.isdigit() and 0 <= int(field) <= hi
+
+
+def describe_cron(expr):
+    """Plain-English gloss of a cron schedule for a hover tooltip: '30 8 * * *' -> 'every day at 8:30 AM'.
+    Covers the common shapes (named shortcuts, every-minute/hour, daily/weekly at a fixed time); anything
+    with a list, range, or step falls back to the raw expression, so the tooltip is never wrong, just
+    terse."""
+    s = (expr or "").strip()
+    if not s:
+        return ""
+    if s in _CRON_SHORTCUTS:
+        return _CRON_SHORTCUTS[s]
+    f = s.split()
+    if len(f) != 5 or any(c in s for c in ",-/"):    # not a plain 5-field cron, or a list/range/step
+        return s
+    minute, hour, dom, mon, dow = f
+    if minute == "*" and hour == "*":
+        return "every minute"
+    if hour == "*" and _in_range(minute, 59):
+        return "every hour" if int(minute) == 0 else "every hour at :{:02d}".format(int(minute))
+    if _in_range(minute, 59) and _in_range(hour, 23):
+        clock = _fmt_clock(int(hour), int(minute))
+        if dom == "*" and mon == "*" and dow == "*":
+            return "every day at {}".format(clock)
+        if dom == "*" and mon == "*" and _in_range(dow, 7):
+            return "every {} at {}".format(_DOW[int(dow) % 7], clock)
+    return s
+
+
 def job_health(unit, now_ts):
     """A registered job's last-run + health from its declared `liveness_file`. health is
     ok | stale | unknown (no liveness_file declared) -- never crashes on a missing file."""
@@ -64,6 +110,7 @@ def job_health(unit, now_ts):
     else:
         health = "down"                          # dead for 3x its interval -> not just late
     return {"name": unit.get("name"), "schedule": unit.get("schedule"), "kind": unit.get("kind"),
+            "schedule_human": describe_cron(unit.get("schedule")),
             "last_run": datetime.fromtimestamp(last, timezone.utc).isoformat() if last else None,
             "age_min": age_min, "health": health}
 

@@ -77,3 +77,31 @@ def test_system_status_pipeline_counts(tmp_path, monkeypatch):
     assert out["pipeline"]["waiting_tasks"] == 1
     assert out["pipeline"]["routes"].get("job.routed") == 1
     assert out["pipeline"]["eval_feedback"] == 0
+
+
+def test_describe_cron():
+    # common shapes -> plain English
+    assert st.describe_cron("30 8 * * *") == "every day at 8:30 AM"
+    assert st.describe_cron("15 3 * * *") == "every day at 3:15 AM"
+    assert st.describe_cron("30 14 * * *") == "every day at 2:30 PM"
+    assert st.describe_cron("0 0 * * *") == "every day at 12:00 AM"
+    assert st.describe_cron("0 * * * *") == "every hour"
+    assert st.describe_cron("5 * * * *") == "every hour at :05"
+    assert st.describe_cron("0 0 * * 0") == "every Sunday at 12:00 AM"
+    assert st.describe_cron("@daily") == "every day at midnight"
+    # a list / range / step is too complex -> fall back to the raw expression (never wrong, just terse)
+    assert st.describe_cron("*/5 * * * *") == "*/5 * * * *"
+    assert st.describe_cron("0 9 * * 1-5") == "0 9 * * 1-5"
+    assert st.describe_cron("") == ""
+    # out-of-range fields fall back to the raw expression, never a wrong gloss (hour 25 -> "1:30 PM")
+    assert st.describe_cron("30 25 * * *") == "30 25 * * *"
+    assert st.describe_cron("99 8 * * *") == "99 8 * * *"
+    assert st.describe_cron("0 24 * * *") == "0 24 * * *"
+    assert st.describe_cron("30 8 * * 9") == "30 8 * * 9"
+    assert st.describe_cron("99 * * * *") == "99 * * * *"
+
+
+def test_job_dict_carries_schedule_human(tmp_path):
+    j = st.job_health({"name": "j", "kind": "job", "schedule": "30 8 * * *"},
+                      datetime(2026, 6, 20, tzinfo=timezone.utc).timestamp())
+    assert j["schedule_human"] == "every day at 8:30 AM"
