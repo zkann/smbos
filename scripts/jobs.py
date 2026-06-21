@@ -43,7 +43,7 @@ import smbos_lib as lib            # resolve_sop_dir (the canonical resolver; ar
 
 KINDS = ("job", "keychain-job")
 UNIT_TAG_PREFIX = "# smbos-unit:"
-_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+_NAME_RE = re.compile(r"\A[a-z0-9][a-z0-9-]*\Z")   # \A..\Z, not ^..$: $ would accept a trailing newline
 # our cron lines END with `# smbos-unit:<name>` (compile_cron appends it). Match the TRAILING tag, not a
 # substring, so a foreign line whose command merely MENTIONS the tag is never reaped.
 _UNIT_LINE_RE = re.compile(re.escape(UNIT_TAG_PREFIX) + r"[a-z0-9][a-z0-9-]*$")
@@ -195,7 +195,8 @@ def sync_status(sop_dir):
         return line.rsplit(UNIT_TAG_PREFIX, 1)[1].strip()
     desired = {_name(l): l.rstrip() for l in compile_cron(units, os.getuid())}   # enabled units only
     live = {_name(s): s for s in (ln.rstrip() for ln in cur.splitlines()) if _UNIT_LINE_RE.search(s)}
-    return {u["name"]: desired.get(u["name"]) == live.get(u["name"]) for u in units}
+    names = {u["name"] for u in units} | set(live)   # current specs + any ORPHANED live tag: a deleted job's
+    return {name: desired.get(name) == live.get(name) for name in names}   # line lingers and still needs a sync
 
 
 EDITABLE_FIELDS = ("schedule", "description", "enabled")
@@ -250,6 +251,58 @@ def set_job_fields(sop_dir, name, fields):
         tmp.write_text(json.dumps(spec, indent=2) + "\n", encoding="utf-8")
         tmp.replace(path)
     return spec
+
+
+CREATE_FIELDS = ("name", "kind", "schedule", "command", "description", "enabled")
+
+
+def create_job(sop_dir, fields):
+    """Create a new LOCAL job spec from {name, kind, schedule, command?, description?, enabled?}, validated
+    and written to <sop_dir>/jobs.d/<name>.json. Raises JobSpecError on a bad/duplicate name or an invalid
+    spec. Goes live on the next `jobs sync`."""
+    name = fields.get("name")
+    if not (isinstance(name, str) and _NAME_RE.match(name)):
+        raise JobSpecError("name must be lowercase letters, numbers, or hyphens")
+    extra = sorted(k for k in fields if k not in CREATE_FIELDS)
+    if extra:
+        raise JobSpecError("unknown field: {}".format(", ".join(extra)))
+    if any(u["name"] == name for u in load_units(sop_dir)):       # name taken (local OR a shipped plugin job)
+        raise JobSpecError("a job named {!r} already exists".format(name))
+    desc = fields.get("description")
+    if desc is not None and not isinstance(desc, str):
+        raise JobSpecError("description must be text")
+    spec = {"name": name, "kind": fields.get("kind"), "schedule": fields.get("schedule"),
+            "enabled": bool(fields.get("enabled", True))}
+    if fields.get("command") is not None:
+        spec["command"] = fields["command"]
+    if desc is not None:
+        spec["description"] = desc
+    _validate(spec, "new job")                                   # kind, 5-field schedule, command (for a job)
+    if not _schedule_in_range(spec["schedule"]):
+        raise JobSpecError("schedule has an out-of-range field")
+    d = Path(sop_dir) / "jobs.d"
+    path = d / (name + ".json")
+    with _crontab_lock(sop_dir):
+        if path.exists():                                        # a concurrent create won the race
+            raise JobSpecError("a job named {!r} already exists".format(name))
+        d.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(spec, indent=2) + "\n", encoding="utf-8")
+        tmp.replace(path)
+    return spec
+
+
+def delete_job(sop_dir, name):
+    """Remove a LOCAL job spec (<sop_dir>/jobs.d/<name>.json). Raises JobSpecError on a bad name or if there
+    is no local spec by that name. Its cron line is removed on the next `jobs sync`."""
+    if not (isinstance(name, str) and _NAME_RE.match(name)):
+        raise JobSpecError("invalid job name")
+    path = Path(sop_dir) / "jobs.d" / (name + ".json")
+    if not path.is_file():
+        raise JobSpecError("no local job named {!r}".format(name))
+    with _crontab_lock(sop_dir):
+        path.unlink()
+    return {"name": name}
 
 
 def _sop_dir():

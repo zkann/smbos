@@ -107,6 +107,18 @@ html.smbos-panel.opaque main {
 .btn-primary:disabled, .btn-ghost:disabled { opacity: 0.5; cursor: default; }
 .modal-note { font-size: 11px; color: var(--subtle-fg); margin-top: 10px; }
 .modal-note code { font-family: ui-monospace, monospace; color: var(--muted-fg); }
+.modal-toggle { display: flex; align-items: center; gap: 7px; font-size: 13px; margin-bottom: 14px; cursor: pointer; }
+.modal-spacer { flex: 1; }
+.modal-confirm { font-size: 13px; color: var(--foreground); margin-right: auto; }
+select.modal-input { cursor: pointer; }
+.btn-danger { background: var(--red); border: 1px solid var(--red); color: #2a0606; border-radius: 7px; padding: 6px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.btn-danger-ghost { background: transparent; border: 1px solid var(--border-strong); color: var(--red); border-radius: 7px; padding: 6px 13px; font-size: 13px; cursor: pointer; }
+.btn-danger-ghost:hover { border-color: var(--red); }
+.btn-danger:disabled, .btn-danger-ghost:disabled { opacity: 0.5; cursor: default; }
+/* a disabled job: shown muted (off) so it can be re-enabled or deleted, never a dead-end */
+.system-job.disabled { opacity: 0.5; }
+.job-new-btn { margin: 4px 0 2px; background: none; border: 1px dashed var(--border-strong); color: var(--muted-fg); border-radius: 7px; padding: 5px 0; font-size: 12px; cursor: pointer; width: 100%; }
+.job-new-btn:hover { color: var(--foreground); border-color: var(--subtle-fg); }
 main { max-width: 1180px; margin: 0 auto; padding: 32px; }
 header { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
 .logo { flex: none; display: block; }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.44.0 (2026-06-21)
+
+- The System view is now a full job manager. Make a new job with the "+ New job" button (its name, what it runs, when, and a description, with the plain-English schedule preview), turn a job off or back on, or delete one (with a confirm). A turned-off job stays listed, shown as off, so you can switch it back on. Every change is saved and waits for you to sync, the same as editing a schedule.
+
 ## 0.43.0 (2026-06-21)
 
 - You can now edit a job from the System view. Click the pencil on a job to change when it runs (with a plain-English preview as you type) or edit its purpose, then Save. The change is saved to the job, and the panel shows it's waiting for you to sync; it goes live once you do. Before this, changing a job meant editing its spec file by hand.

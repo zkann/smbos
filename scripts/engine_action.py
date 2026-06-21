@@ -243,6 +243,42 @@ def _job_set(args):
     return 0
 
 
+def _job_create(args):
+    """Create a new local job from a stdin spec (command/description are free text). Returns the fresh
+    system_status on success."""
+    raw = sys.stdin.read()
+    try:
+        body = json.loads(raw) if raw.strip() else {}
+    except ValueError:
+        print(json.dumps({"detail": "bad request body"}))
+        return 8
+    fields = {k: body[k] for k in jobs.CREATE_FIELDS if k in body}
+    try:
+        jobs.create_job(args.sop_dir, fields)
+    except jobs.JobSpecError as exc:
+        print(json.dumps({"detail": str(exc)}))
+        return 8
+    except OSError:
+        print(json.dumps({"detail": "could not create the job"}))
+        return 1
+    print(json.dumps({"ok": True, "system": system_status.system_status(args.sop_dir)}))
+    return 0
+
+
+def _job_delete(args):
+    """Delete a local job by name. Returns the fresh system_status on success."""
+    try:
+        jobs.delete_job(args.sop_dir, args.name)
+    except jobs.JobSpecError as exc:
+        print(json.dumps({"detail": str(exc)}))
+        return 8
+    except OSError:
+        print(json.dumps({"detail": "could not delete the job"}))
+        return 1
+    print(json.dumps({"ok": True, "system": system_status.system_status(args.sop_dir)}))
+    return 0
+
+
 def main(argv=None):
     # serve_dashboard.LAUNCH_CWD defaults to THIS process's cwd at import -- for the broker-spawned
     # engine that's the Electron/app dir, not a meaningful launch folder. A folder-less launch-sop /
@@ -327,6 +363,15 @@ def main(argv=None):
     je = sub.add_parser("job-set", help="edit a local job spec (schedule/description/enabled); fields on stdin")
     je.add_argument("sop_dir")
     je.set_defaults(func=_job_set)
+
+    jc = sub.add_parser("job-create", help="create a new local job; spec on stdin")
+    jc.add_argument("sop_dir")
+    jc.set_defaults(func=_job_create)
+
+    jd = sub.add_parser("job-delete", help="delete a local job by name")
+    jd.add_argument("sop_dir")
+    jd.add_argument("--name", default="")
+    jd.set_defaults(func=_job_delete)
 
     args = ap.parse_args(argv)
     try:
