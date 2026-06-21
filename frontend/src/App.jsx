@@ -720,11 +720,17 @@ export default function App() {
   const jobOpen = (pipe.routes || {})['job.routed'] || 0
   const systemBody = system ? (
     <div className="system">
+      {system.pending_sync > 0 && (
+        <div className="sync-banner">
+          {system.pending_sync} {system.pending_sync === 1 ? 'change' : 'changes'} not yet applied. Run <code>jobs sync</code> in a Terminal.
+        </div>
+      )}
       {(system.jobs || []).map((j, i) => (
         <div className="system-job" key={j.name || i}>
           <span className={`sysdot health-${j.health}`} title={j.health} />
           <span className="system-job-name">{j.name}</span>
-          <span className="system-job-sched" title={j.schedule_human || j.schedule}>{j.schedule}</span>
+          <span className={`system-job-sched${j.synced === false ? ' pending' : ''}`}
+            title={j.synced === false ? `${j.schedule_human || j.schedule}; not yet applied, run jobs sync` : (j.schedule_human || j.schedule)}>{j.schedule}</span>
           <span className="system-job-age" title={j.last_run ? `last run ${fmtWhen(j.last_run)}` : 'no successful run yet'}>{fmtAge(j.age_min)}</span>
           {j.description && <span className="system-job-desc">{j.description}</span>}
         </div>
