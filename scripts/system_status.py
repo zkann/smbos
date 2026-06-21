@@ -109,7 +109,9 @@ def job_health(unit, now_ts):
         health = "stale"                         # missed a run or two
     else:
         health = "down"                          # dead for 3x its interval -> not just late
+    desc = unit.get("description")
     return {"name": unit.get("name"), "schedule": unit.get("schedule"), "kind": unit.get("kind"),
+            "description": desc if isinstance(desc, str) else None,   # a non-string (malformed spec) -> omit; never stream a value the React-child render would throw on
             "schedule_human": describe_cron(unit.get("schedule")),
             "last_run": datetime.fromtimestamp(last, timezone.utc).isoformat() if last else None,
             "age_min": age_min, "health": health}

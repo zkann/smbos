@@ -101,7 +101,14 @@ def test_describe_cron():
     assert st.describe_cron("99 * * * *") == "99 * * * *"
 
 
-def test_job_dict_carries_schedule_human(tmp_path):
-    j = st.job_health({"name": "j", "kind": "job", "schedule": "30 8 * * *"},
+def test_job_dict_carries_schedule_human_and_description(tmp_path):
+    j = st.job_health({"name": "j", "kind": "job", "schedule": "30 8 * * *", "description": "sorts the inbox"},
                       datetime(2026, 6, 20, tzinfo=timezone.utc).timestamp())
     assert j["schedule_human"] == "every day at 8:30 AM"
+    assert j["description"] == "sorts the inbox"
+    # a spec with no description -> the field is present but None (the row just omits the subline)
+    assert st.job_health({"name": "j", "kind": "job"}, 0)["description"] is None
+    # a non-string description (malformed / future user-edited spec) is coerced to None, never streamed
+    # (React renders j.description as a child and throws on an object) -> render safety
+    assert st.job_health({"name": "j", "kind": "job", "description": {"oops": 1}}, 0)["description"] is None
+    assert st.job_health({"name": "j", "kind": "job", "description": ["a", "b"]}, 0)["description"] is None

@@ -726,6 +726,7 @@ export default function App() {
           <span className="system-job-name">{j.name}</span>
           <span className="system-job-sched" title={j.schedule_human || j.schedule}>{j.schedule}</span>
           <span className="system-job-age" title={j.last_run ? `last run ${fmtWhen(j.last_run)}` : 'no successful run yet'}>{fmtAge(j.age_min)}</span>
+          {j.description && <span className="system-job-desc">{j.description}</span>}
         </div>
       ))}
       <div className="system-flow">{jobOpen} job open · eval {pipe.eval_feedback ?? 0} · {pipe.waiting_tasks ?? 0} waiting</div>
