@@ -45,11 +45,15 @@ function parseFacts(raw) {
 // The parked tab: a compact frosted pill (the whole tab-sized window) shown when the desktop panel
 // is collapsed to the edge. Just a status dot + the plate count -- glanceable, unobtrusive. A small
 // in-flight badge shows only when something is running.
-function Tab({ plate, inflight }) {
+const HEALTH_LABEL = { ok: 'systems healthy', stale: 'a job looks stalled', down: 'a job is down', unknown: 'system status unknown' }
+
+function Tab({ plate, inflight, system }) {
   const waiting = plate.length
   const flight = inflight.length
+  const health = system?.health || 'unknown'
   return (
     <div className={`tab ${waiting ? 'waiting' : 'clear'}`} title={waiting ? `${waiting} waiting for you` : 'Nothing waiting'}>
+      <span className={`tab-health health-${health}`} title={HEALTH_LABEL[health]} aria-label={HEALTH_LABEL[health]} />
       <div className="tab-count">{waiting}</div>
       {flight > 0 && <div className="tab-flight">{flight}<span>▶</span></div>}
     </div>
@@ -82,6 +86,7 @@ export default function App() {
   const [pending, setPending] = useState([])
   const [queued, setQueued] = useState([])
   const [runs, setRuns] = useState([])
+  const [system, setSystem] = useState(null)  // {health, jobs[], pipeline} from the SSE 'system' frame
   const [stale, setStale] = useState(false)
   // per queued-run cancel state: file -> 'canceling' | 'error'. Clears via the SSE queue frame.
   const [qbusy, setQbusy] = useState({})
@@ -193,6 +198,7 @@ export default function App() {
     es.addEventListener('pending', onPending)
     es.addEventListener('queue', onQueue)
     es.addEventListener('runs', onFrame(setRuns))
+    es.addEventListener('system', onFrame(setSystem))
     es.addEventListener('heartbeat', fresh)
     es.onerror = () => setStale(true) // surface the drop; EventSource auto-reconnects
     const timer = setInterval(() => setStale(Date.now() - lastEventAt > STALE_MS), 3000)
@@ -703,7 +709,27 @@ export default function App() {
       </section>
     )
 
-  if (collapsed) return <Tab plate={plate} inflight={inflight} />
+  // System view: per-job health + a one-line flow summary, from the SSE 'system' frame.
+  const fmtAge = (m) => (m == null ? 'no run' : m < 60 ? `${m}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`)
+  const pipe = system?.pipeline || {}
+  const jobOpen = (pipe.routes || {})['job.routed'] || 0
+  const systemBody = system ? (
+    <div className="system">
+      {(system.jobs || []).map((j, i) => (
+        <div className="system-job" key={j.name || i}>
+          <span className={`sysdot health-${j.health}`} title={j.health} />
+          <span className="system-job-name">{j.name}</span>
+          <span className="system-job-sched">{j.schedule}</span>
+          <span className="system-job-age">{fmtAge(j.age_min)}</span>
+        </div>
+      ))}
+      <div className="system-flow">{jobOpen} job open · eval {pipe.eval_feedback ?? 0} · {pipe.waiting_tasks ?? 0} waiting</div>
+    </div>
+  ) : (
+    <div className="system empty">checking…</div>
+  )
+
+  if (collapsed) return <Tab plate={plate} inflight={inflight} system={system} />
 
   // status-bar urgency: how many plate items carry a deadline (an urgent fact). Surfaced in the
   // header counts so the glance answers "is anything on fire" without scrolling the plate.
@@ -749,6 +775,7 @@ export default function App() {
       {inflight.length > 0 && section('In flight', inflight.length, inflightBody, true)}
       {queued.length > 0 && section('Coming up', queued.length, queuedBody, true)}
       {section('Recent runs', null, recentBody, true)}
+      {section('System', null, systemBody, true)}
 
       {procedures.length > 0 && (
         <details className="panel procedures" onToggle={(e) => { if (e.target.open) refreshProcedures() }}>

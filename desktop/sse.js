@@ -8,9 +8,11 @@ const fs = require('fs')
 const path = require('path')
 const store = require('./store')
 const liveness = require('./liveness')
+const system = require('./system')
 
 const POLL_MS = (() => { const v = Number(process.env.SMBOS_SSE_POLL); return Number.isFinite(v) && v > 0 ? v * 1000 : 1000 })()
 const HEARTBEAT_MS = (() => { const v = Number(process.env.SMBOS_SSE_HEARTBEAT); return Number.isFinite(v) && v > 0 ? v * 1000 : 10000 })()
+const SYSTEM_MS = (() => { const v = Number(process.env.SMBOS_SSE_SYSTEM); return Number.isFinite(v) && v > 0 ? v * 1000 : 30000 })()
 
 function sse(event, payload) {
   return `event: ${event}\ndata: ${payload}\n\n`
@@ -66,8 +68,10 @@ function createEventStream(req, res, sopDir) {
   // One held read-only connection so data_version is comparable across polls (it's per-connection).
   let db = null
   let timer = null
+  let sysTimer = null
   const cleanup = () => {
     if (timer) { clearInterval(timer); timer = null }
+    if (sysTimer) { clearInterval(sysTimer); sysTimer = null }
     if (db) { try { db.close() } catch (_) { /* already gone */ } db = null }
   }
   // Attach cleanup BEFORE the first store/liveness read: if a read throws (corrupt/mid-recreate
@@ -112,6 +116,19 @@ function createEventStream(req, res, sopDir) {
         }
       } catch (_) { /* transient read error: skip this tick */ }
     }, POLL_MS)
+
+    // System health/flow is slow-changing (jobs run hourly/daily), so emit it on its own cadence off
+    // the 1s mirror loop. Best-effort: a failed compute (-> null) just skips the frame, never crashes.
+    let sysBusy = false
+    const emitSystem = () => {
+      if (sysBusy) return                         // don't stack subprocesses if a prior compute is still running
+      sysBusy = true
+      system.compute(sopDir).then((s) => {
+        if (s) { try { res.write(sse('system', JSON.stringify(s))) } catch (_) { /* connection closed */ } }
+      }).finally(() => { sysBusy = false })
+    }
+    emitSystem()
+    sysTimer = setInterval(emitSystem, SYSTEM_MS)
   } catch (_) {
     // the initial snapshot/signals read failed: tear down cleanly instead of leaking + throwing
     cleanup()

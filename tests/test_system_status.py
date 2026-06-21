@@ -1,0 +1,79 @@
+"""Tests for system_status -- the dashboard's System-view aggregator. Pure aggregation over a tmp
+jobs.d + tmp liveness files + a tmp state.db; never touches the real ~/sops."""
+import json
+import os
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+import system_status as st          # noqa: E402
+import jobs                         # noqa: E402
+import state_store as ss            # noqa: E402
+
+
+def _spec(sop_dir, name, **fields):
+    d = sop_dir / "jobs.d"
+    d.mkdir(exist_ok=True)
+    spec = {"name": name, "kind": "job", "schedule": "@daily", "command": "x", **fields}
+    (d / (name + ".json")).write_text(json.dumps(spec))
+
+
+def test_newest_mtime(tmp_path):
+    assert st._newest_mtime(str(tmp_path / "none-*.txt")) is None
+    a = tmp_path / "a.txt"
+    a.write_text("1")
+    os.utime(a, (time.time() - 100, time.time() - 100))     # backdate a
+    b = tmp_path / "b.txt"
+    b.write_text("2")                                       # b is newer
+    assert st._newest_mtime(str(tmp_path / "*.txt")) == b.stat().st_mtime
+
+
+def test_job_health_ok_stale_unknown(tmp_path):
+    now_ts = datetime(2026, 6, 20, 12, 0, tzinfo=timezone.utc).timestamp()
+    f = tmp_path / "beat"
+    f.write_text("x")
+    os.utime(f, (now_ts - 30 * 60, now_ts - 30 * 60))       # 30 min old, threshold 90 -> ok
+    ok = st.job_health({"name": "j", "kind": "job", "liveness_file": str(f), "max_age_minutes": 90}, now_ts)
+    assert ok["health"] == "ok" and ok["age_min"] == 30 and ok["last_run"] is not None
+    os.utime(f, (now_ts - 200 * 60, now_ts - 200 * 60))     # 200 min old (> 90, <= 270) -> stale
+    assert st.job_health({"name": "j", "kind": "job", "liveness_file": str(f), "max_age_minutes": 90},
+                         now_ts)["health"] == "stale"
+    os.utime(f, (now_ts - 400 * 60, now_ts - 400 * 60))     # 400 min (> 3x90) -> down (dead, not just late)
+    assert st.job_health({"name": "j", "kind": "job", "liveness_file": str(f), "max_age_minutes": 90},
+                         now_ts)["health"] == "down"
+    # an explicit max_age_minutes=0 is respected (not swallowed by `or` into the default)
+    os.utime(f, (now_ts - 30 * 60, now_ts - 30 * 60))
+    assert st.job_health({"name": "j", "kind": "job", "liveness_file": str(f), "max_age_minutes": 0},
+                         now_ts)["health"] != "ok"
+    # declared a liveness_file that doesn't exist -> never ran -> stale
+    assert st.job_health({"name": "j", "kind": "job", "liveness_file": str(tmp_path / "nope")},
+                         now_ts)["health"] == "stale"
+    # no liveness_file declared -> unknown (can't judge)
+    j = st.job_health({"name": "j", "kind": "job"}, now_ts)
+    assert j["health"] == "unknown" and j["age_min"] is None
+
+
+def test_system_status_overall_is_worst_job(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "_plugin_jobs_d", lambda: tmp_path / "nope")   # only the local specs
+    now = datetime(2026, 6, 20, 12, 0, tzinfo=timezone.utc)
+    fresh = tmp_path / "fresh"
+    fresh.write_text("x")
+    os.utime(fresh, (now.timestamp() - 10 * 60, now.timestamp() - 10 * 60))
+    _spec(tmp_path, "a-healthy", liveness_file=str(fresh), max_age_minutes=90)
+    _spec(tmp_path, "z-stale", liveness_file=str(tmp_path / "missing"), max_age_minutes=90)
+    out = st.system_status(tmp_path, now=now)
+    assert out["health"] == "stale"                          # worst of {ok, stale}
+    assert {j["name"]: j["health"] for j in out["jobs"]} == {"a-healthy": "ok", "z-stale": "stale"}
+    assert out["jobs"][0]["name"] == "a-healthy"             # sorted by name
+
+
+def test_system_status_pipeline_counts(tmp_path, monkeypatch):
+    monkeypatch.setattr(jobs, "_plugin_jobs_d", lambda: tmp_path / "nope")
+    ss.record_task(tmp_path, "inbox", "reply", "a", source_ref="t1")        # inits the store; 1 waiting
+    ss.record_route(tmp_path, "email", "x1", "job")                         # 1 job route
+    out = st.system_status(tmp_path, now=datetime(2026, 6, 20, tzinfo=timezone.utc))
+    assert out["pipeline"]["waiting_tasks"] == 1
+    assert out["pipeline"]["routes"].get("job.routed") == 1
+    assert out["pipeline"]["eval_feedback"] == 0
