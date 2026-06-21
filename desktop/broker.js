@@ -79,12 +79,15 @@ function actionRequest(pathname, sopDir, body) {
       return { argv: ['task-status', sopDir, '--task-id=' + String(body.task_id || ''), '--status=' + String(body.status || ''), '--from=' + String(body.from || '')] }
     case '/api/settings':
       return { argv: ['settings-set', sopDir, '--key=' + String(body.key || ''), '--value=' + String(body.value ?? '')] }
+    case '/api/job-set':
+      // the whole edit (name + fields) rides on stdin: the description is free text, unsafe as argv
+      return { argv: ['job-set', sopDir], input: JSON.stringify(body || {}) }
     default:
       return null
   }
 }
 
-const ACTION_PATHS = new Set(['/api/run', '/api/queue', '/api/autonomy', '/api/launch', '/api/open-session', '/api/launch-sop', '/api/apply-item', '/api/resolve', '/api/dequeue', '/api/task-status', '/api/settings'])
+const ACTION_PATHS = new Set(['/api/run', '/api/queue', '/api/autonomy', '/api/launch', '/api/open-session', '/api/launch-sop', '/api/apply-item', '/api/resolve', '/api/dequeue', '/api/task-status', '/api/settings', '/api/job-set'])
 const EXIT_STATUS = { 0: 200, 3: 409, 4: 404, 8: 400, 9: 409 }  // engine exit code -> HTTP status; anything else -> 500
 
 // GET endpoints the broker answers itself, in FastAPI's response shape (parity-tested against the

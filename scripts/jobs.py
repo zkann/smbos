@@ -198,6 +198,60 @@ def sync_status(sop_dir):
     return {u["name"]: desired.get(u["name"]) == live.get(u["name"]) for u in units}
 
 
+EDITABLE_FIELDS = ("schedule", "description", "enabled")
+_CRON_RANGES = ((0, 59), (0, 23), (1, 31), (1, 12), (0, 7))   # min, hour, day-of-month, month, day-of-week
+
+
+def _schedule_in_range(sched):
+    """Each numeric cron field is within range, so an edit can't write a spec that won't install (e.g.
+    hour 25). Accepts @shortcuts, *, ranges (a-b), steps (*/n), lists (a,b); rejects out-of-range numbers
+    and */0. Named months/days aren't accepted here -- the edit UI is numeric (edit the file for those)."""
+    fields = sched.split()
+    if len(fields) == 1 and fields[0] in _CRON_SHORTCUTS:
+        return True
+    if len(fields) != 5:
+        return False
+    for field, (lo, hi) in zip(fields, _CRON_RANGES):
+        for part in field.split(","):
+            m = re.fullmatch(r"(\*|\d+(?:-\d+)?)(?:/(\d+))?", part)
+            if not m or (m.group(2) is not None and int(m.group(2)) == 0):   # malformed, or a */0 step
+                return False
+            if m.group(1) != "*":
+                nums = [int(x) for x in m.group(1).split("-")]
+                if any(n < lo or n > hi for n in nums) or (len(nums) == 2 and nums[0] > nums[1]):
+                    return False
+    return True
+
+
+def set_job_fields(sop_dir, name, fields):
+    """Apply {schedule|description|enabled} edits to a LOCAL spec (<sop_dir>/jobs.d/<name>.json), validate,
+    and write it atomically under the sync lock. Returns the updated spec. Raises JobSpecError on a bad
+    name/field/value or if there's no editable local spec by that name. Never edits the plugin's shipped
+    specs or the crontab -- the change goes live on the next `jobs sync`."""
+    if not (isinstance(name, str) and _NAME_RE.match(name)):
+        raise JobSpecError("invalid job name")
+    extra = sorted(k for k in fields if k not in EDITABLE_FIELDS)
+    if extra:
+        raise JobSpecError("not editable: {}".format(", ".join(extra)))
+    if "description" in fields and not isinstance(fields["description"], str):
+        raise JobSpecError("description must be text")
+    if "enabled" in fields and not isinstance(fields["enabled"], bool):
+        raise JobSpecError("enabled must be true or false")
+    path = Path(sop_dir) / "jobs.d" / (name + ".json")
+    if not path.is_file():
+        raise JobSpecError("no editable job named {!r}".format(name))
+    with _crontab_lock(sop_dir):                     # serialize spec writes against a concurrent sync
+        spec = json.loads(path.read_text(encoding="utf-8"))
+        spec.update(fields)
+        _validate(spec, str(path))                   # name/kind/5-field schedule/command/claims
+        if "schedule" in fields and not _schedule_in_range(spec["schedule"]):
+            raise JobSpecError("schedule has an out-of-range field")
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(spec, indent=2) + "\n", encoding="utf-8")
+        tmp.replace(path)
+    return spec
+
+
 def _sop_dir():
     # the canonical resolver ($SOP_DIR / ~/sops), NOT legacy.resolve_sop_dir -- that argv wrapper would
     # treat our subcommand ("sync" / "list") as an explicit SOP path (a ./sync dir would win).

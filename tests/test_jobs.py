@@ -143,3 +143,35 @@ def test_sync_status_disabled_and_unreadable(tmp_path, monkeypatch):
     assert jobs.sync_status(tmp_path) == {"a": True}                         # disabled + correctly absent -> synced
     monkeypatch.setattr(jobs.legacy, "_read_crontab", lambda: None)
     assert jobs.sync_status(tmp_path) == {"a": None}                         # crontab unavailable -> unknown
+
+
+def test_set_job_fields_edits_and_persists(tmp_path):
+    _spec(tmp_path, "j", kind="job", schedule="0 9 * * *", command="run-j", description="old")
+    out = jobs.set_job_fields(tmp_path, "j", {"schedule": "30 8 * * *", "description": "new", "enabled": False})
+    assert out["schedule"] == "30 8 * * *" and out["description"] == "new" and out["enabled"] is False
+    on_disk = json.loads((tmp_path / "jobs.d" / "j.json").read_text())
+    assert on_disk["schedule"] == "30 8 * * *"          # persisted
+    assert on_disk["command"] == "run-j"                # untouched fields preserved
+
+
+def test_set_job_fields_rejects_bad_input(tmp_path):
+    _spec(tmp_path, "j", kind="job", schedule="0 9 * * *", command="run-j")
+    for fields in ({"command": "evil"},                 # not an editable field
+                   {"schedule": "30 25 * * *"},         # hour out of range
+                   {"schedule": "boom"},                # not 5 fields
+                   {"description": 5},                  # non-string
+                   {"enabled": "yes"}):                 # non-bool
+        with pytest.raises(jobs.JobSpecError):
+            jobs.set_job_fields(tmp_path, "j", fields)
+    with pytest.raises(jobs.JobSpecError):
+        jobs.set_job_fields(tmp_path, "absent", {"schedule": "0 9 * * *"})       # no such local spec
+    with pytest.raises(jobs.JobSpecError):
+        jobs.set_job_fields(tmp_path, "../evil", {"schedule": "0 9 * * *"})      # bad name (no path traversal)
+    assert json.loads((tmp_path / "jobs.d" / "j.json").read_text())["schedule"] == "0 9 * * *"   # unchanged
+
+
+def test_schedule_in_range():
+    for s in ("30 8 * * *", "0 */2 * * *", "0 9 * * 1-5", "15,45 3 * * *", "@daily", "0 0 1 1 0"):
+        assert jobs._schedule_in_range(s), s
+    for s in ("30 25 * * *", "0 9 99 * *", "0 9 * * 9", "*/0 * * * *", "boom", "1 2 3 4"):
+        assert not jobs._schedule_in_range(s), s

@@ -26,6 +26,8 @@ import settings_io
 import serve_dashboard as legacy
 import smbos_lib as lib
 import state_store as ss
+import jobs
+import system_status
 
 
 def _settings_get(args):
@@ -219,6 +221,28 @@ def _task_status(args):
     return 0
 
 
+def _job_set(args):
+    """Edit a local job spec's schedule/description/enabled. Fields ride on stdin (the description is free
+    text). On success returns the fresh system_status so the panel updates at once (and shows 'needs sync')."""
+    raw = sys.stdin.read()
+    try:
+        body = json.loads(raw) if raw.strip() else {}
+    except ValueError:
+        print(json.dumps({"detail": "bad request body"}))
+        return 8
+    fields = {k: body[k] for k in jobs.EDITABLE_FIELDS if k in body}
+    try:
+        jobs.set_job_fields(args.sop_dir, body.get("name"), fields)
+    except jobs.JobSpecError as exc:
+        print(json.dumps({"detail": str(exc)}))
+        return 8
+    except OSError:
+        print(json.dumps({"detail": "could not save the job"}))
+        return 1
+    print(json.dumps({"ok": True, "system": system_status.system_status(args.sop_dir)}))
+    return 0
+
+
 def main(argv=None):
     # serve_dashboard.LAUNCH_CWD defaults to THIS process's cwd at import -- for the broker-spawned
     # engine that's the Electron/app dir, not a meaningful launch folder. A folder-less launch-sop /
@@ -299,6 +323,10 @@ def main(argv=None):
     sset.add_argument("--key", default="")
     sset.add_argument("--value", default="")
     sset.set_defaults(func=_settings_set)
+
+    je = sub.add_parser("job-set", help="edit a local job spec (schedule/description/enabled); fields on stdin")
+    je.add_argument("sop_dir")
+    je.set_defaults(func=_job_set)
 
     args = ap.parse_args(argv)
     try:
