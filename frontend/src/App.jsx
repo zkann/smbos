@@ -47,6 +47,30 @@ function parseFacts(raw) {
 // in-flight badge shows only when something is running.
 const HEALTH_LABEL = { ok: 'systems healthy', stale: 'a job looks stalled', down: 'a job is down', unknown: 'system status unknown' }
 
+// Plain-English gloss of a cron schedule for the editor's live preview (mirrors scripts/system_status.py
+// describe_cron). Falls back to the raw expression for lists/ranges/steps/out-of-range, so the preview is
+// never wrong; the backend does the authoritative validation on save.
+const _DOW = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const _CRON_WORDS = { '@hourly': 'every hour', '@daily': 'every day at midnight', '@midnight': 'every day at midnight', '@weekly': 'every Sunday at midnight', '@monthly': 'the 1st of each month at midnight', '@yearly': 'every Jan 1 at midnight', '@annually': 'every Jan 1 at midnight', '@reboot': 'at startup' }
+const _clock = (hh, mm) => `${hh % 12 === 0 ? 12 : hh % 12}:${String(mm).padStart(2, '0')} ${hh < 12 ? 'AM' : 'PM'}`
+const _inRange = (v, hi) => /^\d+$/.test(v) && +v >= 0 && +v <= hi
+function describeCron(expr) {
+  const s = String(expr || '').trim()
+  if (!s) return ''
+  if (_CRON_WORDS[s]) return _CRON_WORDS[s]
+  const f = s.split(/\s+/)
+  if (f.length !== 5 || /[,/-]/.test(s)) return s
+  const [min, hr, dom, mon, dow] = f
+  if (min === '*' && hr === '*') return 'every minute'
+  if (hr === '*' && _inRange(min, 59)) return +min === 0 ? 'every hour' : `every hour at :${String(min).padStart(2, '0')}`
+  if (_inRange(min, 59) && _inRange(hr, 23)) {
+    const clock = _clock(+hr, +min)
+    if (dom === '*' && mon === '*' && dow === '*') return `every day at ${clock}`
+    if (dom === '*' && mon === '*' && _inRange(dow, 7)) return `every ${_DOW[+dow % 7]} at ${clock}`
+  }
+  return s
+}
+
 function Tab({ plate, inflight, system }) {
   const waiting = plate.length
   const flight = inflight.length
@@ -87,6 +111,11 @@ export default function App() {
   const [queued, setQueued] = useState([])
   const [runs, setRuns] = useState([])
   const [system, setSystem] = useState(null)  // {health, jobs[], pipeline} from the SSE 'system' frame
+  // the job editor modal: `editing` is the job being edited (null = closed), with its form + error/busy
+  const [editing, setEditing] = useState(null)
+  const [editForm, setEditForm] = useState({ schedule: '', description: '' })
+  const [editErr, setEditErr] = useState(null)
+  const [editBusy, setEditBusy] = useState(false)
   const [stale, setStale] = useState(false)
   // per queued-run cancel state: file -> 'canceling' | 'error'. Clears via the SSE queue frame.
   const [qbusy, setQbusy] = useState({})
@@ -251,6 +280,42 @@ export default function App() {
       id, opts.prepare ? 'preparing' : 'running')
   const queueSop = (id) => procPost('/api/queue', { id, inputs: procInputs[id] || undefined }, id, 'queuing')
   const launchSop = (id) => procPost('/api/launch-sop', { id }, id, 'launching')
+
+  // Job editor: open the modal primed from the job's current values (shown jobs are enabled), then save
+  // via the gated /api/job-set. On success the engine returns the fresh system_status, so the panel
+  // updates at once (the new schedule + the 'needs sync' badge); on a bad value the server's reason
+  // (e.g. "schedule has an out-of-range field") shows inline in the modal.
+  const openEdit = (j) => { setEditForm({ schedule: j.schedule || '', description: j.description || '' }); setEditErr(null); setEditing(j) }
+  async function saveJob() {
+    if (!editing || editBusy) return        // guard the Enter-key path too (the Save button is already disabled)
+    // send only the fields that changed, so a description-only edit doesn't re-validate (and maybe reject)
+    // an unchanged schedule that uses cron syntax outside the editor's numeric subset (e.g. MON-FRI)
+    const body = { name: editing.name }
+    const sched = editForm.schedule.trim()
+    if (sched !== (editing.schedule || '')) body.schedule = sched
+    if (editForm.description !== (editing.description || '')) body.description = editForm.description
+    if (!('schedule' in body) && !('description' in body)) { setEditing(null); return }   // nothing changed
+    setEditBusy(true); setEditErr(null)
+    try {
+      const res = await fetch('/api/job-set', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-SMBOS-Token': token },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        let detail = `Couldn't save (${res.status}).`
+        try { const d = await res.json(); if (d && d.detail) detail = d.detail } catch (_) { /* keep generic */ }
+        throw new Error(detail)
+      }
+      const d = await res.json()
+      if (d && d.system) setSystem(d.system)   // immediate: the new schedule + 'needs sync'
+      setEditing(null)
+    } catch (e) {
+      setEditErr(e.message)
+    } finally {
+      setEditBusy(false)
+    }
+  }
 
   // Set a procedure's autonomy dial. The <select> is controlled by p.autonomy, so on a refusal
   // (e.g. 'On its own' on a draft -> 409) we leave the state unchanged and the select snaps back to
@@ -732,6 +797,7 @@ export default function App() {
           <span className={`system-job-sched${j.synced === false ? ' pending' : ''}`}
             title={j.synced === false ? `${j.schedule_human || j.schedule}; not yet applied, run jobs sync` : (j.schedule_human || j.schedule)}>{j.schedule}</span>
           <span className="system-job-age" title={j.last_run ? `last run ${fmtWhen(j.last_run)}` : 'no successful run yet'}>{fmtAge(j.age_min)}</span>
+          <button type="button" className="job-edit-btn" title="Edit schedule" aria-label={`Edit ${j.name}`} onClick={() => openEdit(j)}>✎</button>
           {j.description && <span className="system-job-desc">{j.description}</span>}
         </div>
       ))}
@@ -748,6 +814,7 @@ export default function App() {
   const dueCount = compact ? plate.filter(t => parseFacts(t.facts).some(f => f.urgent)).length : 0
 
   return (
+    <>
     <main className={compact ? 'compact' : undefined}>
       {stale && <div className="banner" role="status">Reconnecting, data may be stale</div>}
 
@@ -913,5 +980,33 @@ export default function App() {
         </details>
       )}
     </main>
+    {editing && (
+      <div className="modal-overlay" onClick={() => { if (!editBusy) setEditing(null) }}>
+        <div className="modal" role="dialog" aria-modal="true" aria-label={`Edit ${editing.name}`}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => { if (e.key === 'Escape' && !editBusy) setEditing(null) }}>
+          <div className="modal-title">Edit {editing.name}</div>
+          <label className="modal-field">
+            <span>Schedule</span>
+            <input className="modal-input mono" value={editForm.schedule} autoFocus spellCheck={false}
+              onChange={(e) => setEditForm((f) => ({ ...f, schedule: e.target.value }))}
+              onKeyDown={(e) => { if (e.key === 'Enter') saveJob() }} />
+            <span className="modal-preview">{describeCron(editForm.schedule) || ' '}</span>
+          </label>
+          <label className="modal-field">
+            <span>Description</span>
+            <input className="modal-input" value={editForm.description}
+              onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))} />
+          </label>
+          {editErr && <div className="modal-err">{editErr}</div>}
+          <div className="modal-actions">
+            <button type="button" className="btn-ghost" onClick={() => setEditing(null)} disabled={editBusy}>Cancel</button>
+            <button type="button" className="btn-primary" onClick={saveJob} disabled={editBusy}>{editBusy ? 'Saving…' : 'Save'}</button>
+          </div>
+          <div className="modal-note">Takes effect on the next <code>jobs sync</code>.</div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }

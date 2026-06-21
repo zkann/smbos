@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.43.0 (2026-06-21)
+
+- You can now edit a job from the System view. Click the pencil on a job to change when it runs (with a plain-English preview as you type) or edit its purpose, then Save. The change is saved to the job, and the panel shows it's waiting for you to sync; it goes live once you do. Before this, changing a job meant editing its spec file by hand.
+
 ## 0.42.0 (2026-06-21)
 
 - The System view now tells you when a job's schedule has changed but the change isn't live yet. If a job's spec no longer matches what's actually scheduled, the panel shows a "not yet applied" note with the one command to run, and the out-of-date schedule turns amber. Before this, a spec edit looked live even though the schedule had not been re-applied.

@@ -170,6 +170,14 @@ def test_set_job_fields_rejects_bad_input(tmp_path):
     assert json.loads((tmp_path / "jobs.d" / "j.json").read_text())["schedule"] == "0 9 * * *"   # unchanged
 
 
+def test_set_job_fields_description_only_skips_schedule_validation(tmp_path):
+    # a named-day schedule: _validate accepts it (5 fields), the numeric range-check would reject it.
+    # a description-only edit must NOT re-validate the unchanged schedule (else the job is uneditable).
+    _spec(tmp_path, "j", kind="job", schedule="0 9 * * MON-FRI", command="run-j")
+    out = jobs.set_job_fields(tmp_path, "j", {"description": "weekday mornings"})
+    assert out["description"] == "weekday mornings" and out["schedule"] == "0 9 * * MON-FRI"
+
+
 def test_schedule_in_range():
     for s in ("30 8 * * *", "0 */2 * * *", "0 9 * * 1-5", "15,45 3 * * *", "@daily", "0 0 1 1 0"):
         assert jobs._schedule_in_range(s), s
