@@ -67,6 +67,21 @@ html.smbos-panel.opaque main {
 .tab-count { font-size: 24px; font-weight: 720; line-height: 1; font-variant-numeric: tabular-nums; }
 .tab-flight { display: flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; opacity: 0.85; }
 .tab-flight span { font-size: 7px; }
+.tab-health { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }   /* ambient health dot atop the parked tab */
+
+/* System view: per-job health + a flow line in the detail panel */
+.health-ok { background: var(--primary); }
+.health-stale { background: var(--amber); }
+.health-down { background: var(--red); }
+.health-unknown { background: var(--subtle-fg); }
+.system { display: flex; flex-direction: column; gap: 7px; }
+.system-job { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 9px; font-size: 12px; }
+.system-job .sysdot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }   /* not .dot: that class is the run-liveness indicator */
+.system-job-name { font-weight: 600; color: var(--foreground); }
+.system-job-sched, .system-job-age { color: var(--subtle-fg); font: 11px/1 ui-monospace, monospace; }
+.system-job-age { text-align: right; }
+.system-flow { color: var(--muted-fg); font-size: 12px; padding-top: 5px; border-top: 1px solid var(--border); }
+.system.empty { color: var(--subtle-fg); font-size: 12px; }
 main { max-width: 1180px; margin: 0 auto; padding: 32px; }
 header { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
 .logo { flex: none; display: block; }

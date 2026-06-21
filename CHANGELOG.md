@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.40.0 (2026-06-21)
+
+- The dashboard now has a System view, so you can see at a glance that everything is running. The parked tab carries a health dot (green when your scheduled jobs are on time, amber when one looks stalled), and a System panel lists each job, when it last ran, and what is flowing through (open job routes, the eval signal, waiting tasks). Before this there was no window into the background jobs, so a silently stalled inbox check could go unnoticed. A job opts into the health readout by declaring a `liveness_file` in its spec.
+
 ## 0.39.0 (2026-06-19)
 
 - You can now clear a task off your plate without picking it up. When you've already handled a waiting task out-of-band (done by hand, or handled somewhere else), each plate row has a quiet checkmark to mark it done and a dismiss control (not mine, or won't do) on the right, brightening on hover. Before this, the only way to check a task off was to launch a full Claude session and mark it done there, so the plate stays a mirror you can trust without that detour.
