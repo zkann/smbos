@@ -132,6 +132,11 @@ def test_sync_status_detects_drift(tmp_path, monkeypatch):
     monkeypatch.setattr(jobs.legacy, "_read_crontab", lambda: "")
     assert jobs.sync_status(tmp_path) == {"a": None, "b": None}
 
+    # an ORPHANED tag (a deleted job's line still in cron, no spec) is flagged pending, not ignored
+    orphan = "0 0 * * * run-x  # smbos-unit:deleted-job"
+    monkeypatch.setattr(jobs.legacy, "_read_crontab", lambda: "\n".join(synced) + "\n" + orphan + "\n")
+    assert jobs.sync_status(tmp_path) == {"a": True, "b": True, "deleted-job": False}
+
 
 def test_sync_status_disabled_and_unreadable(tmp_path, monkeypatch):
     monkeypatch.setattr(jobs, "_plugin_jobs_d", lambda: tmp_path / "nope")
@@ -204,7 +209,8 @@ def test_create_job_rejects_bad_input(tmp_path, monkeypatch):
                    {"name": "nocmd", "kind": "job", "schedule": "0 9 * * *"},                       # job needs a command
                    {"name": "badsched", "kind": "job", "schedule": "0 25 * * *", "command": "x"},   # out of range
                    {"name": "badkind", "kind": "weird", "schedule": "0 9 * * *", "command": "x"},   # bad kind
-                   {"name": "sneaky", "kind": "job", "schedule": "0 9 * * *", "command": "x", "claims": "# y"}):  # unknown field
+                   {"name": "sneaky", "kind": "job", "schedule": "0 9 * * *", "command": "x", "claims": "# y"},   # unknown field
+                   {"name": "trail\n", "kind": "job", "schedule": "0 9 * * *", "command": "x"}):                 # trailing newline in name
         with pytest.raises(jobs.JobSpecError):
             jobs.create_job(tmp_path, fields)
     assert not (tmp_path / "jobs.d" / "badsched.json").exists()   # a rejected create writes nothing

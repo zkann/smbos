@@ -113,7 +113,10 @@ export default function App() {
   const [system, setSystem] = useState(null)  // {health, jobs[], pipeline} from the SSE 'system' frame
   // the job editor modal: `editing` is the job being edited (null = closed), with its form + error/busy
   const [editing, setEditing] = useState(null)
-  const [editForm, setEditForm] = useState({ schedule: '', description: '' })
+  const [editForm, setEditForm] = useState({ schedule: '', description: '', enabled: true })
+  const [confirmDel, setConfirmDel] = useState(false)              // delete confirm inside the edit modal
+  const [creating, setCreating] = useState(false)                 // the create-job modal is open
+  const [createForm, setCreateForm] = useState({ name: '', kind: 'job', schedule: '', command: '', description: '' })
   const [editErr, setEditErr] = useState(null)
   const [editBusy, setEditBusy] = useState(false)
   const [stale, setStale] = useState(false)
@@ -285,7 +288,8 @@ export default function App() {
   // via the gated /api/job-set. On success the engine returns the fresh system_status, so the panel
   // updates at once (the new schedule + the 'needs sync' badge); on a bad value the server's reason
   // (e.g. "schedule has an out-of-range field") shows inline in the modal.
-  const openEdit = (j) => { setEditForm({ schedule: j.schedule || '', description: j.description || '' }); setEditErr(null); setEditing(j) }
+  const openEdit = (j) => { setEditForm({ schedule: j.schedule || '', description: j.description || '', enabled: j.enabled !== false }); setEditErr(null); setConfirmDel(false); setCreating(false); setEditing(j) }
+  const openCreate = () => { setCreateForm({ name: '', kind: 'job', schedule: '', command: '', description: '' }); setEditErr(null); setEditing(null); setCreating(true) }
   async function saveJob() {
     if (!editing || editBusy) return        // guard the Enter-key path too (the Save button is already disabled)
     // send only the fields that changed, so a description-only edit doesn't re-validate (and maybe reject)
@@ -294,7 +298,8 @@ export default function App() {
     const sched = editForm.schedule.trim()
     if (sched !== (editing.schedule || '')) body.schedule = sched
     if (editForm.description !== (editing.description || '')) body.description = editForm.description
-    if (!('schedule' in body) && !('description' in body)) { setEditing(null); return }   // nothing changed
+    if (editForm.enabled !== (editing.enabled !== false)) body.enabled = editForm.enabled
+    if (!('schedule' in body) && !('description' in body) && !('enabled' in body)) { setEditing(null); return }   // nothing changed
     setEditBusy(true); setEditErr(null)
     try {
       const res = await fetch('/api/job-set', {
@@ -312,6 +317,57 @@ export default function App() {
       setEditing(null)
     } catch (e) {
       setEditErr(e.message)
+    } finally {
+      setEditBusy(false)
+    }
+  }
+
+  async function saveCreate() {
+    if (editBusy) return
+    const f = createForm
+    const body = { name: f.name.trim(), kind: f.kind, schedule: f.schedule.trim(), description: f.description }
+    if (f.kind === 'job') body.command = f.command       // a keychain-job kickstarts its agent; no command
+    setEditBusy(true); setEditErr(null)
+    try {
+      const res = await fetch('/api/job-create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-SMBOS-Token': token },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        let detail = `Couldn't create (${res.status}).`
+        try { const d = await res.json(); if (d && d.detail) detail = d.detail } catch (_) { /* keep generic */ }
+        throw new Error(detail)
+      }
+      const d = await res.json()
+      if (d && d.system) setSystem(d.system)
+      setCreating(false)
+    } catch (e) {
+      setEditErr(e.message)
+    } finally {
+      setEditBusy(false)
+    }
+  }
+
+  async function deleteJob() {
+    if (!editing || editBusy) return
+    setEditBusy(true); setEditErr(null)
+    try {
+      const res = await fetch('/api/job-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-SMBOS-Token': token },
+        body: JSON.stringify({ name: editing.name }),
+      })
+      if (!res.ok) {
+        let detail = `Couldn't delete (${res.status}).`
+        try { const d = await res.json(); if (d && d.detail) detail = d.detail } catch (_) { /* keep generic */ }
+        throw new Error(detail)
+      }
+      const d = await res.json()
+      if (d && d.system) setSystem(d.system)
+      setEditing(null)
+    } catch (e) {
+      setEditErr(e.message); setConfirmDel(false)
     } finally {
       setEditBusy(false)
     }
@@ -791,16 +847,17 @@ export default function App() {
         </div>
       )}
       {(system.jobs || []).map((j, i) => (
-        <div className="system-job" key={j.name || i}>
-          <span className={`sysdot health-${j.health}`} title={j.health} />
+        <div className={`system-job${j.enabled === false ? ' disabled' : ''}`} key={j.name || i}>
+          <span className={`sysdot health-${j.enabled === false ? 'unknown' : j.health}`} title={j.enabled === false ? 'disabled' : j.health} />
           <span className="system-job-name">{j.name}</span>
           <span className={`system-job-sched${j.synced === false ? ' pending' : ''}`}
             title={j.synced === false ? `${j.schedule_human || j.schedule}; not yet applied, run jobs sync` : (j.schedule_human || j.schedule)}>{j.schedule}</span>
-          <span className="system-job-age" title={j.last_run ? `last run ${fmtWhen(j.last_run)}` : 'no successful run yet'}>{fmtAge(j.age_min)}</span>
-          <button type="button" className="job-edit-btn" title="Edit schedule" aria-label={`Edit ${j.name}`} onClick={() => openEdit(j)}>✎</button>
+          <span className="system-job-age" title={j.enabled === false ? 'disabled' : (j.last_run ? `last run ${fmtWhen(j.last_run)}` : 'no successful run yet')}>{j.enabled === false ? 'off' : fmtAge(j.age_min)}</span>
+          <button type="button" className="job-edit-btn" title="Edit" aria-label={`Edit ${j.name}`} onClick={() => openEdit(j)}>✎</button>
           {j.description && <span className="system-job-desc">{j.description}</span>}
         </div>
       ))}
+      <button type="button" className="job-new-btn" onClick={openCreate}>+ New job</button>
       <div className="system-flow">{jobOpen} job open · eval {pipe.eval_feedback ?? 0} · {pipe.waiting_tasks ?? 0} waiting</div>
     </div>
   ) : (
@@ -998,10 +1055,73 @@ export default function App() {
             <input className="modal-input" value={editForm.description}
               onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))} />
           </label>
+          <label className="modal-toggle">
+            <input type="checkbox" checked={editForm.enabled}
+              onChange={(e) => setEditForm((f) => ({ ...f, enabled: e.target.checked }))} />
+            <span>Enabled</span>
+          </label>
+          {editErr && <div className="modal-err">{editErr}</div>}
+          {confirmDel ? (
+            <div className="modal-actions">
+              <span className="modal-confirm">Delete this job?</span>
+              <button type="button" className="btn-ghost" onClick={() => setConfirmDel(false)} disabled={editBusy}>Cancel</button>
+              <button type="button" className="btn-danger" onClick={deleteJob} disabled={editBusy}>{editBusy ? 'Deleting…' : 'Delete'}</button>
+            </div>
+          ) : (
+            <div className="modal-actions">
+              <button type="button" className="btn-danger-ghost" onClick={() => setConfirmDel(true)} disabled={editBusy}>Delete</button>
+              <span className="modal-spacer" />
+              <button type="button" className="btn-ghost" onClick={() => setEditing(null)} disabled={editBusy}>Cancel</button>
+              <button type="button" className="btn-primary" onClick={saveJob} disabled={editBusy}>{editBusy ? 'Saving…' : 'Save'}</button>
+            </div>
+          )}
+          <div className="modal-note">Takes effect on the next <code>jobs sync</code>.</div>
+        </div>
+      </div>
+    )}
+    {creating && (
+      <div className="modal-overlay" onClick={() => { if (!editBusy) setCreating(false) }}>
+        <div className="modal" role="dialog" aria-modal="true" aria-label="New job"
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => { if (e.key === 'Escape' && !editBusy) setCreating(false) }}>
+          <div className="modal-title">New job</div>
+          <label className="modal-field">
+            <span>Name</span>
+            <input className="modal-input mono" value={createForm.name} autoFocus spellCheck={false}
+              placeholder="lowercase-with-hyphens"
+              onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))} />
+          </label>
+          <label className="modal-field">
+            <span>Type</span>
+            <select className="modal-input" value={createForm.kind}
+              onChange={(e) => setCreateForm((f) => ({ ...f, kind: e.target.value }))}>
+              <option value="job">Runs a command</option>
+              <option value="keychain-job">Kicks off an app (uses your keychain)</option>
+            </select>
+          </label>
+          <label className="modal-field">
+            <span>Schedule</span>
+            <input className="modal-input mono" value={createForm.schedule} spellCheck={false} placeholder="0 9 * * *"
+              onChange={(e) => setCreateForm((f) => ({ ...f, schedule: e.target.value }))} />
+            <span className="modal-preview">{describeCron(createForm.schedule) || ' '}</span>
+          </label>
+          {createForm.kind === 'job' && (
+            <label className="modal-field">
+              <span>Command</span>
+              <input className="modal-input mono" value={createForm.command} spellCheck={false}
+                placeholder="/usr/bin/python3 /path/script.py"
+                onChange={(e) => setCreateForm((f) => ({ ...f, command: e.target.value }))} />
+            </label>
+          )}
+          <label className="modal-field">
+            <span>Description</span>
+            <input className="modal-input" value={createForm.description}
+              onChange={(e) => setCreateForm((f) => ({ ...f, description: e.target.value }))} />
+          </label>
           {editErr && <div className="modal-err">{editErr}</div>}
           <div className="modal-actions">
-            <button type="button" className="btn-ghost" onClick={() => setEditing(null)} disabled={editBusy}>Cancel</button>
-            <button type="button" className="btn-primary" onClick={saveJob} disabled={editBusy}>{editBusy ? 'Saving…' : 'Save'}</button>
+            <button type="button" className="btn-ghost" onClick={() => setCreating(false)} disabled={editBusy}>Cancel</button>
+            <button type="button" className="btn-primary" onClick={saveCreate} disabled={editBusy}>{editBusy ? 'Creating…' : 'Create'}</button>
           </div>
           <div className="modal-note">Takes effect on the next <code>jobs sync</code>.</div>
         </div>

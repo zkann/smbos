@@ -43,7 +43,7 @@ import smbos_lib as lib            # resolve_sop_dir (the canonical resolver; ar
 
 KINDS = ("job", "keychain-job")
 UNIT_TAG_PREFIX = "# smbos-unit:"
-_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+_NAME_RE = re.compile(r"\A[a-z0-9][a-z0-9-]*\Z")   # \A..\Z, not ^..$: $ would accept a trailing newline
 # our cron lines END with `# smbos-unit:<name>` (compile_cron appends it). Match the TRAILING tag, not a
 # substring, so a foreign line whose command merely MENTIONS the tag is never reaped.
 _UNIT_LINE_RE = re.compile(re.escape(UNIT_TAG_PREFIX) + r"[a-z0-9][a-z0-9-]*$")
@@ -195,7 +195,8 @@ def sync_status(sop_dir):
         return line.rsplit(UNIT_TAG_PREFIX, 1)[1].strip()
     desired = {_name(l): l.rstrip() for l in compile_cron(units, os.getuid())}   # enabled units only
     live = {_name(s): s for s in (ln.rstrip() for ln in cur.splitlines()) if _UNIT_LINE_RE.search(s)}
-    return {u["name"]: desired.get(u["name"]) == live.get(u["name"]) for u in units}
+    names = {u["name"] for u in units} | set(live)   # current specs + any ORPHANED live tag: a deleted job's
+    return {name: desired.get(name) == live.get(name) for name in names}   # line lingers and still needs a sync
 
 
 EDITABLE_FIELDS = ("schedule", "description", "enabled")

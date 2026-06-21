@@ -1,7 +1,7 @@
 {
   "name": "smbos",
   "description": "SmbOS: an operating system for your small business. Claude captures how YOU do recurring tasks as SOPs, follows them instead of its defaults, and keeps them updated from your feedback.",
-  "version": "0.43.0",
+  "version": "0.44.0",
   "author": {
     "name": "Zak Kann",
     "email": "zak@zakkann.com"
