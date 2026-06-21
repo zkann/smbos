@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.45.0 (2026-06-21)
+
+- You can now create a job by describing it instead of writing the command. "+ New job" leads with "What should this job do?". Type the goal (like "process new support emails and raise any that are high-priority or urgent") and "Hand to Claude" opens a Claude Code session that designs and sets it up with you. The write-it-yourself form is one click away for when you already know the command.
+
 ## 0.44.0 (2026-06-21)
 
 - The System view is now a full job manager. Make a new job with the "+ New job" button (its name, what it runs, when, and a description, with the plain-English schedule preview), turn a job off or back on, or delete one (with a confirm). A turned-off job stays listed, shown as off, so you can switch it back on. Every change is saved and waits for you to sync, the same as editing a schedule.

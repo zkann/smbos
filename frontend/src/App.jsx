@@ -116,7 +116,8 @@ export default function App() {
   const [editForm, setEditForm] = useState({ schedule: '', description: '', enabled: true })
   const [confirmDel, setConfirmDel] = useState(false)              // delete confirm inside the edit modal
   const [creating, setCreating] = useState(false)                 // the create-job modal is open
-  const [createForm, setCreateForm] = useState({ name: '', kind: 'job', schedule: '', command: '', description: '' })
+  const [createMode, setCreateMode] = useState('describe')        // 'describe' (hand the intent to Claude) | 'manual'
+  const [createForm, setCreateForm] = useState({ name: '', kind: 'job', schedule: '', command: '', description: '', intent: '' })
   const [editErr, setEditErr] = useState(null)
   const [editBusy, setEditBusy] = useState(false)
   const [stale, setStale] = useState(false)
@@ -289,7 +290,7 @@ export default function App() {
   // updates at once (the new schedule + the 'needs sync' badge); on a bad value the server's reason
   // (e.g. "schedule has an out-of-range field") shows inline in the modal.
   const openEdit = (j) => { setEditForm({ schedule: j.schedule || '', description: j.description || '', enabled: j.enabled !== false }); setEditErr(null); setConfirmDel(false); setCreating(false); setEditing(j) }
-  const openCreate = () => { setCreateForm({ name: '', kind: 'job', schedule: '', command: '', description: '' }); setEditErr(null); setEditing(null); setCreating(true) }
+  const openCreate = () => { setCreateForm({ name: '', kind: 'job', schedule: '', command: '', description: '', intent: '' }); setCreateMode('describe'); setEditErr(null); setEditing(null); setCreating(true) }
   async function saveJob() {
     if (!editing || editBusy) return        // guard the Enter-key path too (the Save button is already disabled)
     // send only the fields that changed, so a description-only edit doesn't re-validate (and maybe reject)
@@ -345,6 +346,34 @@ export default function App() {
     } catch (e) {
       setEditErr(e.message)
     } finally {
+      setEditBusy(false)
+    }
+  }
+
+  async function saveBuild() {
+    if (editBusy) return
+    const intent = createForm.intent.trim()
+    if (!intent) { setEditErr('Describe what the job should do.'); return }
+    setEditBusy(true); setEditErr(null)
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 15000)   // recover the modal if the request hangs
+    try {
+      const res = await fetch('/api/job-build', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-SMBOS-Token': token },
+        body: JSON.stringify({ intent }),
+        signal: ctrl.signal,
+      })
+      if (!res.ok) {
+        let detail = `Couldn't start (${res.status}).`
+        try { const d = await res.json(); if (d && d.detail) detail = d.detail } catch (_) { /* keep generic */ }
+        throw new Error(detail)
+      }
+      setCreating(false)   // Claude Code opens in a new window to build it; the job lands once it's authored
+    } catch (e) {
+      setEditErr(e.name === 'AbortError' ? "The dashboard didn't respond. Try again." : e.message)
+    } finally {
+      clearTimeout(timer)
       setEditBusy(false)
     }
   }
@@ -1085,45 +1114,66 @@ export default function App() {
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => { if (e.key === 'Escape' && !editBusy) setCreating(false) }}>
           <div className="modal-title">New job</div>
-          <label className="modal-field">
-            <span>Name</span>
-            <input className="modal-input mono" value={createForm.name} autoFocus spellCheck={false}
-              placeholder="lowercase-with-hyphens"
-              onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))} />
-          </label>
-          <label className="modal-field">
-            <span>Type</span>
-            <select className="modal-input" value={createForm.kind}
-              onChange={(e) => setCreateForm((f) => ({ ...f, kind: e.target.value }))}>
-              <option value="job">Runs a command</option>
-              <option value="keychain-job">Kicks off an app (uses your keychain)</option>
-            </select>
-          </label>
-          <label className="modal-field">
-            <span>Schedule</span>
-            <input className="modal-input mono" value={createForm.schedule} spellCheck={false} placeholder="0 9 * * *"
-              onChange={(e) => setCreateForm((f) => ({ ...f, schedule: e.target.value }))} />
-            <span className="modal-preview">{describeCron(createForm.schedule) || ' '}</span>
-          </label>
-          {createForm.kind === 'job' && (
-            <label className="modal-field">
-              <span>Command</span>
-              <input className="modal-input mono" value={createForm.command} spellCheck={false}
-                placeholder="/usr/bin/python3 /path/script.py"
-                onChange={(e) => setCreateForm((f) => ({ ...f, command: e.target.value }))} />
-            </label>
+          {createMode === 'describe' ? (
+            <>
+              <label className="modal-field">
+                <span>What should this job do?</span>
+                <textarea className="modal-input modal-textarea" value={createForm.intent} autoFocus
+                  placeholder="e.g. process new support emails and raise any that are high-priority or urgent"
+                  onChange={(e) => setCreateForm((f) => ({ ...f, intent: e.target.value }))} />
+              </label>
+              <div className="modal-note">Claude Code opens in a new window to design and set it up with you, then you run <code>jobs sync</code>.</div>
+              {editErr && <div className="modal-err">{editErr}</div>}
+              <div className="modal-actions">
+                <button type="button" className="btn-ghost" onClick={() => setCreating(false)} disabled={editBusy}>Cancel</button>
+                <button type="button" className="btn-primary" onClick={saveBuild} disabled={editBusy}>{editBusy ? 'Opening…' : 'Hand to Claude'}</button>
+              </div>
+              <button type="button" className="btn-link modal-switch" onClick={() => { setEditErr(null); setCreateMode('manual') }} disabled={editBusy}>I'll write the command myself</button>
+            </>
+          ) : (
+            <>
+              <label className="modal-field">
+                <span>Name</span>
+                <input className="modal-input mono" value={createForm.name} autoFocus spellCheck={false}
+                  placeholder="lowercase-with-hyphens"
+                  onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))} />
+              </label>
+              <label className="modal-field">
+                <span>Type</span>
+                <select className="modal-input" value={createForm.kind}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, kind: e.target.value }))}>
+                  <option value="job">Runs a command</option>
+                  <option value="keychain-job">Kicks off an app (uses your keychain)</option>
+                </select>
+              </label>
+              <label className="modal-field">
+                <span>Schedule</span>
+                <input className="modal-input mono" value={createForm.schedule} spellCheck={false} placeholder="0 9 * * *"
+                  onChange={(e) => setCreateForm((f) => ({ ...f, schedule: e.target.value }))} />
+                <span className="modal-preview">{describeCron(createForm.schedule) || ' '}</span>
+              </label>
+              {createForm.kind === 'job' && (
+                <label className="modal-field">
+                  <span>Command</span>
+                  <input className="modal-input mono" value={createForm.command} spellCheck={false}
+                    placeholder="/usr/bin/python3 /path/script.py"
+                    onChange={(e) => setCreateForm((f) => ({ ...f, command: e.target.value }))} />
+                </label>
+              )}
+              <label className="modal-field">
+                <span>Description</span>
+                <input className="modal-input" value={createForm.description}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, description: e.target.value }))} />
+              </label>
+              {editErr && <div className="modal-err">{editErr}</div>}
+              <div className="modal-actions">
+                <button type="button" className="btn-ghost" onClick={() => setCreating(false)} disabled={editBusy}>Cancel</button>
+                <button type="button" className="btn-primary" onClick={saveCreate} disabled={editBusy}>{editBusy ? 'Creating…' : 'Create'}</button>
+              </div>
+              <div className="modal-note">Takes effect on the next <code>jobs sync</code>.</div>
+              <button type="button" className="btn-link modal-switch" onClick={() => { setEditErr(null); setCreateMode('describe') }} disabled={editBusy}>Describe it instead</button>
+            </>
           )}
-          <label className="modal-field">
-            <span>Description</span>
-            <input className="modal-input" value={createForm.description}
-              onChange={(e) => setCreateForm((f) => ({ ...f, description: e.target.value }))} />
-          </label>
-          {editErr && <div className="modal-err">{editErr}</div>}
-          <div className="modal-actions">
-            <button type="button" className="btn-ghost" onClick={() => setCreating(false)} disabled={editBusy}>Cancel</button>
-            <button type="button" className="btn-primary" onClick={saveCreate} disabled={editBusy}>{editBusy ? 'Creating…' : 'Create'}</button>
-          </div>
-          <div className="modal-note">Takes effect on the next <code>jobs sync</code>.</div>
         </div>
       </div>
     )}
