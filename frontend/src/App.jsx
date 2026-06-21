@@ -710,7 +710,12 @@ export default function App() {
     )
 
   // System view: per-job health + a one-line flow summary, from the SSE 'system' frame.
-  const fmtAge = (m) => (m == null ? 'no run' : m < 60 ? `${m}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`)
+  const fmtAge = (m) => (m == null ? 'no run' : m < 60 ? `${m}m ago` : m < 1440 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`)
+  const fmtWhen = (iso) => {
+    const d = new Date(iso)
+    if (Number.isNaN(d.getTime())) return iso     // new Date doesn't throw on a bad string; guard "Invalid Date"
+    return d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  }
   const pipe = system?.pipeline || {}
   const jobOpen = (pipe.routes || {})['job.routed'] || 0
   const systemBody = system ? (
@@ -719,8 +724,8 @@ export default function App() {
         <div className="system-job" key={j.name || i}>
           <span className={`sysdot health-${j.health}`} title={j.health} />
           <span className="system-job-name">{j.name}</span>
-          <span className="system-job-sched">{j.schedule}</span>
-          <span className="system-job-age">{fmtAge(j.age_min)}</span>
+          <span className="system-job-sched" title={j.schedule_human || j.schedule}>{j.schedule}</span>
+          <span className="system-job-age" title={j.last_run ? `last run ${fmtWhen(j.last_run)}` : 'no successful run yet'}>{fmtAge(j.age_min)}</span>
         </div>
       ))}
       <div className="system-flow">{jobOpen} job open · eval {pipe.eval_feedback ?? 0} · {pipe.waiting_tasks ?? 0} waiting</div>

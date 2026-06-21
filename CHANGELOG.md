@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.40.1 (2026-06-21)
+
+- The System view's job rows are easier to read. Hover a schedule to see it in plain English (like "every day at 8:30 AM") instead of raw scheduling syntax, and the last-run time on the right now reads as a duration ("37h ago"), set apart from the schedule, with the exact run time on hover. Before this the schedule and the last-run value ran together, and that trailing number was easy to misread.
+
 ## 0.40.0 (2026-06-21)
 
 - The dashboard now has a System view, so you can see at a glance that everything is running. The parked tab carries a health dot (green when your scheduled jobs are on time, amber when one looks stalled), and a System panel lists each job, when it last ran, and what is flowing through (open job routes, the eval signal, waiting tasks). Before this there was no window into the background jobs, so a silently stalled inbox check could go unnoticed. A job opts into the health readout by declaring a `liveness_file` in its spec.
