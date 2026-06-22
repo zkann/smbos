@@ -45,6 +45,30 @@ function inFlight(sopDir) {
     db.prepare("SELECT * FROM task WHERE status='in_flight' ORDER BY priority DESC, created_at ASC, id ASC").all())
 }
 
+// The tracker overview: active (non-archived) tracked entities, soonest next_at first (nulls last),
+// then priority. The heavy `dossier` blob is omitted here (getTracker fetches one row with it).
+// Mirrors state_store.trackers; tolerates a pre-v10 DB with no tracker table (returns []).
+function trackers(sopDir) {
+  if (!fs.existsSync(dbPath(sopDir))) return []
+  try {
+    return withDb(sopDir, (db) => db.prepare(
+      'SELECT id,domain,kind,title,status,next_at,next_label,url,priority,source_ref,assembled_at,archived,created_at,updated_at'
+      + ' FROM tracker WHERE archived=0 ORDER BY (next_at IS NULL), next_at, priority DESC, id').all())
+  } catch (_) { return [] }   // table absent (DB predates v10)
+}
+
+// One tracker WITH its dossier (the detail panel). null if absent, the table is missing, or id is not a
+// positive integer. Mirrors state_store.get_tracker.
+function getTracker(sopDir, id) {
+  const raw = String(id ?? '').trim()
+  if (!/^[1-9]\d*$/.test(raw) || !fs.existsSync(dbPath(sopDir))) return null   // reject partial-numeric ('7abc')
+  const tid = Number(raw)
+  if (!Number.isSafeInteger(tid)) return null
+  try {
+    return withDb(sopDir, (db) => db.prepare('SELECT * FROM tracker WHERE id=?').get(tid) || null)
+  } catch (_) { return null }
+}
+
 // Recent run rows, newest first (mirrors state_store.recent_runs). The liveness `state` is added by
 // liveness.runsWithLiveness, not here.
 function recentRuns(sopDir, limit = 50) {
@@ -259,4 +283,4 @@ function parseFrontmatter(text) {
   return out
 }
 
-module.exports = { plate, queue, procedures, pending, inFlight, recentRuns }
+module.exports = { plate, queue, procedures, pending, inFlight, recentRuns, trackers, getTracker }

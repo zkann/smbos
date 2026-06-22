@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.46.0 (2026-06-22)
+
+- A new tracker overview on the dashboard: tracked items with their status and what's next, most-recent first. Click one to open its full assembled context (its dossier) in a panel. The list stays light; each item's dossier loads when you open it.
+
 ## 0.45.0 (2026-06-21)
 
 - You can now create a job by describing it instead of writing the command. "+ New job" leads with "What should this job do?". Type the goal (like "process new support emails and raise any that are high-priority or urgent") and "Hand to Claude" opens a Claude Code session that designs and sets it up with you. The write-it-yourself form is one click away for when you already know the command.

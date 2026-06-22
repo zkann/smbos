@@ -111,6 +111,8 @@ const SERVED = {
   '/api/pending': (sopDir) => ({ pending: store.pending(sopDir) }),
   '/api/inflight': (sopDir) => ({ inflight: liveness.inflightWithLiveness(store, sopDir) }),
   '/api/runs': (sopDir) => ({ runs: liveness.runsWithLiveness(store, sopDir) }),
+  '/api/trackers': (sopDir) => ({ trackers: store.trackers(sopDir) }),
+  '/api/tracker': (sopDir, q) => ({ tracker: store.getTracker(sopDir, q && q.get('id')) }),
 }
 
 // Constant-time token compare (the broker now gates the reads it serves, mirroring FastAPI's check).
@@ -231,7 +233,7 @@ function createBroker({ targetHost = '127.0.0.1', targetPort, sopDir }) {
       }
       let payload
       try {
-        payload = serve(sopDir)
+        payload = serve(sopDir, new URL(req.url, 'http://x').searchParams)
       } catch (_) {
         res.writeHead(500, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ detail: 'could not read the dashboard state' }))

@@ -32,6 +32,46 @@ test('plate: only waiting tasks, ordered priority desc, then created_at asc, the
   assert.equal(store.plate(tmpSop()).length, 0)  // no state.db -> empty, no throw
 })
 
+function seedTrackers(dir, rows) {
+  const db = new DatabaseSync(path.join(dir, 'state.db'))
+  db.exec(`CREATE TABLE tracker (id INTEGER PRIMARY KEY, domain TEXT, kind TEXT, title TEXT, status TEXT,
+    next_at TEXT, next_label TEXT, url TEXT, priority INTEGER DEFAULT 0, source_ref TEXT, dossier TEXT,
+    assembled_at TEXT, archived INTEGER DEFAULT 0, created_at TEXT, updated_at TEXT)`)
+  const ins = db.prepare('INSERT INTO tracker(id,domain,kind,title,status,next_at,priority,dossier,archived,created_at,updated_at)'
+    + ' VALUES(?,?,?,?,?,?,?,?,?,?,?)')
+  for (const t of rows) ins.run(t.id, 'deals', 'deal', t.title, t.status || null, t.next_at || null,
+    t.priority || 0, t.dossier || null, t.archived || 0, '2026-01-01', '2026-01-01')
+  db.close()
+}
+
+test('trackers: active only, soonest next_at first (nulls last) then priority; dossier omitted', () => {
+  const d = tmpSop()
+  seedTrackers(d, [
+    { id: 1, title: 'Later', next_at: '2026-07-01' },
+    { id: 2, title: 'Sooner', next_at: '2026-06-25' },
+    { id: 3, title: 'NoDate', priority: 5, dossier: 'X' },
+    { id: 4, title: 'Archived', archived: 1 },                 // excluded from the active list
+  ])
+  const rows = store.trackers(d)
+  assert.deepEqual(rows.map((r) => r.title), ['Sooner', 'Later', 'NoDate'])
+  assert.equal('dossier' in rows[0], false)                    // the list omits the heavy blob
+  assert.equal(store.trackers(tmpSop()).length, 0)             // no db -> empty, no throw
+  const taskOnly = tmpSop()
+  seedTasks(taskOnly, [{ id: 1, subject: 'a', status: 'waiting' }])
+  assert.equal(store.trackers(taskOnly).length, 0)             // pre-v10 db (no tracker table) -> empty, no throw
+})
+
+test('getTracker: one row WITH its dossier; null on bad id / absent / missing table', () => {
+  const d = tmpSop()
+  seedTrackers(d, [{ id: 7, title: 'Acme', dossier: 'the assembled context' }])
+  assert.equal(store.getTracker(d, 7).dossier, 'the assembled context')
+  assert.equal(store.getTracker(d, '7').title, 'Acme')         // string id coerced to int
+  assert.equal(store.getTracker(d, 999), null)                 // absent
+  assert.equal(store.getTracker(d, 'abc'), null)               // non-numeric id
+  assert.equal(store.getTracker(d, '7abc'), null)              // partial-numeric id rejected
+  assert.equal(store.getTracker(tmpSop(), 1), null)            // no db -> null, no throw
+})
+
 test('queue: only status:queued .md files; project is basenamed', () => {
   const d = tmpSop(); fs.mkdirSync(path.join(d, 'queue'))
   fs.writeFileSync(path.join(d, 'queue', 'a.md'), '---\nsop: weekly\nstatus: queued\nproject: /home/x/acme\n---\nbody')

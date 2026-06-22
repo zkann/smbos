@@ -543,3 +543,21 @@ ol.list > li::before {
 .compact .list > li.inflight { flex-wrap: wrap; row-gap: 7px; }
 .compact .list > li.inflight > .dot { display: none; }
 .compact .list > li.inflight > .subj { flex-basis: 100%; }
+
+/* tracker overview + dossier detail (the <ul> reuses .list; .tracker-row restyles the row) */
+.tracker-row-li { padding: 0; }   /* the inner <button> owns the padding + the hover surface */
+.tracker-row { display: flex; width: 100%; align-items: baseline; gap: 8px; padding: 7px 6px;
+  background: none; border: none; color: inherit; font: inherit; text-align: left; border-radius: var(--radius); cursor: pointer; }
+.tracker-row:hover, .tracker-row:focus-visible { background: var(--card-raised); outline: none; }
+.tracker-row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tracker-row-status { font-size: 11px; color: var(--muted-fg); text-transform: lowercase; white-space: nowrap; }
+.tracker-more { margin-top: 6px; }
+.tracker-modal { max-width: 580px; width: 92vw; }
+.tracker-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: -2px 0 10px; font-size: 12px; }
+.tracker-meta .muted { color: var(--muted-fg); }
+.tracker-link { color: var(--primary); text-decoration: none; }
+.tracker-link:hover { text-decoration: underline; }
+.tracker-dossier { white-space: pre-wrap; overflow-wrap: break-word; max-height: 52vh; overflow: auto; margin: 0;
+  font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.5; color: var(--foreground);
+  background: var(--input); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; }
+.tracker-empty { color: var(--muted-fg); font-size: 13px; padding: 16px 4px; }
