@@ -110,6 +110,64 @@ def test_migration_v7_to_v8_adds_provenance_columns(tmp_path):
     assert row["subject"] == "old task" and row["why"] is None  # pre-existing row gets NULL
 
 
+# --- tracker (v10) -------------------------------------------------------------
+
+def test_v10_migration_adds_tracker_table(tmp_path):
+    # a pre-v10 DB gains the tracker table on open and then accepts tracker writes
+    raw = sqlite3.connect(str(tmp_path / ss.DB_NAME))
+    raw.execute("PRAGMA user_version=9")
+    raw.close()
+    tid = ss.upsert_tracker(tmp_path, "deals", "deal", "Acme", source_ref="acme")   # connect() migrates 9->10
+    with ss.connect(tmp_path) as conn:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == ss.SCHEMA_VERSION
+        assert ss._table_exists(conn, "tracker")
+    assert ss.get_tracker(tmp_path, tid)["title"] == "Acme"
+
+
+def test_tracker_upsert_insert_and_list(tmp_path):
+    tid = ss.upsert_tracker(tmp_path, "deals", "deal", "Acme deal", status="negotiating",
+                            source_ref="acme", dossier="ctx", assembled_at="2026-06-22T00:00:00+00:00")
+    rows = ss.trackers(tmp_path)
+    assert len(rows) == 1 and rows[0]["title"] == "Acme deal" and rows[0]["status"] == "negotiating"
+    assert "dossier" not in rows[0]                        # the list omits the heavy blob
+    full = ss.get_tracker(tmp_path, tid)
+    assert full["dossier"] == "ctx" and full["assembled_at"].startswith("2026-06-22")
+
+
+def test_tracker_upsert_idempotent_by_source(tmp_path):
+    a = ss.upsert_tracker(tmp_path, "deals", "deal", "Acme", source_ref="acme", dossier="v1")
+    b = ss.upsert_tracker(tmp_path, "deals", "deal", "Acme Corp", source_ref="acme", dossier="v2")
+    assert a == b                                          # same (domain, source_ref) -> updated in place
+    rows = ss.trackers(tmp_path)
+    assert len(rows) == 1 and rows[0]["title"] == "Acme Corp"
+    assert ss.get_tracker(tmp_path, a)["dossier"] == "v2"  # the dossier cache refreshed
+
+
+def test_tracker_status_none_leaves_existing(tmp_path):
+    tid = ss.upsert_tracker(tmp_path, "deals", "deal", "Acme", status="won", source_ref="acme")
+    ss.upsert_tracker(tmp_path, "deals", "deal", "Acme", status=None, source_ref="acme", dossier="x")
+    assert ss.get_tracker(tmp_path, tid)["status"] == "won"   # preserved when status omitted
+    ss.upsert_tracker(tmp_path, "deals", "deal", "Acme", status="lost", source_ref="acme")
+    assert ss.get_tracker(tmp_path, tid)["status"] == "lost"  # refreshed when supplied
+
+
+def test_tracker_archive_sticks_across_resync(tmp_path):
+    tid = ss.upsert_tracker(tmp_path, "deals", "deal", "Acme", source_ref="acme")
+    ss.archive_tracker(tmp_path, tid)
+    assert ss.trackers(tmp_path) == []                              # hidden from the active list
+    assert len(ss.trackers(tmp_path, include_archived=True)) == 1   # still present
+    ss.upsert_tracker(tmp_path, "deals", "deal", "Acme", source_ref="acme", dossier="new")  # a re-sync
+    assert ss.trackers(tmp_path) == []                             # must NOT un-archive
+    assert ss.get_tracker(tmp_path, tid)["dossier"] == "new"       # but the dossier still refreshed
+
+
+def test_tracker_list_orders_soonest_next_first(tmp_path):
+    ss.upsert_tracker(tmp_path, "deals", "deal", "Later", next_at="2026-07-01", source_ref="a")
+    ss.upsert_tracker(tmp_path, "deals", "deal", "Sooner", next_at="2026-06-25", source_ref="b")
+    ss.upsert_tracker(tmp_path, "deals", "deal", "NoDate", source_ref="c")
+    assert [t["title"] for t in ss.trackers(tmp_path)] == ["Sooner", "Later", "NoDate"]
+
+
 def test_provenance_why_refreshes_producer_sopid_set_once(tmp_path):
     # the dossier provenance refresh policy: why REFRESHES on re-import; producer/sop_id are SET-ONCE
     # (COALESCE), so a later sync that changes or omits them never overwrites the originals.

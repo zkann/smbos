@@ -25,7 +25,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 9  # bump when SCHEMA_STATEMENTS changes; migrations key off PRAGMA user_version
+SCHEMA_VERSION = 10  # bump when SCHEMA_STATEMENTS changes; migrations key off PRAGMA user_version
 # v2: partial unique index on (domain, source_ref) so imports can upsert idempotently.
 # v3: run.summary holds the run's one-line "what it did" line, surfaced on Recent runs.
 # v4: task.action_url -- when set, the dashboard leads with "Open" (this link) over "Pick up".
@@ -37,6 +37,9 @@ SCHEMA_VERSION = 9  # bump when SCHEMA_STATEMENTS changes; migrations key off PR
 # v8: task.why / producer / sop_id -- the dossier's provenance. why = the producer's plain-English reason
 #     this task is on the plate (REFRESHES on re-import); producer = the workflow that made it and sop_id =
 #     its governing SOP (both SET-ONCE via COALESCE, so a later sync that omits them never blanks them).
+# v10: tracker -- a generic "tracked entity with an assembled dossier" (a client engagement, a deal, an
+#      onboarding). Higher-level than a task: a status/stage, an optional next-date, and a regenerable
+#      dossier cache + its assembled_at freshness. Upsert-by (domain, source_ref) like task; status FREE TEXT.
 DB_NAME = "state.db"
 BUSY_TIMEOUT_MS = 5000
 
@@ -128,6 +131,30 @@ SCHEMA_STATEMENTS = (
         created_at TEXT NOT NULL,        -- ISO-8601 UTC from _now()
         UNIQUE (source, item_id, signal)
     )""",
+    # v10: a generic tracked entity (a client engagement / deal / onboarding) carrying a status/stage and
+    # a REGENERABLE dossier cache. Upsert-by (domain, source_ref) like task; status is free text (the
+    # producer defines its own stages). The dossier is never the source of truth -- it can be rebuilt.
+    """CREATE TABLE IF NOT EXISTS tracker (
+        id INTEGER PRIMARY KEY,
+        domain TEXT NOT NULL,        -- the producer's namespace (groups related trackers)
+        kind TEXT NOT NULL,          -- generic type within the domain
+        title TEXT NOT NULL,         -- the entity name shown on the row
+        status TEXT,                 -- the stage; FREE TEXT (producer-defined, not an enum)
+        next_at TEXT,                -- optional ISO-8601 date of the next thing (sort + at-a-glance)
+        next_label TEXT,             -- optional what the next thing is
+        url TEXT,                    -- optional primary link
+        priority INTEGER NOT NULL DEFAULT 0,
+        source_ref TEXT,             -- join key for idempotent upsert (the producer's stable id)
+        dossier TEXT,                -- the assembled context: a REGENERABLE cache, never the source of truth
+        assembled_at TEXT,           -- when the dossier cache was last built (freshness)
+        archived INTEGER NOT NULL DEFAULT 0,  -- hide from the active list (closed) without deleting
+        created_at TEXT NOT NULL,    -- ISO-8601 UTC from _now()
+        updated_at TEXT NOT NULL
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_tracker_source ON tracker(domain, source_ref) WHERE source_ref IS NOT NULL",
+    # index columns mirror trackers()' ORDER BY exactly (incl. the next_at-is-null term) so the
+    # planner can back the sort instead of re-sorting the scoped rows.
+    "CREATE INDEX IF NOT EXISTS idx_tracker_list ON tracker(archived, (next_at IS NULL), next_at, priority DESC, id)",
 )
 
 
@@ -375,6 +402,77 @@ def set_task_status(sop_dir, task_id, status):
         raise StateStoreError(f"invalid task status {status!r}; expected one of {sorted(TASK_STATUSES)}")
     with connect(sop_dir) as conn:
         conn.execute("UPDATE task SET status=?, updated_at=? WHERE id=?", (status, _now(), task_id))
+        conn.commit()
+
+
+# --- trackers: a generic "tracked entity + assembled dossier" (client engagement / deal / onboarding) --
+
+_TRACKER_COLS = ("domain,kind,title,status,next_at,next_label,url,priority,source_ref,dossier,"
+                 "assembled_at,archived,created_at,updated_at")
+# the heavy dossier blob is omitted from the list query (use get_tracker for one row's full context)
+_TRACKER_LIST_COLS = ("id,domain,kind,title,status,next_at,next_label,url,priority,source_ref,"
+                      "assembled_at,archived,created_at,updated_at")
+
+
+def upsert_tracker(sop_dir, domain, kind, title, status=None, next_at=None, next_label=None,
+                   url=None, priority=0, source_ref=None, dossier=None, assembled_at=None):
+    """Insert a tracker, or update the one with the same (domain, source_ref). The dossier and its
+    assembled_at always REFRESH (a regenerable cache). status=None leaves an existing row's status
+    unchanged (so a later local edit isn't clobbered by a re-sync); pass a status to refresh it.
+    `archived` is never touched on update, so archiving sticks across syncs. Returns the tracker id."""
+    source_ref = _norm_source(source_ref)
+    now = _now()
+    vals = (domain, kind, title, status, next_at, next_label, url, priority, source_ref, dossier,
+            assembled_at, 0, now, now)
+    with connect(sop_dir) as conn:
+        if source_ref is None:
+            cur = conn.execute("INSERT INTO tracker(" + _TRACKER_COLS + ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", vals)
+            conn.commit()
+            return cur.lastrowid
+        # refresh status only when the caller supplied one (set_status is a fixed literal -> no injection).
+        set_status = "status=excluded.status, " if status is not None else ""
+        conn.execute(
+            "INSERT INTO tracker(" + _TRACKER_COLS + ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            " ON CONFLICT(domain, source_ref) WHERE source_ref IS NOT NULL DO UPDATE SET"
+            "   kind=excluded.kind, title=excluded.title, " + set_status +
+            "   next_at=excluded.next_at, next_label=excluded.next_label, url=excluded.url,"
+            "   priority=excluded.priority, dossier=excluded.dossier, assembled_at=excluded.assembled_at,"
+            "   updated_at=excluded.updated_at",   # archived intentionally NOT refreshed (archiving sticks)
+            vals,
+        )
+        row = conn.execute("SELECT id FROM tracker WHERE domain=? AND source_ref=?", (domain, source_ref)).fetchone()
+        return row["id"]
+
+
+def trackers(sop_dir, domain=None, include_archived=False):
+    """List trackers for an overview (the heavy dossier omitted; use get_tracker for one). Active first,
+    then soonest next_at (nulls last), then priority. Pass domain to scope, include_archived to show closed."""
+    where, params = [], []
+    if domain is not None:
+        where.append("domain=?")
+        params.append(domain)
+    if not include_archived:
+        where.append("archived=0")
+    sql = "SELECT " + _TRACKER_LIST_COLS + " FROM tracker"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY archived, (next_at IS NULL), next_at, priority DESC, id"
+    with connect(sop_dir) as conn:
+        return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+
+def get_tracker(sop_dir, tracker_id):
+    """One tracker WITH its dossier (for a detail view). None if absent."""
+    with connect(sop_dir) as conn:
+        r = conn.execute("SELECT * FROM tracker WHERE id=?", (tracker_id,)).fetchone()
+        return dict(r) if r else None
+
+
+def archive_tracker(sop_dir, tracker_id, archived=True):
+    """Hide (or restore) a tracker from the active list without deleting it."""
+    with connect(sop_dir) as conn:
+        conn.execute("UPDATE tracker SET archived=?, updated_at=? WHERE id=?",
+                     (1 if archived else 0, _now(), tracker_id))
         conn.commit()
 
 
