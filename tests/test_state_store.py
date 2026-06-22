@@ -664,3 +664,43 @@ def test_routed_item_table_present_on_fresh_db(tmp_path):
         assert conn.execute("PRAGMA user_version").fetchone()[0] == ss.SCHEMA_VERSION
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert "routed_item" in tables
+
+
+# --- tracker attention fields (v11) --------------------------------------------
+
+def test_v11_migration_adds_tracker_attention_columns(tmp_path):
+    # a v10 tracker table (no attention columns) gains them on open
+    raw = sqlite3.connect(str(tmp_path / ss.DB_NAME))
+    raw.execute("CREATE TABLE tracker (id INTEGER PRIMARY KEY, domain TEXT, kind TEXT, title TEXT, status TEXT,"
+                " next_at TEXT, next_label TEXT, url TEXT, priority INTEGER, source_ref TEXT, dossier TEXT,"
+                " assembled_at TEXT, archived INTEGER, created_at TEXT, updated_at TEXT)")
+    raw.execute("PRAGMA user_version=10")
+    raw.commit()
+    raw.close()
+    tid = ss.upsert_tracker(tmp_path, "deals", "deal", "Acme", source_ref="acme", attention="your_move")
+    with ss.connect(tmp_path) as conn:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == ss.SCHEMA_VERSION
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(tracker)").fetchall()}
+        assert {"attention", "open_loop", "action", "action_key"} <= cols
+    assert ss.get_tracker(tmp_path, tid)["attention"] == "your_move"
+
+
+def test_tracker_attention_refresh_when_provided(tmp_path):
+    tid = ss.upsert_tracker(tmp_path, "deals", "deal", "Acme", source_ref="acme", attention="your_move",
+                            open_loop="reply to Dana", action="Reply with times", action_key="k1")
+    ss.upsert_tracker(tmp_path, "deals", "deal", "Acme", source_ref="acme", dossier="x")  # header-only re-sync
+    t = ss.get_tracker(tmp_path, tid)
+    assert t["attention"] == "your_move" and t["action"] == "Reply with times" and t["action_key"] == "k1"
+    ss.upsert_tracker(tmp_path, "deals", "deal", "Acme", source_ref="acme",
+                      attention="waiting", action="", action_key="k2")          # refresh + '' clears action
+    t = ss.get_tracker(tmp_path, tid)
+    assert t["attention"] == "waiting" and t["action"] == "" and t["action_key"] == "k2"
+
+
+def test_tracker_list_exposes_attention_omits_action_key(tmp_path):
+    ss.upsert_tracker(tmp_path, "deals", "deal", "Acme", source_ref="acme", attention="your_move",
+                      open_loop="reply", action="Reply now", action_key="k1")
+    row = ss.trackers(tmp_path)[0]
+    assert row["attention"] == "your_move" and row["open_loop"] == "reply" and row["action"] == "Reply now"
+    assert "action_key" not in row and "dossier" not in row            # internal/heavy fields omitted
+    assert ss.get_tracker(tmp_path, row["id"])["action_key"] == "k1"   # get_tracker has it
