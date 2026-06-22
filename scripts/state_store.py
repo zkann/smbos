@@ -25,7 +25,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 10  # bump when SCHEMA_STATEMENTS changes; migrations key off PRAGMA user_version
+SCHEMA_VERSION = 11  # bump when SCHEMA_STATEMENTS changes; migrations key off PRAGMA user_version
 # v2: partial unique index on (domain, source_ref) so imports can upsert idempotently.
 # v3: run.summary holds the run's one-line "what it did" line, surfaced on Recent runs.
 # v4: task.action_url -- when set, the dashboard leads with "Open" (this link) over "Pick up".
@@ -40,6 +40,11 @@ SCHEMA_VERSION = 10  # bump when SCHEMA_STATEMENTS changes; migrations key off P
 # v10: tracker -- a generic "tracked entity with an assembled dossier" (a client engagement, a deal, an
 #      onboarding). Higher-level than a task: a status/stage, an optional next-date, and a regenerable
 #      dossier cache + its assembled_at freshness. Upsert-by (domain, source_ref) like task; status FREE TEXT.
+# v11: tracker.attention / open_loop / action / action_key -- "whose move is it" on the tracked entity.
+#      attention = the state (e.g. your_move|waiting|scheduled|closed|quiet); open_loop = a one-line "what's
+#      pending"; action = a producer-written suggested next step; action_key = the change key it was computed
+#      for (so the producer recomputes the costly action only when the underlying conversation changed). All
+#      four are refresh-when-provided (COALESCE), so a header-only sync that omits them never blanks them.
 DB_NAME = "state.db"
 BUSY_TIMEOUT_MS = 5000
 
@@ -147,6 +152,10 @@ SCHEMA_STATEMENTS = (
         source_ref TEXT,             -- join key for idempotent upsert (the producer's stable id)
         dossier TEXT,                -- the assembled context: a REGENERABLE cache, never the source of truth
         assembled_at TEXT,           -- when the dossier cache was last built (freshness)
+        attention TEXT,              -- v11: "whose move is it" state (producer-defined)
+        open_loop TEXT,              -- v11: one-line "what's pending"
+        action TEXT,                 -- v11: a producer-written suggested next step
+        action_key TEXT,             -- v11: the change key `action` was computed for (recompute gate)
         archived INTEGER NOT NULL DEFAULT 0,  -- hide from the active list (closed) without deleting
         created_at TEXT NOT NULL,    -- ISO-8601 UTC from _now()
         updated_at TEXT NOT NULL
@@ -268,6 +277,13 @@ def _apply_migrations(conn, from_ver):
         for col, decl in (("why", "TEXT"), ("producer", "TEXT"), ("sop_id", "TEXT")):
             if col not in cols:
                 conn.execute(f"ALTER TABLE task ADD COLUMN {col} {decl}")
+    # 10 -> 11: add the tracker attention columns to an existing tracker table (CREATE ... IF NOT EXISTS
+    # won't alter it). Looped over FIXED literals -> idempotent + injection-free. No-op on a fresh DB.
+    if from_ver < 11 and _table_exists(conn, "tracker"):
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(tracker)").fetchall()]
+        for col in ("attention", "open_loop", "action", "action_key"):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE tracker ADD COLUMN {col} TEXT")
     for stmt in SCHEMA_STATEMENTS:
         conn.execute(stmt)
 
@@ -408,35 +424,43 @@ def set_task_status(sop_dir, task_id, status):
 # --- trackers: a generic "tracked entity + assembled dossier" (client engagement / deal / onboarding) --
 
 _TRACKER_COLS = ("domain,kind,title,status,next_at,next_label,url,priority,source_ref,dossier,"
-                 "assembled_at,archived,created_at,updated_at")
-# the heavy dossier blob is omitted from the list query (use get_tracker for one row's full context)
+                 "assembled_at,attention,open_loop,action,action_key,archived,created_at,updated_at")
+# the heavy dossier blob (+ the internal action_key) are omitted from the list query; get_tracker has all
 _TRACKER_LIST_COLS = ("id,domain,kind,title,status,next_at,next_label,url,priority,source_ref,"
-                      "assembled_at,archived,created_at,updated_at")
+                      "assembled_at,attention,open_loop,action,archived,created_at,updated_at")
 
 
 def upsert_tracker(sop_dir, domain, kind, title, status=None, next_at=None, next_label=None,
-                   url=None, priority=0, source_ref=None, dossier=None, assembled_at=None):
+                   url=None, priority=0, source_ref=None, dossier=None, assembled_at=None,
+                   attention=None, open_loop=None, action=None, action_key=None):
     """Insert a tracker, or update the one with the same (domain, source_ref). The dossier and its
-    assembled_at always REFRESH (a regenerable cache). status=None leaves an existing row's status
-    unchanged (so a later local edit isn't clobbered by a re-sync); pass a status to refresh it.
-    `archived` is never touched on update, so archiving sticks across syncs. Returns the tracker id."""
+    assembled_at always REFRESH (a regenerable cache). status and the v11 attention fields
+    (attention/open_loop/action/action_key) are refresh-when-provided: None leaves an existing value
+    unchanged (so a header-only sync that omits them, or a local edit, isn't clobbered); pass a value to
+    refresh, or '' to clear. `archived` is never touched on update, so archiving sticks. Returns the id."""
     source_ref = _norm_source(source_ref)
     now = _now()
     vals = (domain, kind, title, status, next_at, next_label, url, priority, source_ref, dossier,
-            assembled_at, 0, now, now)
+            assembled_at, attention, open_loop, action, action_key, 0, now, now)
     with connect(sop_dir) as conn:
         if source_ref is None:
-            cur = conn.execute("INSERT INTO tracker(" + _TRACKER_COLS + ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", vals)
+            cur = conn.execute("INSERT INTO tracker(" + _TRACKER_COLS + ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", vals)
             conn.commit()
             return cur.lastrowid
         # refresh status only when the caller supplied one (set_status is a fixed literal -> no injection).
         set_status = "status=excluded.status, " if status is not None else ""
         conn.execute(
-            "INSERT INTO tracker(" + _TRACKER_COLS + ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            "INSERT INTO tracker(" + _TRACKER_COLS + ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
             " ON CONFLICT(domain, source_ref) WHERE source_ref IS NOT NULL DO UPDATE SET"
             "   kind=excluded.kind, title=excluded.title, " + set_status +
             "   next_at=excluded.next_at, next_label=excluded.next_label, url=excluded.url,"
             "   priority=excluded.priority, dossier=excluded.dossier, assembled_at=excluded.assembled_at,"
+            # the attention fields refresh only when provided (COALESCE keeps the existing on a NULL), so a
+            # header-only sync that omits them never blanks the attention the dossier sync set.
+            "   attention=COALESCE(excluded.attention, attention),"
+            "   open_loop=COALESCE(excluded.open_loop, open_loop),"
+            "   action=COALESCE(excluded.action, action),"
+            "   action_key=COALESCE(excluded.action_key, action_key),"
             "   updated_at=excluded.updated_at",   # archived intentionally NOT refreshed (archiving sticks)
             vals,
         )

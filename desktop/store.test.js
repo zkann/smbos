@@ -36,11 +36,13 @@ function seedTrackers(dir, rows) {
   const db = new DatabaseSync(path.join(dir, 'state.db'))
   db.exec(`CREATE TABLE tracker (id INTEGER PRIMARY KEY, domain TEXT, kind TEXT, title TEXT, status TEXT,
     next_at TEXT, next_label TEXT, url TEXT, priority INTEGER DEFAULT 0, source_ref TEXT, dossier TEXT,
-    assembled_at TEXT, archived INTEGER DEFAULT 0, created_at TEXT, updated_at TEXT)`)
-  const ins = db.prepare('INSERT INTO tracker(id,domain,kind,title,status,next_at,priority,dossier,archived,created_at,updated_at)'
-    + ' VALUES(?,?,?,?,?,?,?,?,?,?,?)')
+    assembled_at TEXT, attention TEXT, open_loop TEXT, action TEXT, action_key TEXT,
+    archived INTEGER DEFAULT 0, created_at TEXT, updated_at TEXT)`)
+  const ins = db.prepare('INSERT INTO tracker(id,domain,kind,title,status,next_at,priority,dossier,attention,open_loop,action,action_key,archived,created_at,updated_at)'
+    + ' VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
   for (const t of rows) ins.run(t.id, 'deals', 'deal', t.title, t.status || null, t.next_at || null,
-    t.priority || 0, t.dossier || null, t.archived || 0, '2026-01-01', '2026-01-01')
+    t.priority || 0, t.dossier || null, t.attention || null, t.open_loop || null, t.action || null,
+    t.action_key || null, t.archived || 0, '2026-01-01', '2026-01-01')
   db.close()
 }
 
@@ -55,6 +57,8 @@ test('trackers: active only, soonest next_at first (nulls last) then priority; d
   const rows = store.trackers(d)
   assert.deepEqual(rows.map((r) => r.title), ['Sooner', 'Later', 'NoDate'])
   assert.equal('dossier' in rows[0], false)                    // the list omits the heavy blob
+  assert.equal('attention' in rows[0], true)                   // v11 attention fields ARE served to the view
+  assert.equal('action_key' in rows[0], false)                 // ...but the internal recompute-gate isn't
   assert.equal(store.trackers(tmpSop()).length, 0)             // no db -> empty, no throw
   const taskOnly = tmpSop()
   seedTasks(taskOnly, [{ id: 1, subject: 'a', status: 'waiting' }])

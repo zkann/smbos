@@ -52,7 +52,7 @@ function trackers(sopDir) {
   if (!fs.existsSync(dbPath(sopDir))) return []
   try {
     return withDb(sopDir, (db) => db.prepare(
-      'SELECT id,domain,kind,title,status,next_at,next_label,url,priority,source_ref,assembled_at,archived,created_at,updated_at'
+      'SELECT id,domain,kind,title,status,next_at,next_label,url,priority,source_ref,assembled_at,attention,open_loop,action,archived,created_at,updated_at'
       + ' FROM tracker WHERE archived=0 ORDER BY (next_at IS NULL), next_at, priority DESC, id').all())
   } catch (_) { return [] }   // table absent (DB predates v10)
 }
