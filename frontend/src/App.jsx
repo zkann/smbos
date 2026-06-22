@@ -8,6 +8,49 @@ const STALE_MS = 15000 // ~1.5 missed heartbeats (server beats every ~10s)
 const token = window.__SMBOS_TOKEN__ || ''
 const TRACKER_CAP = 30   // tracker rows shown before the "show all" toggle (keeps the overview scannable)
 
+// Minimal, dependency-free markdown render for the assembled dossier (a controlled format plus email
+// snippets). Parses block-by-block into REACT elements, so text stays auto-escaped (no XSS from email
+// content) and links are gated to http(s) -- no innerHTML / dangerouslySetInnerHTML anywhere.
+function mdInline(text, key) {
+  const parts = []
+  const re = /(\*\*[^*]+\*\*|https?:\/\/[^\s)]+)/g
+  let last = 0
+  let m
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push(text.slice(last, m.index))
+    const tok = m[0]
+    if (tok.startsWith('**')) {
+      parts.push(<strong key={`${key}-${parts.length}`}>{tok.slice(2, -2)}</strong>)
+    } else {
+      const trail = tok.match(/[.,;:!?]+$/)                     // keep trailing sentence punctuation out of the href
+      const url = trail ? tok.slice(0, -trail[0].length) : tok
+      parts.push(<a key={`${key}-${parts.length}`} href={url} target="_blank" rel="noreferrer">{url}</a>)
+      if (trail) parts.push(trail[0])
+    }
+    last = m.index + tok.length
+  }
+  if (last < text.length) parts.push(text.slice(last))
+  return parts
+}
+
+function renderDossier(md) {
+  const out = []
+  let bullets = null
+  const flush = () => { if (bullets) { out.push(<ul key={`u${out.length}`} className="md-ul">{bullets}</ul>); bullets = null } }
+  ;(md || '').split('\n').forEach((line, i) => {
+    const q = line.replace(/^\s+/, '')
+    if (line.startsWith('## ')) { flush(); out.push(<div key={i} className="md-h">{mdInline(line.slice(3), i)}</div>) }
+    else if (line.startsWith('# ')) { flush(); out.push(<div key={i} className="md-h1">{mdInline(line.slice(2), i)}</div>) }
+    else if (line.startsWith('- ')) { (bullets = bullets || []).push(<li key={i}>{mdInline(line.slice(2), i)}</li>) }
+    else if (q.startsWith('> ')) { flush(); out.push(<div key={i} className="md-q">{mdInline(q.slice(2), i)}</div>) }
+    else if (/^_.+_$/.test(line.trim())) { flush(); out.push(<div key={i} className="md-muted">{line.trim().slice(1, -1)}</div>) }
+    else if (line.trim() === '') { flush(); out.push(<div key={i} className="md-sp" />) }
+    else { flush(); out.push(<div key={i} className="md-p">{mdInline(line, i)}</div>) }
+  })
+  flush()
+  return out
+}
+
 // The server annotates each run with a flock-derived `state` (running/stalled/done/error): a
 // run hard-killed without recording its finish reads as 'stalled' rather than a false 'running'.
 function runDot(r) {
@@ -1125,20 +1168,15 @@ export default function App() {
     </main>
     {trackerView && (
       <div className="modal-overlay" onClick={closeTracker}>
-        <div className="modal tracker-modal" role="dialog" aria-modal="true" aria-label="Tracker detail"
+        <div className="modal tracker-modal" role="dialog" aria-modal="true" aria-label={trackerView.title || 'Tracker detail'}
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => { if (e.key === 'Escape') closeTracker() }}>
-          <div className="modal-title">{trackerView.title}</div>
-          <div className="tracker-meta">
-            {trackerView.status && <span className="tracker-row-status">{trackerView.status}</span>}
-            {trackerView.url && /^https?:\/\//i.test(trackerView.url) && <a className="tracker-link" href={trackerView.url} target="_blank" rel="noreferrer">Open</a>}
-            {trackerView.assembled_at && <span className="muted">context assembled {fmtWhen(trackerView.assembled_at)}</span>}
-          </div>
-          {trackerBusy && !trackerView.dossier
-            ? <div className="tracker-empty">Assembling the context…</div>
-            : trackerView.dossier
-              ? <pre className="tracker-dossier">{trackerView.dossier}</pre>
-              : <div className="tracker-empty">No assembled context yet. The correspondence is pulled the next time this syncs.</div>}
+          {trackerView.dossier
+            ? <div className="tracker-dossier">{renderDossier(trackerView.dossier)}</div>
+            : <div className="tracker-loading">
+                <div className="md-h1">{trackerView.title}</div>
+                <div className="tracker-empty">{trackerBusy ? 'Assembling the context…' : 'No assembled context yet. The correspondence is pulled the next time this syncs.'}</div>
+              </div>}
           <div className="modal-actions">
             {/* autoFocus so the modal holds focus on open -> the Escape onKeyDown above can fire */}
             <button type="button" className="btn-ghost" autoFocus onClick={closeTracker}>Close</button>

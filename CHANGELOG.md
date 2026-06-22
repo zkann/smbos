@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.47.0 (2026-06-22)
+
+- The assembled-context panel now renders its formatting (headings, bold, links, bullet lists, quoted snippets) instead of showing the raw markdown, so it reads cleanly at a glance.
+
 ## 0.46.0 (2026-06-22)
 
 - A new tracker overview on the dashboard: tracked items with their status and what's next, most-recent first. Click one to open its full assembled context (its dossier) in a panel. The list stays light; each item's dossier loads when you open it.
