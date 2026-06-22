@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 // /api/launch, which opens a Claude session primed for the task and moves it to "in flight".
 const STALE_MS = 15000 // ~1.5 missed heartbeats (server beats every ~10s)
 const token = window.__SMBOS_TOKEN__ || ''
+const TRACKER_CAP = 30   // tracker rows shown before the "show all" toggle (keeps the overview scannable)
 
 // The server annotates each run with a flock-derived `state` (running/stalled/done/error): a
 // run hard-killed without recording its finish reads as 'stalled' rather than a false 'running'.
@@ -111,6 +112,13 @@ export default function App() {
   const [queued, setQueued] = useState([])
   const [runs, setRuns] = useState([])
   const [system, setSystem] = useState(null)  // {health, jobs[], pipeline} from the SSE 'system' frame
+  // tracker overview (fetched, not streamed -- it changes slowly): the list, the open row's detail
+  // (with its dossier), a loading flag, and the "show all" toggle.
+  const [trackers, setTrackers] = useState([])
+  const [trackerView, setTrackerView] = useState(null)
+  const [trackerBusy, setTrackerBusy] = useState(false)
+  const [showAllTrackers, setShowAllTrackers] = useState(false)
+  const trackerReq = useRef(0)   // bumped per open/close so a stale dossier fetch can't overwrite the view
   // the job editor modal: `editing` is the job being edited (null = closed), with its form + error/busy
   const [editing, setEditing] = useState(null)
   const [editForm, setEditForm] = useState({ schedule: '', description: '', enabled: true })
@@ -247,6 +255,7 @@ export default function App() {
       .then((d) => { if (d) { setSettings(d.settings); setBudgetInput(String(d.settings.budget)) } })
       .catch(() => {})
     refreshProcedures()
+    loadTrackers()
   }, [])
 
   const refreshProcedures = () =>
@@ -254,6 +263,28 @@ export default function App() {
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d) setProcedures(d.procedures) })
       .catch(() => {})
+
+  const loadTrackers = () =>
+    fetch(`/api/trackers?t=${encodeURIComponent(token)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d && Array.isArray(d.trackers)) setTrackers(d.trackers) })
+      .catch(() => {})
+
+  function closeTracker() { trackerReq.current += 1; setTrackerView(null); setTrackerBusy(false) }
+
+  // Open the detail modal: show the row's header at once, then fetch that one tracker WITH its assembled
+  // dossier (omitted from the list payload) and swap it in. A per-request token guards against a late
+  // response from a previous row (or after a close) clobbering the current view.
+  function openTracker(row) {
+    const req = (trackerReq.current += 1)
+    setTrackerView(row)
+    setTrackerBusy(true)
+    fetch(`/api/tracker?id=${encodeURIComponent(row.id)}&t=${encodeURIComponent(token)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (req === trackerReq.current && d && d.tracker) setTrackerView(d.tracker) })
+      .catch(() => {})
+      .finally(() => { if (req === trackerReq.current) setTrackerBusy(false) })
+  }
 
   // POST a procedure action (run/queue/prepare/pick-up) with the header token. busyVal marks the
   // row in flight; success clears it (the action's effect shows in Recent runs / a new session).
@@ -893,6 +924,31 @@ export default function App() {
     <div className="system empty">checking…</div>
   )
 
+  // Tracker overview: the active tracked entities, most-recent first. The section title is data-driven
+  // (the domain) so the public code stays generic. Click a row -> the detail modal fetches that one's
+  // assembled dossier (tracker.dossier, written by the producer).
+  const trackerDomain = trackers[0]?.domain || ''
+  const trackerTitle = trackerDomain ? trackerDomain[0].toUpperCase() + trackerDomain.slice(1) : 'Trackers'
+  const trackerBody = (
+    <div className="trackers">
+      <ul className="list tracker-list">
+        {trackers.slice(0, showAllTrackers ? trackers.length : TRACKER_CAP).map((t) => (
+          <li key={t.id} className="tracker-row-li">
+            <button type="button" className="tracker-row" onClick={() => openTracker(t)}>
+              <span className="tracker-row-title">{t.title}</span>
+              {t.status && <span className="tracker-row-status">{t.status}</span>}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {trackers.length > TRACKER_CAP && (
+        <button type="button" className="btn-link tracker-more" onClick={() => setShowAllTrackers((v) => !v)}>
+          {showAllTrackers ? 'Show fewer' : `Show all ${trackers.length}`}
+        </button>
+      )}
+    </div>
+  )
+
   if (collapsed) return <Tab plate={plate} inflight={inflight} system={system} />
 
   // status-bar urgency: how many plate items carry a deadline (an urgent fact). Surfaced in the
@@ -941,6 +997,7 @@ export default function App() {
       {queued.length > 0 && section('Coming up', queued.length, queuedBody, true)}
       {section('Recent runs', null, recentBody, true)}
       {section('System', null, systemBody, true)}
+      {trackers.length > 0 && section(trackerTitle, trackers.length, trackerBody, true)}
 
       {procedures.length > 0 && (
         <details className="panel procedures" onToggle={(e) => { if (e.target.open) refreshProcedures() }}>
@@ -1066,6 +1123,29 @@ export default function App() {
         </details>
       )}
     </main>
+    {trackerView && (
+      <div className="modal-overlay" onClick={closeTracker}>
+        <div className="modal tracker-modal" role="dialog" aria-modal="true" aria-label="Tracker detail"
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => { if (e.key === 'Escape') closeTracker() }}>
+          <div className="modal-title">{trackerView.title}</div>
+          <div className="tracker-meta">
+            {trackerView.status && <span className="tracker-row-status">{trackerView.status}</span>}
+            {trackerView.url && /^https?:\/\//i.test(trackerView.url) && <a className="tracker-link" href={trackerView.url} target="_blank" rel="noreferrer">Open</a>}
+            {trackerView.assembled_at && <span className="muted">context assembled {fmtWhen(trackerView.assembled_at)}</span>}
+          </div>
+          {trackerBusy && !trackerView.dossier
+            ? <div className="tracker-empty">Assembling the context…</div>
+            : trackerView.dossier
+              ? <pre className="tracker-dossier">{trackerView.dossier}</pre>
+              : <div className="tracker-empty">No assembled context yet. The correspondence is pulled the next time this syncs.</div>}
+          <div className="modal-actions">
+            {/* autoFocus so the modal holds focus on open -> the Escape onKeyDown above can fire */}
+            <button type="button" className="btn-ghost" autoFocus onClick={closeTracker}>Close</button>
+          </div>
+        </div>
+      </div>
+    )}
     {editing && (
       <div className="modal-overlay" onClick={() => { if (!editBusy) setEditing(null) }}>
         <div className="modal" role="dialog" aria-modal="true" aria-label={`Edit ${editing.name}`}
