@@ -553,11 +553,18 @@ ol.list > li::before {
 .tracker-row-status { font-size: 11px; color: var(--muted-fg); text-transform: lowercase; white-space: nowrap; }
 .tracker-more { margin-top: 6px; }
 .tracker-modal { max-width: 580px; width: 92vw; }
-.tracker-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: -2px 0 10px; font-size: 12px; }
-.tracker-meta .muted { color: var(--muted-fg); }
-.tracker-link { color: var(--primary); text-decoration: none; }
-.tracker-link:hover { text-decoration: underline; }
-.tracker-dossier { white-space: pre-wrap; overflow-wrap: break-word; max-height: 52vh; overflow: auto; margin: 0;
-  font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.5; color: var(--foreground);
-  background: var(--input); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; }
+.tracker-loading { padding: 2px 0 6px; }
+.tracker-loading .md-h1 { font-size: 15px; font-weight: 600; margin: 0 0 6px; }
+/* the rendered dossier (markdown -> React elements; see renderDossier) */
+.tracker-dossier { max-height: 56vh; overflow: auto; font-size: 13px; line-height: 1.5; color: var(--foreground);
+  background: var(--input); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; }
+.tracker-dossier .md-h1 { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
+.tracker-dossier .md-h { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted-fg); margin: 14px 0 5px; }
+.tracker-dossier .md-p { margin: 3px 0; }
+.tracker-dossier .md-muted { color: var(--muted-fg); font-size: 12px; margin: 5px 0; }
+.tracker-dossier .md-ul { margin: 3px 0; padding-left: 17px; list-style: disc; }
+.tracker-dossier .md-ul li { margin: 4px 0; }
+.tracker-dossier .md-q { color: var(--muted-fg); border-left: 2px solid var(--border-strong); padding-left: 9px; margin: 1px 0 7px 2px; font-size: 12px; }
+.tracker-dossier .md-sp { height: 7px; }
+.tracker-dossier a { color: var(--primary); overflow-wrap: break-word; }
 .tracker-empty { color: var(--muted-fg); font-size: 13px; padding: 16px 4px; }
