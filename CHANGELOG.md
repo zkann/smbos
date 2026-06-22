@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.48.0 (2026-06-22)
+
+- The tracker overview now groups by whose move it is. "Your move" leads with the suggested next action for each item that needs you, "Needs a look" gathers the ones flagged for a quick check, "Waiting on them" shows what is in the other side's court, and the quiet ones collapse out of the way. Open any row for its full context.
+
 ## 0.47.0 (2026-06-22)
 
 - The assembled-context panel now renders its formatting (headings, bold, links, bullet lists, quoted snippets) instead of showing the raw markdown, so it reads cleanly at a glance.

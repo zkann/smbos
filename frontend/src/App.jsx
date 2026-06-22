@@ -6,7 +6,6 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 // /api/launch, which opens a Claude session primed for the task and moves it to "in flight".
 const STALE_MS = 15000 // ~1.5 missed heartbeats (server beats every ~10s)
 const token = window.__SMBOS_TOKEN__ || ''
-const TRACKER_CAP = 30   // tracker rows shown before the "show all" toggle (keeps the overview scannable)
 
 // Minimal, dependency-free markdown render for the assembled dossier (a controlled format plus email
 // snippets). Parses block-by-block into REACT elements, so text stays auto-escaped (no XSS from email
@@ -967,27 +966,53 @@ export default function App() {
     <div className="system empty">checking…</div>
   )
 
-  // Tracker overview: the active tracked entities, most-recent first. The section title is data-driven
-  // (the domain) so the public code stays generic. Click a row -> the detail modal fetches that one's
-  // assembled dossier (tracker.dossier, written by the producer).
+  // Tracker overview, grouped by whose-move-is-it (the producer's attention state). The top tier is the
+  // confirmed next actions; "Needs a look" is flagged-but-unconfirmed (verify via the dossier); the dormant
+  // tail collapses. Generic labels + a data-driven title keep the public code domain-agnostic. Click a row
+  // -> the detail modal fetches that one's assembled dossier (tracker.dossier, written by the producer).
   const trackerDomain = trackers[0]?.domain || ''
   const trackerTitle = trackerDomain ? trackerDomain[0].toUpperCase() + trackerDomain.slice(1) : 'Trackers'
+  const ATTN_GROUPS = [
+    { key: 'move', label: 'Your move', test: (t) => t.attention === 'your_move' && t.action },
+    { key: 'look', label: 'Needs a look', test: (t) => t.attention === 'your_move' && !t.action },
+    { key: 'waiting', label: 'Waiting on them', test: (t) => t.attention === 'waiting' || t.attention === 'scheduled' },
+  ]
+  const trackerGroups = ATTN_GROUPS.map((g) => ({ ...g, rows: trackers.filter(g.test) }))
+  const groupedIds = new Set(trackerGroups.flatMap((g) => g.rows.map((r) => r.id)))
+  const restRows = trackers.filter((t) => !groupedIds.has(t.id))
+  const needYou = trackerGroups[0].rows.length   // the confirmed-action count -> the compact section badge
+
+  const trackerRow = (t, kind) => {
+    const lead = kind === 'move' ? (t.action || t.open_loop) : kind === 'look' ? t.open_loop : null
+    return (
+      <li key={t.id} className="tracker-row-li">
+        <button type="button" className={`tracker-row tracker-row-${kind}`} onClick={() => openTracker(t)}>
+          <span className="tracker-row-title">{t.title}</span>
+          {lead
+            ? <span className={kind === 'move' && t.action ? 'tracker-row-action' : 'tracker-row-loop'}>{lead}</span>
+            : t.status ? <span className="tracker-row-status">{t.status}</span> : null}
+        </button>
+      </li>
+    )
+  }
+
   const trackerBody = (
     <div className="trackers">
-      <ul className="list tracker-list">
-        {trackers.slice(0, showAllTrackers ? trackers.length : TRACKER_CAP).map((t) => (
-          <li key={t.id} className="tracker-row-li">
-            <button type="button" className="tracker-row" onClick={() => openTracker(t)}>
-              <span className="tracker-row-title">{t.title}</span>
-              {t.status && <span className="tracker-row-status">{t.status}</span>}
-            </button>
-          </li>
-        ))}
-      </ul>
-      {trackers.length > TRACKER_CAP && (
-        <button type="button" className="btn-link tracker-more" onClick={() => setShowAllTrackers((v) => !v)}>
-          {showAllTrackers ? 'Show fewer' : `Show all ${trackers.length}`}
-        </button>
+      {trackerGroups.map((g) => g.rows.length > 0 && (
+        <div key={g.key} className={`tracker-group tracker-group-${g.key}`}>
+          <div className="tracker-group-head">{g.label}<span className="tracker-group-n">{g.rows.length}</span></div>
+          <ul className="list tracker-list">{g.rows.map((t) => trackerRow(t, g.key))}</ul>
+        </div>
+      ))}
+      {restRows.length > 0 && (
+        <div className="tracker-group tracker-group-rest">
+          <button type="button" className="btn-link tracker-more" onClick={() => setShowAllTrackers((v) => !v)}>
+            {showAllTrackers ? 'Hide quiet' : `Quiet · ${restRows.length}`}
+          </button>
+          {showAllTrackers && (
+            <ul className="list tracker-list">{restRows.map((t) => trackerRow(t, 'rest'))}</ul>
+          )}
+        </div>
       )}
     </div>
   )
@@ -1040,7 +1065,7 @@ export default function App() {
       {queued.length > 0 && section('Coming up', queued.length, queuedBody, true)}
       {section('Recent runs', null, recentBody, true)}
       {section('System', null, systemBody, true)}
-      {trackers.length > 0 && section(trackerTitle, trackers.length, trackerBody, true)}
+      {trackers.length > 0 && section(trackerTitle, needYou, trackerBody, true)}
 
       {procedures.length > 0 && (
         <details className="panel procedures" onToggle={(e) => { if (e.target.open) refreshProcedures() }}>
