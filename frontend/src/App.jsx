@@ -159,6 +159,7 @@ export default function App() {
   const [trackers, setTrackers] = useState([])
   const [trackerView, setTrackerView] = useState(null)
   const [trackerBusy, setTrackerBusy] = useState(false)
+  const [trackerLaunch, setTrackerLaunch] = useState(null)   // null | 'launching' | 'error' (the modal's Hand to Claude)
   const [showAllTrackers, setShowAllTrackers] = useState(false)
   const trackerReq = useRef(0)   // bumped per open/close so a stale dossier fetch can't overwrite the view
   // the job editor modal: `editing` is the job being edited (null = closed), with its form + error/busy
@@ -312,7 +313,7 @@ export default function App() {
       .then((d) => { if (d && Array.isArray(d.trackers)) setTrackers(d.trackers) })
       .catch(() => {})
 
-  function closeTracker() { trackerReq.current += 1; setTrackerView(null); setTrackerBusy(false) }
+  function closeTracker() { trackerReq.current += 1; setTrackerView(null); setTrackerBusy(false); setTrackerLaunch(null) }
 
   // Open the detail modal: show the row's header at once, then fetch that one tracker WITH its assembled
   // dossier (omitted from the list payload) and swap it in. A per-request token guards against a late
@@ -326,6 +327,30 @@ export default function App() {
       .then((d) => { if (req === trackerReq.current && d && d.tracker) setTrackerView(d.tracker) })
       .catch(() => {})
       .finally(() => { if (req === trackerReq.current) setTrackerBusy(false) })
+  }
+
+  // Hand the open tracker to a primed Claude session: the broker spawns the engine's launch-tracker, which
+  // builds the prompt SERVER-SIDE from the item's dossier + action (the browser only names it by id).
+  async function launchTracker(id) {
+    if (id == null) return
+    const req = trackerReq.current   // the modal generation this launch belongs to (closeTracker bumps it)
+    setTrackerLaunch('launching')
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 25000)   // bound it: the server spawns osascript (~20s)
+    try {
+      const res = await fetch('/api/launch-tracker', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-SMBOS-Token': token },
+        body: JSON.stringify({ tracker_id: id }),
+        signal: ctrl.signal,
+      })
+      if (!res.ok) throw new Error(String(res.status))
+      closeTracker()   // the session is opening; close the modal (also clears trackerLaunch)
+    } catch (_) {
+      if (req === trackerReq.current) setTrackerLaunch('error')   // only if THIS modal is still the open one
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   // POST a procedure action (run/queue/prepare/pick-up) with the header token. busyVal marks the
@@ -1205,6 +1230,10 @@ export default function App() {
           <div className="modal-actions">
             {/* autoFocus so the modal holds focus on open -> the Escape onKeyDown above can fire */}
             <button type="button" className="btn-ghost" autoFocus onClick={closeTracker}>Close</button>
+            <button type="button" className="btn-primary" disabled={trackerLaunch === 'launching'}
+              onClick={() => launchTracker(trackerView.id)}>
+              {trackerLaunch === 'launching' ? 'opening…' : trackerLaunch === 'error' ? 'retry' : 'Hand to Claude'}
+            </button>
           </div>
         </div>
       </div>

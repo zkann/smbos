@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.49.0 (2026-06-23)
+
+- "Hand to Claude" now works from a tracked item. Open one and hand it to a primed session that already has the assembled context and the suggested next step, so it can help you do it (for example, draft the reply) without you re-explaining anything. The session drafts and shows you its work; it never sends or acts outward without your go-ahead.
+
 ## 0.48.0 (2026-06-22)
 
 - The tracker overview now groups by whose move it is. "Your move" leads with the suggested next action for each item that needs you, "Needs a look" gathers the ones flagged for a quick check, "Waiting on them" shows what is in the other side's court, and the quiet ones collapse out of the way. Open any row for its full context.

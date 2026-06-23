@@ -220,6 +220,7 @@ test('POST actions: header-token gated; maps each engine exit code to the HTTP s
     assert.equal((await post('/api/queue', '{"id":"x"}', T)).status, 200)               // dispatched -> 200
     assert.equal((await post('/api/autonomy', '{"id":"x","level":"with_me"}', T)).status, 200)  // dispatched -> 200
     assert.equal((await post('/api/launch', '{"task_id":1}', T)).status, 200)           // dispatched -> 200
+    assert.equal((await post('/api/launch-tracker', '{"tracker_id":1}', T)).status, 200) // dispatched -> 200
     assert.equal((await post('/api/open-session', '{"task_id":1}', T)).status, 200)     // dispatched -> 200
     assert.equal((await post('/api/launch-sop', '{"id":"x"}', T)).status, 200)          // dispatched -> 200
     assert.equal((await post('/api/apply-item', '{"file":"p.md","index":0}', T)).status, 200)  // dispatched -> 200

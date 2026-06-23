@@ -70,6 +70,22 @@ def _launch(args):
     return 0
 
 
+def _launch_tracker(args):
+    try:
+        result = launch_actions.launch_tracker(args.sop_dir, args.tracker_id)
+    except launch_actions.BadTaskId as exc:
+        print(json.dumps({"detail": str(exc)}))
+        return 8
+    except launch_actions.UnknownTask as exc:
+        print(json.dumps({"detail": str(exc)}))
+        return 4
+    except launch_actions.LaunchRefused as exc:
+        print(json.dumps({"detail": str(exc)}))
+        return 8
+    print(json.dumps(result))
+    return 0
+
+
 def _launch_sop(args):
     try:
         result = launch_actions.launch_sop(args.sop_dir, args.id)
@@ -364,6 +380,11 @@ def main(argv=None):
     lt.add_argument("sop_dir")
     lt.add_argument("--task-id", dest="task_id", default="")
     lt.set_defaults(func=_launch)
+
+    ltr = sub.add_parser("launch-tracker", help="open a primed session on a tracked item")
+    ltr.add_argument("sop_dir")
+    ltr.add_argument("--tracker-id", dest="tracker_id", default="")
+    ltr.set_defaults(func=_launch_tracker)
 
     ls = sub.add_parser("launch-sop", help="pick up an interactive procedure")
     ls.add_argument("sop_dir")
