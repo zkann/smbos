@@ -108,13 +108,18 @@ def _task_workspace(task_id, subject):
     return folder
 
 
-def _launch_session(sop_dir, prompt, task_id=None, cwd=None, subject=None):
+def _launch_session(sop_dir, prompt, task_id=None, cwd=None, subject=None, cap_external=False):
     """Open an interactive Claude session primed with `prompt`, reusing the legacy daemon's osascript
     launch (terminal detection, permission posture, shlex-escaping). Opens in the task's `cwd` when it
     names an existing folder; otherwise a FRESH per-task workspace (~/smbos-tasks/<id>-<slug>/) rather
     than the whole home directory, so the picked-up session is focused. Exports SOP_DIR so the new
     session resolves THIS library (the app may run with a non-default --sop-dir), and SMBOS_TASK_ID
-    (for a plate task) so the SessionStart hook records the task's liveness handle."""
+    (for a plate task) so the SessionStart hook records the task's liveness handle.
+
+    cap_external=True floors the permission posture for a session primed with EXTERNAL data (a tracker's
+    email dossier): it never runs with 'skip' (--dangerously-skip-permissions), downgrading to 'trust'
+    (acceptEdits: file edits auto, but commands and other tools still prompt), so an instruction injected
+    via the primed content can't auto-execute. 'ask' / 'trust' pass through unchanged."""
     sop_dir = Path(sop_dir)
     env = {"SOP_DIR": str(sop_dir.resolve())}
     if task_id is not None:
@@ -125,10 +130,13 @@ def _launch_session(sop_dir, prompt, task_id=None, cwd=None, subject=None):
             folder = _task_workspace(task_id, subject)
         except OSError:
             folder = Path.home()   # fall back if the workspace can't be created
+    permission = legacy.launch_permission(sop_dir)
+    if cap_external and permission == "skip":
+        permission = "trust"   # external-data-primed launch: never skip-all-permissions (acceptEdits floor)
     legacy.open_terminal_with_claude(
         str(folder), prompt,
         terminal=legacy.preferred_terminal(sop_dir),
-        permission=legacy.launch_permission(sop_dir),
+        permission=permission,
         env=env,
     )
 
@@ -179,7 +187,9 @@ def launch_tracker(sop_dir, tracker_id):
         raise UnknownTask("no tracker with id {0}".format(tid))
     prompt = _launch_tracker_prompt(tracker)
     workspace = _task_workspace("t{0}".format(tid), tracker.get("title"))   # ~/smbos-tasks/t<id>-<slug>
-    _launch_session(sop_dir, prompt, cwd=workspace, subject=tracker.get("title"))
+    # cap_external=True: the dossier is EXTERNAL email, so never run this primed session with skip-all
+    # permissions (an injected command would auto-execute); it's floored at 'trust' (commands still prompt).
+    _launch_session(sop_dir, prompt, cwd=workspace, subject=tracker.get("title"), cap_external=True)
     return {"status": "launched", "tracker_id": tid}
 
 

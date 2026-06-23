@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.49.1 (2026-06-23)
+
+- Handing a tracked item to Claude never starts its session in the no-questions-asked mode. A tracked item's context is pulled from outside your control (email), so even if you've set launches to skip every prompt elsewhere, that session still asks before running commands. Nothing in the pulled-in context can quietly act on its own. (File edits still apply automatically, as before.)
+
 ## 0.49.0 (2026-06-23)
 
 - "Hand to Claude" now works from a tracked item. Open one and hand it to a primed session that already has the assembled context and the suggested next step, so it can help you do it (for example, draft the reply) without you re-explaining anything. The session drafts and shows you its work; it never sends or acts outward without your go-ahead.
