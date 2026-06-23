@@ -216,12 +216,53 @@ def test_launch_tracker_prompt_omits_empty_blocks(tmp_path):
 def test_engine_launch_tracker_dispatches(tmp_path, monkeypatch):
     import launch_actions
     import state_store as ss
+    monkeypatch.setenv("HOME", str(tmp_path))   # launch_tracker -> _task_workspace mkdirs under HOME; keep it off the real one
     monkeypatch.setattr(launch_actions, "_launch_session", lambda *a, **k: None)   # no real Terminal
     assert engine_action.main(["launch-tracker", str(tmp_path), "--tracker-id=999"]) == 4   # no such tracker -> 404
     tid = ss.upsert_tracker(str(tmp_path), "applications", "application", "Acme · Eng",
                             source_ref="acme", action="Reply to Dana")
     assert engine_action.main(["launch-tracker", str(tmp_path), "--tracker-id=" + str(tid)]) == 0
     assert engine_action.main(["launch-tracker", str(tmp_path), "--tracker-id=notanint"]) == 8   # BadTaskId -> 400
+
+
+def test_launch_tracker_caps_skip_to_trust(tmp_path, monkeypatch):
+    import launch_actions
+    import serve_dashboard as legacy
+    import state_store as ss
+    monkeypatch.setenv("HOME", str(tmp_path))   # launch_tracker -> _task_workspace mkdirs under HOME; keep it off the real one
+    seen = {}
+    monkeypatch.setattr(legacy, "launch_permission", lambda *a, **k: "skip")   # owner set skip globally
+    monkeypatch.setattr(legacy, "preferred_terminal", lambda *a, **k: "terminal")
+    monkeypatch.setattr(legacy, "open_terminal_with_claude",
+                        lambda f, p, terminal=None, permission=None, env=None: seen.update(permission=permission))
+    tid = ss.upsert_tracker(str(tmp_path), "applications", "application", "Acme · Eng", source_ref="a", action="Reply")
+    launch_actions.launch_tracker(str(tmp_path), tid)
+    assert seen["permission"] == "trust"   # an external-email-primed launch never runs with skip-all-permissions
+
+
+def test_launch_session_keeps_owner_posture_without_cap(tmp_path, monkeypatch):
+    import launch_actions
+    import serve_dashboard as legacy
+    seen = {}
+    monkeypatch.setattr(legacy, "launch_permission", lambda *a, **k: "skip")
+    monkeypatch.setattr(legacy, "preferred_terminal", lambda *a, **k: "terminal")
+    monkeypatch.setattr(legacy, "open_terminal_with_claude",
+                        lambda f, p, terminal=None, permission=None, env=None: seen.update(permission=permission))
+    launch_actions._launch_session(str(tmp_path), "p", cwd=str(tmp_path))   # cap_external defaults False (a plate task)
+    assert seen["permission"] == "skip"   # a plate-task launch keeps the owner's full posture
+
+
+def test_launch_session_cap_passes_non_skip_through(tmp_path, monkeypatch):
+    import launch_actions
+    import serve_dashboard as legacy
+    seen = []
+    monkeypatch.setattr(legacy, "preferred_terminal", lambda *a, **k: "terminal")
+    monkeypatch.setattr(legacy, "open_terminal_with_claude",
+                        lambda f, p, terminal=None, permission=None, env=None: seen.append(permission))
+    for setting in ("ask", "trust"):
+        monkeypatch.setattr(legacy, "launch_permission", lambda *a, s=setting, **k: s)
+        launch_actions._launch_session(str(tmp_path), "p", cwd=str(tmp_path), cap_external=True)
+    assert seen == ["ask", "trust"]   # the cap only changes 'skip'; non-skip postures pass through unchanged
 
 
 def test_launch_prompt_neutralizes_the_why_delimiter(tmp_path):
